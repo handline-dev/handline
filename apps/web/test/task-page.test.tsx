@@ -43,17 +43,41 @@ afterEach(async () => {
 });
 
 describe('the task page', () => {
-  it('shows why a task waits in one line, the owner, priority and time box as chips, and a long brief folded', async () => {
+  it('shows what a task waits on once, the owner, priority and time box as chips, and a long brief folded', async () => {
     const s = setup();
     const row1690 = (s.daemon.tasks as unknown as { rows: { id: number; body: string }[] }).rows.find((r) => r.id === 1690)!;
     row1690.body = 'A long brief. '.repeat(40);
     await mount('#/tasks/1690', s);
-    await until(() => $('.twhy'), 'the waiting line');
-    expect(text($('.twhy'))).toContain('blocked by T1688');
-    expect(text($('.tchips'))).toMatch(/Assigned to · handline.auditor ▾.*Priority · P3 ▾.*Time box/);
+    await until(() => $('[data-waiting-on]'), 'the waiting line');
+    expect($('.twhy')).toBeNull(); // said once: the Waiting on line and a Blocked chip, not a second amber sentence
+    expect(text($('section[aria-label="Time"], .tdetail'))).toContain('Blocked');
+    expect(text($('.tchips'))).toMatch(/handline.auditor ▾.*P3 ▾.*Limit/);
     expect($('.line-clamp-4', $('article.tdetail')!)).not.toBeNull();
     await click(button('Show more', $('article.tdetail')!)!);
     expect($('.line-clamp-4', $('article.tdetail')!)).toBeNull();
+  });
+
+  it('marks a wait on tasks with one amber Blocked chip and its icon, and none when nothing blocks the task', async () => {
+    await mount('#/tasks/1690');
+    await until(() => $('[data-waiting-on]'), 'the waiting line');
+    const chips = [...document.querySelectorAll('span')].filter(
+      (e) => e.children.length < 2 && text(e) === 'Blocked' && e.className.includes('rounded-sm'),
+    );
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.className).toContain('text-wait');
+    expect(chips[0]!.querySelector('svg')).not.toBeNull();
+    await act(async () => void (location.hash = '#/tasks/1688')); // local-ref-ok: a task nothing blocks
+    await until(() => $('article[aria-label="Task T1688"]') && !$('[data-waiting-on]'), 'the unblocked task'); // local-ref-ok
+    expect(text($('article.tdetail'))).not.toContain('Blocked');
+  });
+
+  it("sets the task number in the title's own face, with no mono class", async () => {
+    await mount('#/tasks/1690');
+    await until(() => $('.title-slot'), 'the title');
+    const ref = $('.title-slot')!.previousElementSibling!;
+    expect(text(ref)).toBe('T1690'); // local-ref-ok
+    expect(ref.className).not.toMatch(/mono|text-\[/);
+    expect(ref.parentElement!.className).toContain('items-baseline');
   });
 
   it('says "Not picked up yet" as a quiet line, not a boxed warning, when only the daemon has not looked at the task', async () => {

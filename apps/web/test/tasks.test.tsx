@@ -80,8 +80,8 @@ describe('the list', () => {
     vi.setSystemTime(new Date(2026, 5, 15, 12, 0));
     await mount();
     await loaded();
-    expect(rowIds()).toEqual([1684, 1688, 1700, 1690]); // P1, then P2 by number, then P3
-    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Running 2', 'Up next 2']);
+    expect(rowIds()).toEqual([1700, 1684, 1688, 1690]); // the draft first, then P1, then P2 by number
+    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Draft 1', 'Running 2', 'Waiting 1']);
     expect(text(row(1684))).toContain('P1');
     expect(text(row(1688))).toContain('doing');
     expect(text(row(1684))).toContain('architect');
@@ -98,18 +98,18 @@ describe('the list', () => {
     await mount();
     await loaded();
     await focusPage();
-    await press('S'); // next column from priority is the state, reversed: queued before draft
-    expect(rowIds()).toEqual([1684, 1688, 1690, 1700]);
+    await press('S'); // next column from priority is the state, reversed
+    expect(rowIds()).toEqual([1700, 1684, 1688, 1690]);
     await press('s');
     await press('s'); // title: Pair... by name, still inside the groups
-    expect(rowIds().slice(0, 2).sort()).toEqual([1684, 1688]);
+    expect(rowIds().slice(1, 3).sort()).toEqual([1684, 1688]);
   });
 
   it('moves the cursor with j and k, marks with space and A, and keeps its marks in the action bar', async () => {
     await mount();
     await loaded();
     await focusPage();
-    expect(row(1684)!.classList.contains('cursor')).toBe(true);
+    await press('j');
     await press('j');
     expect(row(1688)!.classList.contains('cursor')).toBe(true);
     await press(' ');
@@ -140,7 +140,7 @@ describe('the list', () => {
     await typeInto(search, 'terminal founder');
     expect(rowIds()).toEqual([]); // every word must match
     await typeInto(search, '');
-    expect(rowIds()).toEqual([1684, 1688, 1700, 1690]);
+    expect(rowIds()).toEqual([1700, 1684, 1688, 1690]);
   });
 
   it('filters by agent and by state in the Filters popover, with f to step through the agents and v to open it', async () => {
@@ -424,8 +424,9 @@ describe('the detail', () => {
 
   it('shows what a task waits on and its sub-tasks as links, and says so when the task is gone', async () => {
     await mount('#/tasks/1690');
-    await until(() => text($('article.tdetail')).includes('waits for the pane'), 'blockers');
+    await until(() => $('[data-waiting-on]'), 'blockers');
     expect($$('a', $('article.tdetail')!).map((a) => a.getAttribute('href'))).toContain('#/tasks/1688');
+    expect($('[data-waiting-on] [title]')!.getAttribute('title')).toContain('waits for the pane'); // the reason is on the link
     await act(async () => void (location.hash = '#/tasks/1684'));
     await until(() => text($('article.tdetail')).includes('Sub-tasks'), 'children');
     await act(async () => void (location.hash = '#/tasks/9999'));
@@ -470,8 +471,8 @@ describe('the detail', () => {
     await mount('#/tasks/1700', s);
     await until(() => $('.tverbs'), 'the verbs');
     expect(button('Edit')).toBeUndefined();
-    const edit = async (label: string, value: string) => {
-      await click($(`[aria-label="Edit ${label}"]`)!);
+    const edit = async (label: string, value: string, trigger = $(`[aria-label="Edit ${label}"]`)!) => {
+      await click(trigger);
       await typeInto($(`input[aria-label="${label}"]`) as HTMLInputElement, value);
       await press('Enter', {}, $(`input[aria-label="${label}"]`)!);
     };
@@ -481,10 +482,10 @@ describe('the detail', () => {
     expect(s.daemon.tasks.get({ task: 1700 }).title).toContain('Draft'); // not yet at the daemon
     release();
     await until(() => s.daemon.tasks.get({ task: 1700 }).title === 'Pair the web UI', 'saved');
-    await click(button('Priority ·')!);
+    await click($('button[title="Change the priority"]'));
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('P1')));
     await until(() => s.daemon.tasks.get({ task: 1700 }).priority === 1, 'the priority');
-    await edit('Time box', '3h');
+    await edit('Time box', '3h', $('button[title="Change the time box"]')!);
     await until(() => s.daemon.tasks.get({ task: 1700 }).time_box === '3h', 'the time box');
     s.daemon.knobs.refuse('task.edit', 'state', 'locked');
     await edit('Title', 'Nope');
@@ -508,16 +509,16 @@ describe('the detail', () => {
     s.daemon.knobs.latency(300);
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Withdraw')));
     expect($('.tsheet')).toBeNull(); // no box: it acts at once
-    await until(() => text($('.tdetail-head')).includes('…'), 'the decided mark');
-    await until(() => text($('.tdetail-head')).includes('discarded'), 'withdrawn', 600);
+    await until(() => text($('.tchips')).includes('…'), 'the decided mark');
+    await until(() => text($('.tchips')).includes('discarded'), 'withdrawn', 600);
     expect(button('Cancel task', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
   it('assigns the task from a short list: a click hands it over at once, with no note box', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Assigned to ·'), 'the assignee button');
-    await click(button('Assigned to ·')!);
+    await until(() => $('button[title="Change who it is assigned to"]'), 'the assignee button');
+    await click($('button[title="Change who it is assigned to"]'));
     const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     expect($('[role="listbox"][aria-label="Likely"]', ask)).not.toBeNull();
     expect($$('[role="option"]', ask).length).toBeLessThanOrEqual(4);
@@ -533,8 +534,8 @@ describe('the detail', () => {
   it('keeps the assign popover open and says why when the daemon refuses the new owner', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Assigned to ·'), 'the assignee button');
-    await click(button('Assigned to ·')!);
+    await until(() => $('button[title="Change who it is assigned to"]'), 'the assignee button');
+    await click($('button[title="Change who it is assigned to"]'));
     const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
@@ -547,8 +548,8 @@ describe('the detail', () => {
     await mount('#/tasks/1688');
     await until(() => $('.tverbs'), 'the verbs');
     for (const b of $$('button', $('.tverbs')!)) expect(text(b).trim()).not.toBe('');
-    expect(text($('.tdetail-head'))).toContain('doing');
-    expect(text($('.tchips'))).toContain('Assigned to');
+    expect(text($('.tchips'))).toContain('doing');
+    expect(text($('.tchips'))).toContain('handline.term-build ▾');
   });
 
   it('serves the verbs of the daemon plan once it lists them: done acts at once, reopen only for a done task I asked for', async () => {
@@ -557,7 +558,7 @@ describe('the detail', () => {
     await until(() => $('.tverbs'), 'the verbs');
     await click(button('Done', $('.tverbs')!)!);
     expect($('.tsheet')).toBeNull(); // no box: the founder's Done acts at once
-    await until(() => text($('.tdetail-head')).includes('done'), 'done');
+    await until(() => text($('.tchips')).includes('done'), 'done');
     expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('Done');
     // the founder's own done task: the key says why it cannot be reopened
     await act(async () => void (location.hash = '#/tasks/1650'));

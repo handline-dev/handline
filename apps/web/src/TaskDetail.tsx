@@ -3,20 +3,21 @@
 // A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { TaskNotes } from '#src/PhotoNotes.tsx';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { dateTime, HELD, isPerson, splitNew, taskRef, watchResult } from '@handline/app-core';
+import { dateTime, dueOf, HELD, isPerson, splitNew, taskRef, watchResult } from '@handline/app-core';
 import { useHello, useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
 import { Hand } from 'lucide-react';
 import { Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup } from '#src/ui/index.ts';
 import { Button as DsButton } from '#src/ds/Button.tsx';
-import { Id } from '#src/ds/Link.tsx';
 import { AssignPopover } from '#src/TaskPeople.tsx';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, useActNow, type Ask } from '#src/TaskAsk.tsx';
 import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
+import { TaskDialogs, type TaskDialog } from '#src/TaskMenuDialogs.tsx';
+import { TaskWaitLine } from '#src/TaskWaitLine.tsx';
 import { TaskHistory } from '#src/TaskHistory.tsx';
 import { TimeLine } from '#src/TaskTime.tsx';
 import { Activity } from '#src/TaskActivity.tsx';
@@ -45,7 +46,6 @@ export function TaskDetail({
   onBack?: () => void;
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
-  /** The column beside the Tasks table, full height of the split: only the Tasks page asks for it. */
 }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
@@ -55,10 +55,10 @@ export function TaskDetail({
       {page ? (
         <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
           {/* A flex-1 row, not a truncating heading: the title takes the bar's free width (a long one truncates), the field what the ref leaves and its focus ring is not clipped. */}
-          <PageTitle className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="mono flex-none">{taskRef(id)}</span>
+          <PageTitle className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            <span className="flex-none">{taskRef(id)}</span>
             {q.data ? (
-              <span className="title-slot min-w-0 flex-1 [&>[role=button]]:truncate">
+              <span className="title-slot min-w-0 flex-1 [&>[role=button]]:block [&>[role=button]]:truncate">
                 <TitleEdit bar t={q.data} />
               </span>
             ) : null}
@@ -113,6 +113,8 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   const now = useNow();
   const me = useMe();
   const [ask, setAsk] = useState<Ask>(null);
+  const [dialog, setDialog] = useState<TaskDialog>(null);
+  const [history, setHistory] = useState(false);
   const commentBox = useRef<HTMLDivElement>(null);
   const edit = useEditTask(t);
   const queue = useWrite('task.queue');
@@ -177,7 +179,9 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   // The state chip already says it waits on a person, so the box leaves that out and keeps any other reason.
   const waitsOnTask = t.waiting && t.waiting.on !== 'founder' && !isPerson(t.waiting.on, me) ? t.waiting.text : undefined;
   const heldText = t.status && HELD.includes(t.status.state) && t.status.reason !== 'you' ? t.status.text : undefined;
-  const why = (t.status ? heldText : waitsOnTask) ?? t.hold_reason ?? t.block_reason;
+  // A wait on tasks is said once, by the Waiting on line and a Blocked chip beside the time.
+  const blocked = t.blockers.length > 0 && !heldText;
+  const why = blocked ? undefined : ((t.status ? heldText : waitsOnTask) ?? t.hold_reason ?? t.block_reason);
   const item = (label: string, key: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, key, run, can });
   // What changes the status, in the dropdown on the state; the one that fits best is also the main button.
   const status = [
@@ -189,20 +193,13 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   ];
   const first = status.find((v) => v.label !== 'Release');
   const main = first && { ...first, busy: queue.isPending || draft.isPending };
-  const more = [
-    ...status.filter((v) => v !== first),
-    ...(startable && mine ? [item('Withdraw', 'w', verbs.w, can.withdraw)] : []),
-    ...(open ? [item('Discard', 'd', verbs.d, can.discard)] : []),
-  ];
+  const more = [...status.filter((v) => v !== first), ...(startable && mine ? [item('Withdraw', 'w', verbs.w, can.withdraw)] : [])];
   const workspace = useWorkspaceIfAny();
   const copy = (text: string) => () => void navigator.clipboard?.writeText(text);
   const ok = { ok: true };
-  // The ... menu: the rest of the verbs, then what any task offers.
+  // The ... menu: what any task offers, then the verbs that end or hand it back (Assign and Comment are the chip and the box on the page).
+  const discard = open ? item('Discard', 'd', verbs.d, can.discard) : null;
   const actions = [
-    ...(open ? [item('Assign', 'o', verbs.o, edit.can)] : []),
-    item('Comment', 'a', verbs.a, ok),
-    ...(open ? [item('Cancel task', 'c', verbs.c, can.cancel)] : []),
-    ...more,
     item('Copy link', '', copy(`${location.origin}${location.pathname}#/tasks/${t.id}`), ok),
     item('Copy number', '', copy(taskRef(t.id)), ok),
     ...(workspace && t.id > 0
@@ -215,35 +212,42 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
           ),
         ]
       : []),
+    ...(open
+      ? [item('Add sub-task', '', () => setDialog('sub'), ok), item('Wait on another task…', '', () => setDialog('wait'), edit.can)]
+      : []),
+    item('Duplicate', '', () => setDialog('dup'), ok),
+    item('History', '', () => setHistory(true), ok),
+    ...more,
+    ...(open ? [item('Cancel task', 'c', verbs.c, can.cancel)] : []),
+    ...(discard ? [discard] : []),
   ];
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
+  const statusControl = status.length ? (
+    <MenuButton
+      label="Status"
+      variant="outline"
+      size="sm"
+      align="start"
+      trigger={<StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />}
+    >
+      {status.map((v) => (
+        <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+          {v.label}
+        </MenuItem>
+      ))}
+    </MenuButton>
+  ) : (
+    <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
+  );
   return (
     <TaskNotes task={t.id}>
       <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
         <header className="tdetail-head flex flex-wrap items-baseline gap-2">
           {barNamed ? null : (
             <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
-              <Id>{taskRef(t.id)}</Id> <TitleEdit t={t} />
+              <span>{taskRef(t.id)}</span> <TitleEdit t={t} />
             </h2>
           )}
-          {status.length ? (
-            <MenuButton
-              label="Status"
-              variant="outline"
-              size="sm"
-              align="start"
-              trigger={<StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />}
-            >
-              {status.map((v) => (
-                <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
-                  {v.label}
-                </MenuItem>
-              ))}
-            </MenuButton>
-          ) : (
-            <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
-          )}
-          <HistoryButton id={t.id} />
           <span className="relative ml-auto inline-flex">
             <MenuButton size="sm" icon="ellipsis" label="More" className="max-sm:min-h-[44px]">
               {actions.map((v) => (
@@ -253,6 +257,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
               ))}
             </MenuButton>
             <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} />
+            <HistoryPopup id={t.id} open={history} onClose={() => setHistory(false)} />
           </span>
         </header>
         <p className="m-0 mt-1 text-xs text-ink-3">
@@ -268,7 +273,11 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
             </>
           ) : null}
         </p>
-        <TimeLine id={t.id} />
+        <div className="mt-3">
+          <TaskChips t={t} now={now} me={me} lead={statusControl} />
+        </div>
+        <TimeLine id={t.id} left={dueOf(t, now)?.text} blocked={blocked} />
+        <TaskWaitLine t={t} />
         <TaskWatch t={t} />
         {why && NOT_PICKED.test(why) ? (
           <p className="twhy m-0 mt-2 flex items-center gap-1.5 text-xs text-ink-3" role="status">
@@ -283,12 +292,8 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
             </span>
           </p>
         ) : null}
-        <div className="mt-3">
-          <TaskChips t={t} now={now} me={me} />
-        </div>
         <Brief t={t} can={edit.can.ok && open} />
 
-        {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
         {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
 
         {t.evidence ? (
@@ -322,6 +327,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
           </div>
         </div>
       </div>
+      <TaskDialogs t={t} which={dialog} onClose={() => setDialog(null)} />
     </TaskNotes>
   );
 }
@@ -354,18 +360,14 @@ function Brief({ t, can }: { t: Detail; can: boolean }) {
   );
 }
 
-/** The History button in the header: every field changed, from task.history, in a popover with its filters; read only once opened. */
-function HistoryButton({ id }: { id: number }) {
-  const [open, setOpen] = useState(false);
+/** The task's history, in a popover under the ... menu: every field changed, from task.history, with its filters; read only once opened. */
+function HistoryPopup({ id, open, onClose }: { id: number; open: boolean; onClose: () => void }) {
   return (
-    <span className="relative ml-auto">
-      <Button icon="history" label="History" title="History" aria-expanded={open} onClick={() => setOpen(!open)} />
-      <Popup open={open} onClose={() => setOpen(false)} title="History" align="right" bare>
-        <div className="max-h-[60vh] w-[min(420px,90vw)] overflow-auto p-2">
-          <HistoryRows id={id} />
-        </div>
-      </Popup>
-    </span>
+    <Popup open={open} onClose={onClose} title="History" align="right" bare>
+      <div className="max-h-[60vh] w-[min(420px,90vw)] overflow-auto p-2">
+        <HistoryRows id={id} />
+      </div>
+    </Popup>
   );
 }
 

@@ -5,15 +5,26 @@ import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from '#src/BodyEditor.tsx';
 import { Button, Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select } from '#src/ui/index.ts';
 
-export function NewTask({ agents, onClose, request = false }: { agents: string[]; onClose: () => void; request?: boolean }) {
+export type NewTaskStart = { owner?: string; title?: string; body?: string; priority?: 1 | 2 | 3 };
+
+/** `parent` makes it a sub-task of that task; `start` fills the form (a duplicate); `copy` sends it past the duplicate-title gate, as a duplicate has the title of its original. */
+export function NewTask(props: {
+  agents: string[];
+  onClose: () => void;
+  request?: boolean;
+  parent?: number;
+  start?: NewTaskStart;
+  copy?: boolean;
+}) {
+  const { agents, onClose, request = false, parent, start, copy = false } = props;
   const ask = useWrite('task.new');
-  const [owner, setOwner] = useState('');
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [owner, setOwner] = useState(start?.owner ?? '');
+  const [title, setTitle] = useState(start?.title ?? '');
+  const [body, setBody] = useState(start?.body ?? '');
   const [uploading, setUploading] = useState(false);
   const uploadingNow = useRef(false);
   const [box, setBox] = useState('2h');
-  const [priority, setPriority] = useState<1 | 2 | 3>(2);
+  const [priority, setPriority] = useState<1 | 2 | 3>(start?.priority ?? 2);
   const [missing, setMissing] = useState('');
   const send = (duplicateOk = false) => {
     if (uploadingNow.current) return;
@@ -21,7 +32,15 @@ export function NewTask({ agents, onClose, request = false }: { agents: string[]
     if (!title.trim()) return setMissing('A task needs a title.');
     setMissing('');
     ask.mutate(
-      { owner, title: title.trim(), body, time_box: box.trim() || '2h', priority, ...(duplicateOk ? { duplicate_ok: true } : {}) },
+      {
+        owner,
+        title: title.trim(),
+        body,
+        time_box: box.trim() || '2h',
+        priority,
+        ...(parent !== undefined ? { parent } : {}),
+        ...(duplicateOk || copy ? { duplicate_ok: true } : {}),
+      },
       { onSuccess: onClose },
     );
   };
@@ -30,7 +49,7 @@ export function NewTask({ agents, onClose, request = false }: { agents: string[]
   const said = missing || (failure ? (duplicate ? duplicate.reason : sentence(failure)) : '');
   return (
     <Dialog
-      title={request ? 'New request' : 'New task'}
+      title={request ? 'New request' : parent !== undefined ? 'New sub-task' : copy ? 'Duplicate task' : 'New task'}
       onClose={onClose}
       action={{ label: request ? 'Send' : 'Ask', keys: '⌘↵', form: 'newtask-form', disabled: ask.isPending || uploading }}
     >

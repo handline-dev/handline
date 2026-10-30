@@ -1,6 +1,6 @@
 // The task description editor: Markdown stored, shown and edited rich (Tiptap), with a source view for the raw text. A pasted or dropped image is
 // uploaded and goes in at the cursor as `![name](attachment:ID)`; an image node draws with the same AttachmentImage as chat and memos.
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { mergeAttributes, type Editor } from '@tiptap/core';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type NodeViewProps } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
@@ -55,6 +55,8 @@ export function BodyEditor(props: {
   plain?: boolean;
   /** One or two lines at rest, small padding, growing with the text (comments); the default stays a few lines tall. */
   compact?: boolean;
+  /** Buttons that stand in the field's foot, right of the Source link, which then leaves the top: a field that is one box with its controls. */
+  controls?: ReactNode;
   /** Typing `@` offers these agents, the ones near the task first. */
   mentions?: { names: readonly string[]; near: readonly string[]; state?: (name: string) => string };
 }) {
@@ -196,20 +198,20 @@ export function BodyEditor(props: {
     setSource(on);
   };
 
+  const sourceButton = (
+    <button
+      type="button"
+      className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer"
+      aria-pressed={source}
+      onClick={() => toSource(!source)}
+    >
+      {source ? 'Rich view' : 'Source'}
+    </button>
+  );
+
   return (
     <div className="body-field grid min-w-40 flex-1 gap-1">
-      {props.plain ? null : (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer"
-            aria-pressed={source}
-            onClick={() => toSource(!source)}
-          >
-            {source ? 'Rich view' : 'Source'}
-          </button>
-        </div>
-      )}
+      {props.plain || props.controls ? null : <div className="flex justify-end">{sourceButton}</div>}
       {source ? (
         <textarea
           className={`${BOX} font-mono`}
@@ -257,6 +259,12 @@ export function BodyEditor(props: {
             </li>
           ))}
         </ul>
+      ) : null}
+      {props.controls ? (
+        <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
+          {props.plain ? <span /> : sourceButton}
+          <span className="flex items-center gap-2">{props.controls}</span>
+        </div>
       ) : null}
       {problem ? <span className="muted">{problem}</span> : busy ? <span className="muted">Uploading image…</span> : null}
     </div>

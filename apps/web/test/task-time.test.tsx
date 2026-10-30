@@ -41,11 +41,32 @@ afterEach(async () => {
 });
 
 describe('task time', () => {
+  it('says how long is left before the bar, and says nothing of it for a task with no clock', async () => {
+    const s = setup();
+    s.daemon.tasks.find(1684).clock = {
+      length_s: 7200,
+      default: false,
+      start: new Date(Date.now() - 3_600_000).toISOString(),
+      end: new Date(Date.now() + 40 * 60_000).toISOString(),
+      overdue_since: null,
+      told: 0,
+      left_s: 2400,
+    };
+    await mount(s);
+    await until(() => line()?.textContent?.includes('left'), 'the time left');
+    expect(line()!.textContent).toMatch(/^(39|40)m left/);
+    await act(async () => void (location.hash = '#/tasks/1650')); // local-ref-ok closed: no clock
+    await until(
+      () => box.querySelector('article[aria-label="Task T1650"]') && !line()?.textContent?.includes('left'), // local-ref-ok
+      'the closed task without a time left',
+    );
+  });
+
   it('is one line until clicked, then draws the segments in order, adding up to the whole', async () => {
     const s = await mount();
     await until(line, 'the time line');
-    expect(line()!.textContent).toMatch(/^Worked .* in all/);
-    expect(line()!.textContent).not.toMatch(/up next|queued| [hm]\b/);
+    expect(line()!.getAttribute('aria-label')).toMatch(/^Worked .* in all/); // the whole sentence is the button's name; the line shows the bar and the stretch it is in
+    expect(line()!.getAttribute('aria-label')).not.toMatch(/up next|queued| [hm]\b/);
     expect(box.querySelector('.ttime')).toBeNull();
     await click(line()!);
     await until(() => box.querySelector('.ttime'), 'the time');

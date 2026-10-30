@@ -1,10 +1,11 @@
 // The Tasks page (docs/design/inbox-tasks-prompts.md §4): what the daemon lists, grouped by status, with filters, sort, ticks, the bridge's keys,
 // and a click on a row opens the task on its own page. Writes go through `useWrite`: an authored one shows at once with a hollow dot, a decided one shows "…".
-import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react';
 import {
   CLOSED,
   defaultFilter,
   shown,
+  DONE_BUCKETS,
   doneBucket,
   groupTasks,
   sortTasks,
@@ -16,7 +17,7 @@ import {
 } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useMe } from '@handline/app-react';
-import { TASK_PAGE, useAgents, useServes, usePagedTasks } from '@handline/app-data';
+import { useAgents, useServes, usePagedTasks } from '@handline/app-data';
 import { goTasks } from '#src/route.ts';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { TaskColumns } from '#src/TaskGraph.tsx';
@@ -25,6 +26,7 @@ import { Row } from '#src/TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from '#src/TasksHead.tsx';
 import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from '#src/TaskSheets.tsx';
 import { Button, ScrollPage } from '#src/ui/index.ts';
+import { LoadOlder } from '#src/LoadOlder.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useBulk } from '#src/taskActions.ts';
 import { ReasonSheet, useCan, useNow, useTableColumns } from '#src/taskui.tsx';
@@ -62,6 +64,7 @@ function TaskTable({
   busy,
   markCell,
   rowProps,
+  footer,
 }: {
   groups: (ReturnType<typeof groupTasks>[number] & { folded: boolean })[];
   onFold: () => void;
@@ -70,6 +73,8 @@ function TaskTable({
   busy: boolean;
   markCell: boolean;
   rowProps: (t: Task) => RowProps;
+  /** Under the table, inside its scroll box: where the end of the list is. */
+  footer?: ReactNode;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
   const columns = useTableColumns(scroll);
@@ -114,6 +119,7 @@ function TaskTable({
           ))}
         </tbody>
       </table>
+      {footer}
     </div>
   );
 }
@@ -147,9 +153,12 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         if (g.key !== 'done') return [{ ...g, folded: false }];
         if (scope === 'open') return [{ ...g, label: 'Done today', folded: !showDone }];
         // Closed: by the day it closed, newest first
-        return ['Today', 'Yesterday', 'This week', 'This month', 'Earlier']
-          .map((label) => ({ ...g, label, rows: g.rows.filter((t) => doneBucket(t, now) === label), folded: false }))
-          .filter((b) => b.rows.length);
+        return DONE_BUCKETS.map((label) => ({
+          ...g,
+          label,
+          rows: g.rows.filter((t) => doneBucket(t, now) === label),
+          folded: false,
+        })).filter((b) => b.rows.length);
       }),
     [rows, me, scope, showDone, now],
   );
@@ -261,6 +270,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
           busy={q.isFetching && !q.data}
           markCell={marked.size > 0}
           rowProps={rowProps}
+          footer={more ? <LoadOlder shown={all.length} loading={loadingOlder} load={() => void loadOlder()} className="py-3" /> : null}
         />
       )}
       <AnimatedList>
@@ -364,21 +374,6 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
           listBody
         )}
       </View>
-      {more ? (
-        <div className="flex items-center justify-center gap-3 py-3 text-xs text-ink-2">
-          <span>{all.length} loaded · older ones exist</span>
-          <Button
-            variant="outline"
-            size="sm"
-            label={`Show ${TASK_PAGE} older`}
-            aria-label={`Show ${TASK_PAGE} older`}
-            disabled={loadingOlder}
-            onClick={() => void loadOlder()}
-          >
-            {loadingOlder ? 'Loading…' : `Show ${TASK_PAGE} older`}
-          </Button>
-        </div>
-      ) : null}
     </ScrollPage>
   );
 }

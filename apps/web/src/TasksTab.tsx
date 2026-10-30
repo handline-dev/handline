@@ -2,13 +2,15 @@
 // the same pane (the task detail of the Tasks page); the window's Back returns to the list. Rows share one grid of fixed columns, so a long title is cut
 // with an ellipsis and never widens the row; boxes appear only in Select mode; older tasks come 100 at a time on a button.
 import { useEffect, useMemo, useState } from 'react';
-import { agentTasks, dueOf, openTask, taskRef, watchResult, type RowVerb } from '@handline/app-core';
-import { TASK_PAGE, useAgentTasks, useServes } from '@handline/app-data';
+import { agentTasks, dueOf, openTask, taskRef, taskSections, type RowVerb } from '@handline/app-core';
+import { useAgentTasks, useServes } from '@handline/app-data';
 import { Icon } from '#src/Icon.tsx';
-import { StateChip, useNow } from '#src/taskui.tsx';
+import { useNow } from '#src/taskui.tsx';
+import { Chip } from '#src/ds/Chip.tsx';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { useAgents } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
+import { LoadOlder } from '#src/LoadOlder.tsx';
 import { Button, Toolbar, Check, Segmented } from '#src/ui/index.ts';
 import { TaskColumns } from '#src/TaskGraph.tsx';
 import { RowMenu, VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
@@ -20,9 +22,9 @@ import { goTasks } from '#src/route.ts';
 
 const CLOSED = ['done', 'discarded'];
 const bare = (agent: string) => agent.split('.').at(-1) ?? agent; // 'handline.daemon' is 'daemon' in a row: the team is the same on every line
-// state · number · title (the one column that gives) · owner · time
+// number · title (the one column that gives) · who · time
 /** Below 28rem of pane the who column goes, so the title keeps the room. */
-const COLS = 'grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_5rem] @[28rem]:grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_6.5rem_5rem]';
+const COLS = 'grid-cols-[3rem_minmax(0,1fr)_5rem] @[28rem]:grid-cols-[3rem_minmax(0,1fr)_auto_5rem]';
 
 export function TasksTab({ agent, task = null }: { agent: string; task?: number | null }) {
   const { query: q, items, more, loadOlder, loadingOlder } = useAgentTasks(agent);
@@ -35,13 +37,15 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
   const setOpen = (id: number | null) => apply((w) => openTask(w, id));
   const rows = useMemo(() => agentTasks(items, agent, now), [items, agent, now]);
   const mine = useMemo(() => rows.map((r) => r.task), [rows]);
+  const me = useMe();
+  const sections = useMemo(() => taskSections(mine, me ?? '', now), [mine, me, now]);
+  const roles = useMemo(() => new Map(rows.map((r) => [r.task.id, r.role])), [rows]);
   // The agent's own tasks, and the ones they wait on, so an arrow can leave the column.
   const graphTasks = useMemo(() => {
     const held = mine.filter((t) => t.to === agent);
     const waited = new Set(held.flatMap((t) => t.blocked_by ?? []));
     return mine.filter((t) => t.to === agent || waited.has(t.id));
   }, [mine, agent]);
-  const me = useMe();
   const cans = useVerbCans();
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
   const { marked, setMarked, toggle, toggleAll } = useMarks(mine.map((t) => t.id));
@@ -101,92 +105,89 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
             <TaskColumns tasks={graphTasks} now={now} me={me} scopeKey={agent} />
           </div>
         ) : (
-          <ul className="tasks-tab-list @container m-0 flex list-none flex-col gap-1 p-0">
-            {rows.map(({ task: t, role }) => {
-              const due = dueOf(t, now);
-              return (
-                <RowMenu key={t.id} tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)}>
-                  {(more, menuOpen) => (
-                    <li className="group/trow flex items-center gap-1.5">
-                      {selecting ? (
-                        <Check
-                          aria-label={`Mark ${taskRef(t.id)}`}
-                          checked={marked.has(t.id)}
-                          onChange={() => undefined}
-                          onClick={(e) => toggle(t.id, e.shiftKey)}
-                        />
-                      ) : null}
-                      <button
-                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-left${marked.has(t.id) ? ' bg-raised' : ' bg-transparent'}${due?.over ? ' overdue border-bad' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
-                        data-task={t.id}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer?.setData('text/plain', taskRef(t.id));
-                          // The drop cover appears over the pane; mounting it inside dragstart makes Chromium cancel the drag.
-                          setTimeout(() => setDragging(`tasks:${t.id}`), 0);
-                        }}
-                        onDragEnd={() => setDragging(null)}
-                        onClick={() => setOpen(t.id)}
-                      >
-                        <StateChip state={t.state} result={watchResult(t)} />
-                        <span className="mono">{taskRef(t.id)}</span>
-                        <span
-                          className="ttitle min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-md font-medium"
-                          title={t.title}
-                        >
-                          {t.title}
-                        </span>
-                        {role === 'assigned' ? (
-                          <span
-                            className="who hidden min-w-0 truncate text-xs text-ink-2 @[28rem]:block"
-                            title={`Opened by ${agent}, held by ${t.to}`}
-                          >
-                            <Icon name="agent" size={12} aria-hidden /> {bare(t.to)}
-                          </span>
-                        ) : t.from !== agent ? (
-                          <span className="who hidden min-w-0 truncate text-xs text-ink-2 @[28rem]:block" title={`Opened by ${t.from}`}>
-                            from {bare(t.from)}
-                          </span>
-                        ) : (
-                          <span className="who hidden @[28rem]:block" />
+          <div className="tasks-tab-list @container">
+            {sections.map((g) => (
+              <section key={g.label} data-tgroup={g.key} aria-label={g.label}>
+                <h3
+                  className="m-0 px-2 pt-4 pb-1 text-sm font-semibold data-[tgroup=needs]:text-wait data-[tgroup=running]:text-working"
+                  data-tgroup={g.key}
+                >
+                  {g.label} <span className="font-normal text-ink-3">{g.rows.length}</span>
+                </h3>
+                <ul className="m-0 flex list-none flex-col p-0">
+                  {g.rows.map((t) => {
+                    const role = roles.get(t.id);
+                    const due = dueOf(t, now);
+                    const who =
+                      role === 'assigned'
+                        ? { name: t.to, title: `Opened by ${agent}, held by ${t.to}` }
+                        : t.from !== agent
+                          ? { name: t.from, title: `Opened by ${t.from}` }
+                          : null;
+                    return (
+                      <RowMenu key={t.id} tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)}>
+                        {(more, menuOpen) => (
+                          <li className="group/trow flex items-center gap-1.5">
+                            {selecting ? (
+                              <Check
+                                aria-label={`Mark ${taskRef(t.id)}`}
+                                checked={marked.has(t.id)}
+                                onChange={() => undefined}
+                                onClick={(e) => toggle(t.id, e.shiftKey)}
+                              />
+                            ) : null}
+                            <button
+                              className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 px-2.5 py-1.5 text-left tint${marked.has(t.id) ? ' bg-raised' : ' bg-transparent'}${due?.over ? ' overdue' : ''}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
+                              data-task={t.id}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer?.setData('text/plain', taskRef(t.id));
+                                // The drop cover appears over the pane; mounting it inside dragstart makes Chromium cancel the drag.
+                                setTimeout(() => setDragging(`tasks:${t.id}`), 0);
+                              }}
+                              onDragEnd={() => setDragging(null)}
+                              onClick={() => setOpen(t.id)}
+                            >
+                              <span className="mono text-xs text-ink-3">{taskRef(t.id)}</span>
+                              <span className="ttitle min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-md" title={t.title}>
+                                <span className="sr-only">{t.state}: </span>
+                                {t.title}
+                              </span>
+                              {who ? (
+                                <span className="who hidden @[28rem]:inline-flex" title={who.title}>
+                                  <Chip>{bare(who.name)}</Chip>
+                                </span>
+                              ) : (
+                                <span className="who hidden @[28rem]:block" />
+                              )}
+                              {due ? (
+                                <span
+                                  className={`due truncate text-right text-xs${due.over ? ' font-medium text-bad' : ' text-ink-2'}`}
+                                  data-over={due.over || undefined}
+                                >
+                                  {due.over ? <Icon name="alert" size={12} aria-hidden /> : null} {due.text}
+                                </span>
+                              ) : (
+                                <span className="due" />
+                              )}
+                            </button>
+                            <span
+                              className={`inline-flex ${menuOpen ? 'opacity-100' : 'opacity-0 group-hover/trow:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'}`}
+                            >
+                              {more}
+                            </span>
+                          </li>
                         )}
-                        {due ? (
-                          <span
-                            className={`due truncate text-right text-xs${due.over ? ' font-medium text-bad' : ' text-ink-2'}`}
-                            data-over={due.over || undefined}
-                          >
-                            {due.over ? <Icon name="alert" size={12} aria-hidden /> : null} {due.text}
-                          </span>
-                        ) : (
-                          <span className="due" />
-                        )}
-                      </button>
-                      <span
-                        className={`inline-flex ${menuOpen ? 'opacity-100' : 'opacity-0 group-hover/trow:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'}`}
-                      >
-                        {more}
-                      </span>
-                    </li>
-                  )}
-                </RowMenu>
-              );
-            })}
-          </ul>
+                      </RowMenu>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
         )}
         {more && view === 'list' ? (
-          <div className="mt-2 flex items-center justify-center gap-3 text-xs text-ink-2">
-            <span>{mine.length} shown · older ones exist</span>
-            <Button
-              variant="outline"
-              size="sm"
-              label={`Show ${TASK_PAGE} older`}
-              aria-label={`Show ${TASK_PAGE} older`}
-              disabled={loadingOlder}
-              onClick={() => void loadOlder()}
-            >
-              {loadingOlder ? 'Loading…' : `Show ${TASK_PAGE} older`}
-            </Button>
-          </div>
+          <LoadOlder shown={mine.length} loading={loadingOlder} load={() => void loadOlder()} className="mt-2" />
         ) : null}
       </View>
       <VerbSheets flow={verbs} ids={[...marked]} />
