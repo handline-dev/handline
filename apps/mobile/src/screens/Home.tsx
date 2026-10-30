@@ -9,7 +9,7 @@ import { History, HistoryProvider, useHistoryValue } from '#src/history.tsx';
 import { Accounts } from '#src/screens/Accounts.tsx';
 import { AgentList } from '#src/screens/AgentList.tsx';
 import { AgentPage } from '#src/screens/AgentPage.tsx';
-import { Inbox } from '#src/screens/Inbox.tsx';
+import { Inbox, useWaiting } from '#src/screens/Inbox.tsx';
 import { NewAgent, type Pending } from '#src/screens/NewAgent.tsx';
 import { SettingsPage } from '#src/screens/Settings.tsx';
 import { RequestsPage } from '#src/screens/Requests.tsx';
@@ -100,7 +100,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   useAgentEntry(props.store);
   const open = useSelector((s) => s.page?.agent ?? null);
   const mine = useMyTurn();
-  const turn = mine.cards.length;
+  const turn = useWaiting();
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', props.startOn ?? 'agents');
   // The app opens on Requests when anything waits on the person, on Agents when nothing does: decided once, when the first read is in,
   // unless an agent's page was left open or a tab was already picked.

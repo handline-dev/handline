@@ -34,6 +34,7 @@ describe('the first screen', () => {
     );
     await until(() => $('turn-task-2998'), 'the Requests list');
     expect(text($('requests-badge'))).not.toBe('');
+    expect(text($('requests-badge'))).toBe(text($('unread-count')));
     m.store.stop();
   });
 

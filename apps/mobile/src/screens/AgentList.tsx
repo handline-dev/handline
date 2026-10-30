@@ -35,7 +35,7 @@ type Item = { key: string; head: string } | { key: string; agent: Agent; depth: 
 const CHIPS: { id: NavChip; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
-  { id: 'needs', label: 'My turn' },
+  { id: 'needs', label: 'Requests' },
 ];
 
 export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 'requests') => void }) {

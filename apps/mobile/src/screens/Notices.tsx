@@ -1,9 +1,8 @@
 // The notices (docs: T5591 N3): the bell in the title bar with the unread count, the short results under it, and the list behind the bell.
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { clockTime, SPARE_SHOWN, spareNotice, type Notice, type SpareNotice, type Store } from '@handline/app-core';
+import { clockTime, type Notice, type Store } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { useTasks, useWrite } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
@@ -125,7 +124,6 @@ function NoticeRow(props: { n: Notice; fresh: boolean; onTask: (id: number) => v
 export function NoticesPage(props: { store: Store; onClose: () => void; onTask: (id: number) => void }) {
   const c = usePalette();
   const list = useSelector((s) => s.notices.list());
-  const spare = useSpareNotices();
   const [fresh] = useState(
     () =>
       new Set(
@@ -139,68 +137,10 @@ export function NoticesPage(props: { store: Store; onClose: () => void; onTask: 
   return (
     <ScrollView testID="notices-page" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
       <PageHeader bare title="Notices" back={{ label: 'Back', onPress: props.onClose, testID: 'notices-close' }} />
-      {spare.map((n) => (
-        <SpareCard key={n.task} n={n} onTask={props.onTask} />
-      ))}
-      {list.length === 0 && !spare.length ? <Text style={{ color: c.muted }}>Nothing yet. Results and events show here.</Text> : null}
+      {list.length === 0 ? <Text style={{ color: c.muted }}>Nothing yet. Results and events show here.</Text> : null}
       {list.map((n) => (
         <NoticeRow key={n.id} n={n} fresh={fresh.has(n.id)} onTask={props.onTask} />
       ))}
     </ScrollView>
-  );
-}
-
-/** The weekly-loss notices the daemon has open for the person, as task rows. */
-function useSpareNotices(): SpareNotice[] {
-  const items = useTasks({}).data?.items;
-  return (items ?? []).flatMap((t) => spareNotice(t) ?? []);
-}
-
-/** An account will lose weekly use: the sentence, the first spare tasks, and a button that starts them all. It stays until Start or the X. */
-function SpareCard(props: { n: SpareNotice; onTask: (id: number) => void }) {
-  const c = usePalette();
-  const { n } = props;
-  const rows = new Map((useTasks({}).data?.items ?? []).map((t) => [t.id, t]));
-  const answer = useWrite('task.done');
-  const reply = (evidence: string) => answer.mutate({ task: n.task, evidence, reason: true });
-  const small = { color: c.muted, fontSize: font.size.sm } as const;
-  return (
-    <View testID="notice-spare" style={{ flexDirection: 'row', gap: space.sm, padding: space.md, backgroundColor: c.raised }}>
-      <Icon name="waiting" decorative size={16} color={c.wait} />
-      <View style={{ flex: 1, gap: space.sm }}>
-        <Pressable accessibilityRole="button" onPress={() => props.onTask(n.task)}>
-          <Text style={{ color: c.ink }}>{n.text}</Text>
-        </Pressable>
-        <View style={{ gap: 2 }}>
-          {n.ids.slice(0, SPARE_SHOWN).map((id) => (
-            <View key={id} style={{ flexDirection: 'row', gap: space.xs }}>
-              <Text style={{ ...small, color: c.ink, fontFamily: font.mono, fontWeight: '700' }}>{`T${id}`}</Text>
-              <Text numberOfLines={1} style={{ ...small, flex: 1 }}>
-                {rows.get(id)?.title ?? ''}
-              </Text>
-              {rows.get(id) ? <Text style={small}>{rows.get(id)!.to.split('.').at(-1)}</Text> : null}
-            </View>
-          ))}
-          {n.ids.length > SPARE_SHOWN ? <Text style={small}>{`and ${n.ids.length - SPARE_SHOWN} more`}</Text> : null}
-        </View>
-        {n.ids.length ? (
-          <Button
-            kind="yes"
-            icon="play"
-            label={n.ids.length === 1 ? 'Start 1 task' : `Start ${n.ids.length} tasks`}
-            disabled={answer.isPending}
-            onPress={() => reply('start')}
-          />
-        ) : null}
-      </View>
-      <Button
-        testID="spare-close"
-        icon="close"
-        label=""
-        accessibilityLabel="Close this notice"
-        onPress={() => reply('dismiss')}
-        style={{ alignSelf: 'flex-start' }}
-      />
-    </View>
   );
 }
