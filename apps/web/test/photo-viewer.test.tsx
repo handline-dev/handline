@@ -111,7 +111,7 @@ describe('the photo viewer', () => {
       [...document.querySelectorAll<HTMLElement>('.image-viewer [role="menuitem"]')].find((m) => m.textContent === 'Delete photo…')!,
     );
     await until(() => $('.image-viewer [role="alertdialog"]'), 'the confirm');
-    expect($('.image-viewer [role="alertdialog"]')!.textContent).toContain('Removed from 1 place');
+    expect($('.image-viewer [role="alertdialog"]')!.textContent).toContain('removes the photo from 1 place');
     await click(
       [...document.querySelectorAll<HTMLElement>('.image-viewer [role="alertdialog"] button')].find((b) => b.textContent === 'Delete')!,
     );

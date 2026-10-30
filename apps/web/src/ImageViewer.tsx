@@ -244,7 +244,9 @@ function PhotoMenu({ url, name, id, onDeleted }: { url: string; name: string; id
           className="absolute right-0 z-20 mt-1 grid w-64 gap-2 rounded-md bg-panel p-3 text-sm text-ink shadow-[var(--shadow)]"
         >
           <span>
-            {places === 0 ? 'Delete this photo?' : `Removed from ${places} ${places === 1 ? 'place' : 'places'}. This cannot be undone.`}
+            {places === 0
+              ? 'Delete this photo?'
+              : `This removes the photo from ${places} ${places === 1 ? 'place' : 'places'}. It cannot be undone.`}
           </span>
           <span className="flex justify-end gap-2">
             <Button size="sm" label="Cancel" onClick={() => setPlaces(null)} />
