@@ -125,6 +125,21 @@ describe('needs you', () => {
       expect(box.querySelector('.card-solved')!.textContent).toMatch(/^Folder trust answered · \d+s$/);
     });
 
+    it('leaves none on another agent the person switches to', async () => {
+      const s = setup();
+      const a = s.daemon.sessions.get(ARCH)!;
+      keep = () => void (a.fx.view = undefined);
+      a.fx.view = {
+        needs_you: { kind: 'trust', since: new Date().toISOString(), title: 'Waiting for folder trust', text: 'x', source: 'daemon' },
+      };
+      await mount(s);
+      await until(() => card(), 'the card');
+      await act(async () => void (location.hash = '#/agents/handline.auditor'));
+      await until(() => !card(), 'the other agent, with no need');
+      await wait(100);
+      expect(box.querySelector('.card-solved')).toBeNull();
+    });
+
     it('leaves none for a need from a hook or the session', async () => {
       await goes('hook');
       await wait(100);
