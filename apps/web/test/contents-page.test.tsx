@@ -35,12 +35,11 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-let showSecond: () => void = () => undefined;
 function Page() {
   const [late, setLate] = useState(false);
-  showSecond = () => setLate(true);
   return (
     <ContentsPage parts={PARTS}>
+      <button type="button" className="late" onClick={() => setLate(true)} />
       <section id="one">first</section>
       {late ? <section id="two">second</section> : null}
     </ContentsPage>
@@ -55,7 +54,7 @@ describe('the contents list', () => {
     const current = () => box.querySelector('nav [aria-current="location"]')?.textContent;
     expect(current()).toBe('One');
     expect(seen.map((e) => e.id)).toEqual(['one']);
-    await act(async () => showSecond());
+    await act(async () => box.querySelector<HTMLElement>('.late')!.click());
     expect(seen.map((e) => e.id)).toContain('two');
     await act(async () => report(box.querySelector('#two')!));
     expect(current()).toBe('Two');
