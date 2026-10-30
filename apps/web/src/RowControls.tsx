@@ -71,7 +71,6 @@ export function AgentMenu({
         Settings…
       </MenuItem>
       <MenuSeparator />
-      <MenuSeparator />
       <MenuSub>
         <MenuSubTrigger icon="open">Open in</MenuSubTrigger>
         <MenuSubContent>
