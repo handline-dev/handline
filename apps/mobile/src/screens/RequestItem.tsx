@@ -121,6 +121,8 @@ export function RequestItem(props: {
     setChange(false);
     setText('');
   };
+  // An open with no task opens the agent's chat; the shared label does not say so.
+  const label = (a: CardAction) => (a.type === 'open' && card.task == null ? 'Open chat' : cardActionLabel(a));
   const testID = (a: CardAction) => `request-act-${a.type}${a.type === 'worktree' ? `-${a.answer}` : ''}`;
   const facts = wt ? worktreeFacts(card.detail).facts : card.detail;
   const small = { color: c.muted, fontSize: font.size.sm } as const;
@@ -222,7 +224,7 @@ export function RequestItem(props: {
                   key={a.type + i}
                   testID={testID(a)}
                   kind={i === 0 ? 'yes' : a.type === 'deny' || (a.type === 'worktree' && a.answer === 'force') ? 'no' : undefined}
-                  label={cardActionLabel(a)}
+                  label={label(a)}
                   style={{ ...BIG, flex: 1 }}
                   onPress={() => run(a)}
                 />
@@ -245,7 +247,7 @@ export function RequestItem(props: {
       {more ? (
         <MenuSheet testID="request-menu" onClose={() => setMore(false)}>
           {rest.map((a, i) => (
-            <MenuItem key={a.type + i} testID={testID(a)} label={cardActionLabel(a)} onPress={() => (setMore(false), run(a))} />
+            <MenuItem key={a.type + i} testID={testID(a)} label={label(a)} onPress={() => (setMore(false), run(a))} />
           ))}
         </MenuSheet>
       ) : null}
