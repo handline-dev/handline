@@ -37,7 +37,12 @@ export function useVerbRun(agent: string) {
  * A worktree that holds work refuses it too (gate dirty, Failure.held) until the call says what to do with it. */
 export function useRetireAgent(agent: string) {
   const retire = useWrite('agent.retire', agent);
-  return (on?: VerbDone, worktree?: WorktreeAnswer) => retire.mutate({ agent, worktree }, on);
+  // The agent leaving closes the screen that asked, which would drop mutate's own callbacks: the promise still answers.
+  return (on?: VerbDone, worktree?: WorktreeAnswer) =>
+    void retire.mutateAsync({ agent, worktree }).then(
+      () => on?.onSuccess?.(),
+      (e: unknown) => on?.onError?.(e),
+    );
 }
 
 /** The gerund of the verb in flight on this agent ("parking…"), for the state cell; null when none. `skip` leaves out verbs the caller marks itself. */

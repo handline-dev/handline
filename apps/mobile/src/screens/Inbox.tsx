@@ -2,7 +2,7 @@
 // the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { ago, NOTICE_SENDER, REVIEW_TAG, WORKTREE_REMOVAL_TAG } from '@handline/app-core';
+import { ago, NOTICE_SENDER, REVIEW_TAG, WORKTREE_TAG, WORKTREE_WORDS, worktreeFacts, worktreeSaid } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useInbox, useMyTurn, useOff, usePending, useServes, useTask, useUnread, useWrite } from '@handline/app-data';
@@ -13,7 +13,7 @@ import { Button, PageHeader } from '#src/screens/parts.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { PromptCard } from '#src/screens/PromptCard.tsx';
 import { ReviewCard } from '#src/screens/ReviewCard.tsx';
-import { CARD_LABELS, WorktreeAnswers } from '#src/screens/WorktreeAnswers.tsx';
+import { CARD_WORDS, WorktreeAnswers } from '#src/screens/WorktreeAnswers.tsx';
 import { DiskCard } from '#src/screens/DiskCard.tsx';
 
 const KIND: Record<string, string> = {
@@ -42,17 +42,26 @@ const waits = (i: InboxItem, readPending: boolean) => !i.read && !readPending;
 function Decide(props: { item: InboxItem; off: string | undefined; markRead: () => void }) {
   const i = props.item;
   const done = useWrite('task.done');
+  const store = useStore();
   const tags = useTask(i.task!).data?.tags;
   const review = tags?.includes(REVIEW_TAG);
-  if (tags?.includes(WORKTREE_REMOVAL_TAG))
+  if (tags?.includes(WORKTREE_TAG))
     return (
       <View style={{ width: '100%' }}>
         <WorktreeAnswers
           id={`inbox-worktree-${i.id}`}
-          labels={CARD_LABELS}
+          words={CARD_WORDS}
           busy={!!props.off || done.isPending}
-          // The daemon carries the answer out before it closes the task, and a refusal leaves the task open and listed.
-          onPick={(a) => void done.mutateAsync({ task: i.task!, evidence: a, reason: true }).then(props.markRead, () => {})}
+          // The line and the read mark wait for the daemon: it can refuse the removal, and the item then stays with the daemon's words.
+          onPick={(a) =>
+            void done.mutateAsync({ task: i.task!, evidence: WORKTREE_WORDS[a], reason: true }).then(
+              () => {
+                store.say(worktreeSaid(a, worktreeFacts(i.body ?? '').member));
+                props.markRead();
+              },
+              () => {},
+            )
+          }
         />
       </View>
     );
@@ -124,7 +133,7 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
       </Pressable>
       {open && (
         <View style={{ paddingHorizontal: space.lg, paddingBottom: space.lg, gap: space.md }}>
-          {i.body && i.body !== i.title ? <Text style={{ color: c.ink }}>{i.body}</Text> : null}
+          {i.body && i.body !== i.title ? <Text style={{ color: c.ink }}>{worktreeFacts(i.body).facts}</Text> : null}
           {i.evidence ? (
             <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.xs }} numberOfLines={12}>
               {i.evidence}
