@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { clockTime, span, timeView, type TimeLabel } from '@handline/app-core';
 import type { TimeSegment } from '@handline/client';
 import { useOff, useTaskTime } from '@handline/app-data';
+import { Chip } from '#src/ds/Chip.tsx';
 import { Icon } from '#src/ui/index.ts';
 
 const TONE: Record<TimeLabel, string> = {
@@ -31,11 +32,18 @@ const SAID: Record<TimeLabel, string> = {
 };
 
 /** The one-line Time: "40m left", a short bar and the word for the stretch it is in; a click opens the full sentence, bar and stretches. It draws nothing for a daemon without task.time or a task with no stretches yet. */
-export function TimeLine({ id, left }: { id: number; left?: string }) {
+export function TimeLine({ id, left, blocked }: { id: number; left?: string; blocked?: boolean }) {
   const [open, setOpen] = useState(false);
   const off = useOff('task.time');
   const segments = useTaskTime(id).data?.segments ?? [];
-  if (off || !segments.length) return null;
+  const chip = blocked ? <Chip>Blocked</Chip> : null;
+  if (off || !segments.length)
+    return chip ? (
+      <div className="mt-3 flex items-center gap-2 text-sm text-ink-2">
+        {left ? <span className="tabular-nums">{left}</span> : null}
+        {chip}
+      </div>
+    ) : null;
   const { rows, totals, seconds } = timeView(segments);
   const said = [...totals.map((t) => `${SAID[t.label]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
   const sentence = said[0]!.toUpperCase() + said.slice(1);
@@ -53,6 +61,7 @@ export function TimeLine({ id, left }: { id: number; left?: string }) {
         {left ? <span className="tabular-nums">{left}</span> : null}
         <MiniBar rows={rows} className="h-1.5 w-20 flex-none" />
         <span className="min-w-0 truncate">{word ?? length(seconds)}</span>
+        {chip}
         <Icon name="chevron" size={12} aria-hidden className={open ? 'rotate-180' : undefined} />
       </button>
       {open ? (

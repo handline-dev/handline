@@ -43,13 +43,14 @@ afterEach(async () => {
 });
 
 describe('the task page', () => {
-  it('shows why a task waits in one line, the owner, priority and time box as chips, and a long brief folded', async () => {
+  it('shows what a task waits on once, the owner, priority and time box as chips, and a long brief folded', async () => {
     const s = setup();
     const row1690 = (s.daemon.tasks as unknown as { rows: { id: number; body: string }[] }).rows.find((r) => r.id === 1690)!;
     row1690.body = 'A long brief. '.repeat(40);
     await mount('#/tasks/1690', s);
-    await until(() => $('.twhy'), 'the waiting line');
-    expect(text($('.twhy'))).toContain('blocked by T1688');
+    await until(() => $('[data-waiting-on]'), 'the waiting line');
+    expect($('.twhy')).toBeNull(); // said once: the Waiting on line and a Blocked chip, not a second amber sentence
+    expect(text($('section[aria-label="Time"], .tdetail'))).toContain('Blocked');
     expect(text($('.tchips'))).toMatch(/handline.auditor ▾.*P3 ▾.*Limit/);
     expect($('.line-clamp-4', $('article.tdetail')!)).not.toBeNull();
     await click(button('Show more', $('article.tdetail')!)!);

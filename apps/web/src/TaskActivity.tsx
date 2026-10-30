@@ -265,7 +265,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
               </p>
             ) : null}
             <div
-              className="rounded-sm border border-line-strong bg-canvas focus-within:border-ink-3 [&_.body-editor]:border-0 [&_.body-editor]:bg-transparent"
+              className="rounded-sm border border-line-strong bg-canvas focus-within:border-ink-3 [&_.body-editor]:border-0 [&_.body-editor]:bg-transparent [&_textarea]:border-0 [&_textarea]:bg-transparent"
               title="@agent asks that agent. The assignee is told either way."
             >
               <BodyEditor
@@ -278,21 +278,25 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
                 label="Comment"
                 onSubmit={send}
                 mentions={{ names, near, state: stateOf }}
+                controls={
+                  <>
+                    <CommentPicture
+                      onAttach={(md) => (setText((v) => [v.trim(), md].filter(Boolean).join('\n')), setFresh((n) => n + 1))}
+                    />
+                    <Button
+                      variant="solid"
+                      size="sm"
+                      icon="send"
+                      label="Comment"
+                      keys="⌘↵"
+                      disabled={!text.trim() || busy || add.isPending}
+                      onClick={send}
+                    >
+                      {add.isPending ? 'Sending…' : 'Comment'}
+                    </Button>
+                  </>
+                }
               />
-              <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
-                <CommentPicture onAttach={(md) => (setText((v) => [v.trim(), md].filter(Boolean).join('\n')), setFresh((n) => n + 1))} />
-                <Button
-                  variant="solid"
-                  size="sm"
-                  icon="send"
-                  label="Comment"
-                  keys="⌘↵"
-                  disabled={!text.trim() || busy || add.isPending}
-                  onClick={send}
-                >
-                  {add.isPending ? 'Sending…' : 'Comment'}
-                </Button>
-              </div>
             </div>
           </>
         ) : null}

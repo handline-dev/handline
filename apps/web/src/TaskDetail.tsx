@@ -56,8 +56,8 @@ export function TaskDetail({
       {page ? (
         <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
           {/* A flex-1 row, not a truncating heading: the title takes the bar's free width (a long one truncates), the field what the ref leaves and its focus ring is not clipped. */}
-          <PageTitle className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="mono flex-none">{taskRef(id)}</span>
+          <PageTitle className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            <span className="mono flex-none text-[length:inherit] leading-[inherit]">{taskRef(id)}</span>
             {q.data ? (
               <span className="title-slot min-w-0 flex-1 [&>[role=button]]:truncate">
                 <TitleEdit bar t={q.data} />
@@ -180,7 +180,9 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   // The state chip already says it waits on a person, so the box leaves that out and keeps any other reason.
   const waitsOnTask = t.waiting && t.waiting.on !== 'founder' && !isPerson(t.waiting.on, me) ? t.waiting.text : undefined;
   const heldText = t.status && HELD.includes(t.status.state) && t.status.reason !== 'you' ? t.status.text : undefined;
-  const why = (t.status ? heldText : waitsOnTask) ?? t.hold_reason ?? t.block_reason;
+  // A wait on tasks is said once, by the Waiting on line and a Blocked chip beside the time.
+  const blocked = t.blockers.length > 0 && !heldText;
+  const why = blocked ? undefined : ((t.status ? heldText : waitsOnTask) ?? t.hold_reason ?? t.block_reason);
   const item = (label: string, key: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, key, run, can });
   // What changes the status, in the dropdown on the state; the one that fits best is also the main button.
   const status = [
@@ -275,7 +277,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
         <div className="mt-3">
           <TaskChips t={t} now={now} me={me} lead={statusControl} />
         </div>
-        <TimeLine id={t.id} left={dueOf(t, now)?.text} />
+        <TimeLine id={t.id} left={dueOf(t, now)?.text} blocked={blocked} />
         <TaskWaitLine t={t} />
         <TaskWatch t={t} />
         {why && NOT_PICKED.test(why) ? (
