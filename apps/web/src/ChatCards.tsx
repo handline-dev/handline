@@ -25,14 +25,12 @@ import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
 import { useNow } from '#src/Gauge.tsx';
-import { BranchMenu, ContextMax, StartFresh } from '#src/ChatStripItems.tsx';
+import { BranchMenu, ContextBar, ContextMax, StartFresh } from '#src/ChatStripItems.tsx';
 
 const until = (iso: string | null, now: number): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
   return Number.isNaN(t) ? null : Math.round((t - now) / 60_000);
 };
-
-const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 /** One line under the composer: the model and account (menus), the task, the branch (dropped when the line is tight), and the context and
  *  prompt cache in words. */
@@ -51,14 +49,9 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
         ctxText={ctxPct == null ? undefined : `${Math.round(ctxPct)}% context`}
         ctxInfo={
           <>
-            {used != null && limit != null ? (
-              <GaugeLine what="Used">{`${tokens(used)} of ${tokens(limit)}${used > limit ? ' · over' : ''}`}</GaugeLine>
-            ) : null}
-            {used != null && limit != null && used > limit ? (
-              <p className="m-0 py-0.5 text-ink-3">Starts fresh with a handoff when this turn ends</p>
-            ) : null}
+            {used != null ? <ContextBar detail={detail} used={used} limit={limit} /> : null}
             {cache !== null && cache > 0 ? <GaugeLine what="Prompt cache">{`lapses in ${cache}m`}</GaugeLine> : null}
-            <ContextMax detail={detail} limit={limit} />
+            <ContextMax detail={detail} />
             <StartFresh detail={detail} />
           </>
         }

@@ -14,7 +14,6 @@ export const CHANNELS = {
   openPath: 'handline:openPath',
   openIn: 'handline:openIn',
   openInApps: 'handline:openInApps',
-  bringIn: 'handline:bringIn',
   compose: 'handline:compose',
   cancelCompose: 'handline:cancelCompose',
   mode: 'handline:mode',

@@ -5,6 +5,7 @@ import type { AgentDetail } from '@handline/client';
 import { VERBS } from '@handline/app-core';
 import { useServes, useVerbRun, useWrite } from '@handline/app-data';
 import { useServed } from '#src/AgentVerbs.tsx';
+import { GaugeLine } from '#src/AgentGauges.tsx';
 import { Icon, MenuButton, MenuItem, MenuLabel, MenuSeparator, STRIP_ITEM } from '#src/ui/index.ts';
 
 const COPIED_MS = 1500;
@@ -73,26 +74,61 @@ export function BranchMenu({ branch, changed }: { branch: string; changed: Chang
 }
 
 /** The maximums offered for the context window, in thousands of tokens. */
-const CONTEXT_K = [100, 200, 300, 500, 1000];
+const CONTEXT_K = [100, 150, 200, 300];
 
-/** The context menu's chooser: sets the agent's context maximum (agent.set context_k), the one now in force ticked. */
-export function ContextMax({ detail, limit }: { detail: AgentDetail; limit: number | null | undefined }) {
+const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+/** The fresh-start point in tokens: the agent's context_k when it has one, else none. */
+export const freshPoint = (detail: AgentDetail): number | null => (Number(detail.settings?.context_k) || 0) * 1000 || null;
+
+/** The context window as one bar with a mark at the fresh-start point; the header says how much is used of that point, or that it is over. */
+export function ContextBar({ detail, used, limit }: { detail: AgentDetail; used: number; limit: number | null | undefined }) {
+  const point = freshPoint(detail);
+  const over = point != null && used > point;
+  const scale = Math.max(limit ?? 0, point ?? 0, used) || 1;
+  return (
+    <>
+      <GaugeLine what="Used">{over ? `${tokens(used)} · over` : `${tokens(used)} of ${tokens(point ?? limit ?? used)}`}</GaugeLine>
+      <div
+        className="relative my-1 h-1.5 rounded-full border border-ink-2"
+        role="img"
+        aria-label={`${tokens(used)} used of ${tokens(scale)}`}
+      >
+        <div
+          className={`h-full rounded-full ${over ? 'bg-wait' : 'bg-working'}`}
+          style={{ width: `${Math.min(100, (used / scale) * 100)}%` }}
+        />
+        {point != null ? (
+          <span
+            className="absolute -top-0.5 h-2.5 w-0.5 rounded-full bg-ink-2"
+            style={{ left: `${(point / scale) * 100}%` }}
+            title={`Starts fresh at ${tokens(point)}`}
+          />
+        ) : null}
+      </div>
+      {over ? <p className="m-0 py-0.5 text-ink-3">Starts fresh with a handoff when this turn ends</p> : null}
+    </>
+  );
+}
+
+/** The context menu's chooser: sets the point where the session starts fresh (agent.set context_k), the one now in force ticked. */
+export function ContextMax({ detail }: { detail: AgentDetail }) {
   const set = useWrite('agent.set', detail.name);
   const { served } = useServes('agent.set');
-  const chosen = Number(detail.settings?.context_k) || (limit ? Math.round(limit / 1000) : null);
+  const chosen = Number(detail.settings?.context_k) || null;
   if (!served) return null;
   const options = [...new Set([...CONTEXT_K, ...(chosen ? [chosen] : [])])].sort((a, b) => a - b);
   return (
     <>
       <MenuSeparator />
-      <MenuLabel>Maximum</MenuLabel>
+      <MenuLabel>Starts fresh at</MenuLabel>
       {options.map((k) => (
         <MenuItem
           key={k}
           icon={k === chosen ? 'markRead' : undefined}
           onSelect={() => k !== chosen && set.mutate({ agent: detail.name, values: { context_k: String(k) } })}
         >
-          {k >= 1000 ? `${k / 1000}M` : `${k}k`} tokens
+          {k >= 1000 ? `${k / 1000}M` : `${k}k`}
         </MenuItem>
       ))}
     </>

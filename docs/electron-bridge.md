@@ -159,13 +159,6 @@ The pairing screen's part in the app's two modes (Connect to a daemon, Run its o
 ### 4.3a `build`, `restartDaemon`
 
 An Update replaces the app and the daemon as one set (the build id is the 12-char git sha, stamped into `dist/build.json`). `build()` gives `{ sha, canRestart }`: the app's sha (null when it has none) and whether the daemon is one this app can move (false when paired with another device's). The page compares `sha` with hello's `daemon` (app-core `mismatch`) and shows “Daemon is x, app is y” in the top bar with Restart daemon. `restartDaemon()` builds the daemon (a checkout), has it re-exec onto the app's own handlined with `daemon.upgrade`, and resolves once it reports the app's sha; `cannot_restart` carries the reason. Same sender checks as the rest.
-### 4.4 `pathOf`
-
-`pathOf(file: File): string` is synchronous (`webUtils.getPathForFile`, called in the preload; the page cannot get a path from a `File` otherwise). It returns the absolute path of a file or folder dropped from Finder, or `''`. The composer uses it for a dropped non-image: a chip with the name, and the path on its own line after the words.
-
-### 4.5 `bringIn`
-
-`bringIn({ path, agent })` copies a file or folder dropped from Finder into the agent's worktree (`.handline-drops/d-XXXX/<name>`, one folder to a drop; the folder holds a `.gitignore` of `*`) and gives `{ ok: true, path }` with the copy's path. The worktree is the daemon's answer for `agent`, never the page's. `path` must be absolute. The composer sends the copy's path in place of the original, so the agent needs no permission for the person's folders; when the copy fails the original path is sent as before.
 
 ## 5. Tests
 

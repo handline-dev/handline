@@ -50,19 +50,22 @@ describe('the chat strip', () => {
     expect(text($('.chat-strip'))).not.toMatch(/\d+m$|lapsed/);
     await act(async () => $('.chat-strip [aria-label="Context window details"]')!.click());
     await until(() => text(document.body).includes('74k of 300k'), 'the context details');
-    expect(text(document.body)).toMatch(/Prompt cache|Maximum/);
+    expect(text(document.body)).toMatch(/Prompt cache|Starts fresh at/);
+    expect(document.body.querySelector('[role=img][aria-label^="74k used"]')).not.toBeNull();
   });
 
-  it('the model menu lists the efforts, checks the current one and a pick is applied at once', async () => {
+  it('the model menu sets the effort on a slider, says it applies from the next session and offers Apply now', async () => {
     const s = await mount();
     await act(async () => chip('Model').click());
-    await until(() => items().length, 'the model menu');
-    expect(items().filter((i) => ['low', 'medium', 'high', 'xhigh', 'max'].includes(text(i).trim()))).toHaveLength(5);
-    await act(async () =>
-      items()
-        .find((i) => text(i).trim() === 'low')!
-        .click(),
-    );
+    await until(() => document.querySelector('input[type=range][aria-label="Effort"]'), 'the effort slider');
+    const slider = document.querySelector<HTMLInputElement>('input[type=range][aria-label="Effort"]')!;
+    expect(slider.max).toBe('4');
+    expect(text(document.body)).toContain('Applies from the next session.');
+    expect([...document.querySelectorAll('button')].some((b) => text(b) === 'Apply now')).toBe(true);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, '0');
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     await until(() => s.daemon.sessions.get(ARCH)!.settings.effort === 'low', 'the effort applied');
   });
 
@@ -79,7 +82,7 @@ describe('the chat strip', () => {
     expect(s.daemon.sessions.get(ARCH)!.settings.model).toBe('sonnet');
   });
 
-  it('a model picked while the agent works says it applies when the work ends', async () => {
+  it('a model picked while the agent works says it applies when the next session', async () => {
     await mount('running');
     await act(async () => chip('Model').click());
     await until(() => items().length, 'the model menu');
@@ -88,7 +91,7 @@ describe('the chat strip', () => {
         .find((i) => text(i).trim() === 'haiku')!
         .click(),
     );
-    await until(() => text(chip('Model')).includes('applies when current work ends'), 'the note');
+    await until(() => text(chip('Model')).includes('applies from the next session'), 'the note');
   });
 
   it('the account chip moves the agent to the account picked', async () => {

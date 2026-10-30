@@ -14,7 +14,6 @@ type Call =
   | 'openPath'
   | 'openIn'
   | 'openInApps'
-  | 'bringIn'
   | 'compose'
   | 'cancelCompose'
   | 'mode'
@@ -41,7 +40,6 @@ type Call =
   | 'deviceText'
   | 'captureWindows'
   | 'captureWindow'
-  | 'pathOf'
   | 'settingsGet'
   | 'settingsSet';
 
