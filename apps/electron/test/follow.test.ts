@@ -33,6 +33,7 @@ function rig(files: string[]) {
     },
     peek: async () => main,
     upgradeDaemon: async (sha) => void ran.push(`upgrade ${sha}`),
+    clearWeb: () => calls.push('clear'),
     swapWeb: () => calls.push('swap'),
     beforeRelaunch: () => calls.push('save'),
     relaunch: () => calls.push('relaunch'),
@@ -81,7 +82,7 @@ test('prepare fetches, moves the checkout to that main and builds the page besid
     ],
   );
   assert.deepEqual(steps, ['Preparing 0', 'Building (1 of 2) 0', 'Building (2 of 2) 50']);
-  assert.deepEqual(r.calls, []);
+  assert.deepEqual(r.calls, ['clear']);
   await r.f.look(); // a built update is not looked at again
   assert.equal(r.f.state, 'ready');
 });
@@ -94,7 +95,40 @@ test('Restart now moves the daemon onto the built main, puts the built page in p
   assert.ok(r.ran.includes('pnpm --filter @handline/electron build'));
   await r.f.restartNow();
   assert.deepEqual(r.ran.slice(-1), ['upgrade ddd4444']);
-  assert.deepEqual(r.calls, ['swap', 'save', 'relaunch']);
+  assert.deepEqual(r.calls, ['clear', 'swap', 'save', 'relaunch']);
+});
+
+test('a retry after a failed web build builds the page again, from where the first try began, and clears the half-built one', async () => {
+  const ran: string[] = [];
+  const calls: string[] = [];
+  let head = 'aaa1111'; // the merge moves HEAD to the target, as git does
+  let broken = true;
+  const f = new Follower({
+    run: async (file, args) => {
+      ran.push(`${file} ${args.join(' ')}`);
+      if (args[0] === 'rev-parse') return `${head}\n`;
+      if (args[0] === 'diff') return args.includes('aaa1111') ? 'apps/web/src/App.tsx' : ''; // from the moved HEAD there is nothing to see
+      if (args[0] === 'merge') head = 'bbb2222';
+      if (file === 'pnpm' && args.includes('@handline/web') && broken) throw new Error('vite failed');
+      return '';
+    },
+    peek: async () => ({ sha: 'bbb2222', title: 't' }),
+    upgradeDaemon: async () => undefined,
+    clearWeb: () => calls.push('clear'),
+    swapWeb: () => calls.push('swap'),
+    beforeRelaunch: () => undefined,
+    relaunch: () => undefined,
+  });
+  await f.init();
+  await f.prepare();
+  assert.equal(f.state, 'failed');
+  broken = false;
+  ran.length = 0;
+  await f.retry();
+  assert.equal(f.state, 'ready');
+  assert.ok(ran.includes('git diff --name-only aaa1111 bbb2222'));
+  assert.ok(ran.includes('pnpm --filter @handline/web build --outDir dist-next'));
+  assert.deepEqual(calls, ['clear', 'clear']); // each try starts from no half-built page
 });
 
 test('Restart now before anything is built does nothing', async () => {
@@ -114,6 +148,7 @@ test('a daemon that does not upgrade stops the restart before the relaunch; its 
     upgradeDaemon: async () => {
       if (!ok) throw new Error('the daemon did not upgrade: exe prints another sha');
     },
+    clearWeb: () => calls.push('clear'),
     swapWeb: () => calls.push('swap'),
     beforeRelaunch: () => calls.push('save'),
     relaunch: () => calls.push('relaunch'),
@@ -128,7 +163,7 @@ test('a daemon that does not upgrade stops the restart before the relaunch; its 
   ok = true;
   await f.retry();
   assert.equal(ran.length, built); // nothing was built again
-  assert.deepEqual(calls, ['swap', 'save', 'relaunch']);
+  assert.deepEqual(calls, ['clear', 'swap', 'save', 'relaunch']);
 });
 
 test('a failed build is shown with the command output behind it, nothing relaunches, and Try again builds again', async () => {
@@ -141,6 +176,7 @@ test('a failed build is shown with the command output behind it, nothing relaunc
     },
     peek: async () => ({ sha: 'bbb2222', title: 't' }),
     upgradeDaemon: async () => undefined,
+    clearWeb: () => undefined,
     swapWeb: () => undefined,
     beforeRelaunch: () => calls.push('save'),
     relaunch: () => calls.push('relaunch'),
@@ -263,6 +299,7 @@ test('a watch that cannot start or breaks is reported, not thrown', async () => 
     run: async () => '',
     peek: async () => ({ sha: 'x', title: '' }),
     upgradeDaemon: async () => undefined,
+    clearWeb: () => undefined,
     swapWeb: () => undefined,
     beforeRelaunch: () => undefined,
     relaunch: () => undefined,

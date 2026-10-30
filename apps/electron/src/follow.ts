@@ -54,6 +54,8 @@ export interface FollowDeps {
   peek(): Promise<Main>;
   /** Builds the daemon, moves the running one onto it and waits for it, for the commit `sha`; rejects with the reason. */
   upgradeDaemon(sha: string): Promise<void>;
+  /** Removes a page built beside the running one that was left half done by a failed build. */
+  clearWeb(): void;
   /** Puts the page built beside the running one in its place, just before the relaunch (the running page keeps its files until then). */
   swapWeb(): void;
   /** Called before the relaunch: keeps what the window shows. */
@@ -75,6 +77,8 @@ export class Follower {
   log = '';
   /** The main the checkout was built at, once it is: the restart goes to this one. */
   private built: string | null = null;
+  /** The commit the checkout was at when this build began, kept across a failed try so the retry still rebuilds what that change touched. */
+  private from: string | null = null;
   private d: FollowDeps;
   private listeners: ((fresh: boolean) => void)[] = [];
 
@@ -140,9 +144,11 @@ export class Follower {
     try {
       const target = (await this.d.peek()).sha;
       await this.run('git', FETCH_SOURCE);
-      const head = (await this.run('git', ['rev-parse', 'HEAD'])).trim();
+      this.from ??= (await this.run('git', ['rev-parse', 'HEAD'])).trim();
+      const head = this.from;
       const files = (await this.run('git', ['diff', '--name-only', head, target])).split('\n').filter(Boolean);
       await this.run('git', ['merge', '--ff-only', target]);
+      this.d.clearWeb();
       const r = decide(files);
       // The electron build stamps the sha the daemon is compared with, so it runs every time.
       const steps: [string, string[]][] = [
@@ -155,6 +161,7 @@ export class Follower {
         await this.run(file, args);
       }
       this.built = target;
+      this.from = null;
       this.step = '';
       this.fraction = 1;
       this.set('ready');

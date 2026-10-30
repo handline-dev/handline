@@ -42,6 +42,7 @@ export function followMain(o: {
     run: (file, args) => sh(file, args, o.dir),
     peek: () => peekMain((...a) => sh('git', ['-C', source, ...a], o.dir).then((s) => s.trim())),
     upgradeDaemon: o.upgradeDaemon,
+    clearWeb: () => fs.rmSync(path.join(web, WEB_NEXT), { recursive: true, force: true }),
     swapWeb: () => {
       if (!fs.existsSync(path.join(web, WEB_NEXT))) return;
       fs.rmSync(path.join(web, 'dist'), { recursive: true, force: true });
