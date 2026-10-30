@@ -66,6 +66,15 @@ describe('machine', () => {
     expect($$('.machine-page [data-agent]').length).toBeGreaterThan(0);
     expect(button('Delete') ?? button('Remove')).toBeUndefined();
   });
+  it('has a Stop on each agent row that asks before stopping, and a bar on each resource line', async () => {
+    const s = setup();
+    await mount('#/machine', s);
+    await until(() => $('.machine-page [data-agent]'), 'the agents');
+    expect($$('.machine-page [data-resource]').map((e) => e.getAttribute('data-resource'))).toEqual(['CPU', 'Memory', 'Disk']);
+    const stop = $$('.machine-page [data-agent] button').find((b) => b.textContent === 'Stop')!;
+    await act(async () => stop.click());
+    await until(() => button('Cancel'), 'the stop sheet');
+  });
 });
 
 describe('stats', () => {

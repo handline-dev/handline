@@ -16,6 +16,7 @@ import type { Resources } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useSettings, useStatus, useWrite } from '@handline/app-data';
 import { Coffee, Cpu, HardDrive, Layers, MemoryStick, TriangleAlert } from 'lucide-react';
+import { AgentUse } from '#src/AgentUse.tsx';
 import { MenuButton, MenuCheckItem, Popup, STRIP_ITEM } from '#src/ui/index.ts';
 
 type Awake = 'off' | 'on' | 'working';
@@ -183,10 +184,10 @@ function Stepper({
 }
 
 /** The bar's tone: calm under 60%, amber to 85%, red above (and red for what is low, whatever the share). */
-const toneOf = (pct: number, low = false): 'ok' | 'wait' | 'bad' => (low || pct >= 85 ? 'bad' : pct >= 60 ? 'wait' : 'ok');
+export const toneOf = (pct: number, low = false): 'ok' | 'wait' | 'bad' => (low || pct >= 85 ? 'bad' : pct >= 60 ? 'wait' : 'ok');
 const TONE = { ok: 'bg-ok', wait: 'bg-wait', bad: 'bg-bad' } as const;
 
-function Bar({ pct, mark, tone }: { pct: number; mark?: number; tone: keyof typeof TONE }) {
+export function Bar({ pct, mark, tone }: { pct: number; mark?: number; tone: keyof typeof TONE }) {
   return (
     <span className="relative h-2 flex-1 overflow-hidden rounded-sm bg-raised" aria-hidden>
       <span className={`block h-full ${TONE[tone]}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
@@ -368,18 +369,9 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
           onChange={(n) => change('Heavy slots', `${n} at once`, 'heavy_slots', n, limits.heavy_slots)}
         />
       </Line>
-      <ul className="m-0 mt-1 flex list-none flex-col gap-0.5 border-t border-line p-0 pt-2 text-sm text-ink-2" aria-label="Agents by use">
-        {rows.slice(0, 8).map((x) => (
-          <li key={x.agent} className="flex justify-between gap-2" data-agent={x.agent}>
-            <a className="truncate text-ink-2" href={`#/agents/${encodeURIComponent(x.agent)}`}>
-              {x.agent}
-            </a>
-            <span className="tabular-nums">
-              {x.cpu} · {x.memory}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <div className="mt-1 border-t border-line pt-2">
+        <AgentUse rows={rows.slice(0, 8)} />
+      </div>
       {said ? (
         <div className="limit-said flex items-center justify-between gap-2 rounded-sm bg-raised px-2 py-1.5 text-sm" role="status">
           {said.text}
