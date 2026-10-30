@@ -40,7 +40,11 @@ async function mount(s = setup(), folds = true) {
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
   });
-  if (folds) await openFolds();
+  if (folds) {
+    await openFolds();
+    await until(() => $('[data-setting="Handoff text"] button'), 'the Handoff text row');
+    await act(async () => $('[data-setting="Handoff text"] button')!.click()); // the prompt is folded behind this row
+  }
   return s;
 }
 const scrollIntoView = Element.prototype.scrollIntoView;
@@ -143,6 +147,16 @@ describe('settings: handoff prompt and cache expiry', () => {
     expect(values(s).ignore_cache_expiry).toBe(false);
     await click($('[data-setting="Ignore cache expiry"] [role="switch"]')!);
     await until(() => values(s).ignore_cache_expiry === true, 'the save');
+  });
+
+  it('groups the page as the pair: six groups, each in the contents list with an icon, the handoff text behind one row', async () => {
+    await mount(setup(), false);
+    await until(() => $('[data-setting="Handoff text"]'), 'the rows');
+    const nav = [...document.querySelectorAll('nav[aria-label="Contents"] button')];
+    expect(nav.map((b) => b.textContent)).toEqual(['Notifications', 'Work', 'Appearance', 'Devices', 'Always answer', 'This computer']);
+    expect(nav.every((b) => b.querySelector('svg'))).toBe(true);
+    expect([...document.querySelectorAll('.settings-body h3.shead')].every((h) => h.querySelector('svg'))).toBe(true);
+    expect(prompt()).toBeNull();
   });
 
   it('a daemon without settings.get shows no rows', async () => {

@@ -1,7 +1,8 @@
 // The frame of a long page: a contents list at the left (sticky, marks the group in view), the content 640 wide beside it, flush left.
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-export type Part = { id: string; label: string };
+export type Part = { id: string; label: string; icon?: LucideIcon };
 
 /** The part whose section is the first one in view while the page scrolls. */
 function useInView(parts: readonly Part[]): string {
@@ -49,9 +50,10 @@ export function ContentsPage({ parts, children }: { parts: readonly Part[]; chil
             key={p.id}
             type="button"
             aria-current={p.id === on ? 'location' : undefined}
-            className={`tint cursor-pointer rounded-sm border-0 bg-transparent px-2 py-1 text-left text-md ${p.id === on ? 'bg-raised font-medium text-ink' : 'text-ink-2'}`}
+            className={`tint flex cursor-pointer items-center gap-2 rounded-sm border-0 bg-transparent px-2 py-1 text-left text-md ${p.id === on ? 'bg-raised font-medium text-ink' : 'text-ink-2'}`}
             onClick={() => document.getElementById(p.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           >
+            {p.icon ? <p.icon width={15} height={15} strokeWidth={1.75} aria-hidden /> : null}
             {p.label}
           </button>
         ))}

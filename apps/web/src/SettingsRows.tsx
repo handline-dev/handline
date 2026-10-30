@@ -115,7 +115,10 @@ export function SwitchRow(props: { label: string; hint: string; on: boolean; cha
   const off = useOff('settings.set');
   return (
     <Row label={props.label} hint={props.hint} note={<Note error={save.error} pending={save.isPending} bad={null} />}>
-      <span title={off}>
+      <span title={off} className="flex items-center gap-2">
+        <span className="w-7 text-sm text-ink-2" aria-hidden>
+          {props.on ? 'On' : 'Off'}
+        </span>
         <Switch label={props.label} on={props.on} disabled={!!off} onChange={(on) => save.mutate({ changes: props.change(on) })} />
       </span>
     </Row>
