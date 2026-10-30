@@ -117,9 +117,11 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
       case 'worktree':
         if (a.answer === 'force' && !sure) return setSure(true);
         setSure(false);
-        onSaid(WORKTREE_SAID[a.answer](memberOf(card.detail)));
-        return void (done.mutate({ task: a.item.task!, evidence: WORKTREE_WORDS[a.answer], reason: true }),
-        read.mutate({ ids: [a.item.id] }));
+        // The toast and the read mark wait for the daemon: it can refuse the removal, and the item then stays.
+        return void done.mutateAsync({ task: a.item.task!, evidence: WORKTREE_WORDS[a.answer], reason: true }).then(
+          () => (onSaid(WORKTREE_SAID[a.answer](memberOf(card.detail))), read.mutate({ ids: [a.item.id] })),
+          () => undefined,
+        );
       case 'approve':
         return void (done.mutate({ task: a.item.task!, evidence: APPROVED, reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'ask_change':
