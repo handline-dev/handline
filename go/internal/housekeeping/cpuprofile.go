@@ -15,12 +15,14 @@ const ProfileFor = 30 * time.Second
 
 // ProfileCPUOnUSR2 writes a CPU profile of the next ProfileFor to dir/cpu-<time>.pprof each time the process gets SIGUSR2, and logs
 // the path when it is written: `kill -USR2 <pid>`, then `go tool pprof -top <file>`, is how a daemon that runs hot is looked into. One
-// signal while a profile runs starts the next profile after it; more are dropped. The returned function stops it.
+// signal while a profile runs starts the next profile after it; more are dropped. The returned function stops it, ending a running
+// profile early.
 func ProfileCPUOnUSR2(dir string, log func(string)) (stop func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGUSR2)
-	done := make(chan struct{})
+	done, ended := make(chan struct{}), make(chan struct{})
 	go func() {
+		defer close(ended)
 		for {
 			select {
 			case <-ch:
@@ -30,7 +32,8 @@ func ProfileCPUOnUSR2(dir string, log func(string)) (stop func()) {
 			}
 		}
 	}()
-	return func() { signal.Stop(ch); close(done) }
+	// A profile cut short is written and said before stop returns, so a stopping daemon does not leave an empty file.
+	return func() { signal.Stop(ch); close(done); <-ended }
 }
 
 // profileCPU profiles the CPU for d, or until done closes, into a new file under dir, and says where it went or why it did not.
