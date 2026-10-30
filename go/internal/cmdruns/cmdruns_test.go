@@ -174,8 +174,12 @@ func TestAReplyItemsBlockIsKeptApartFromAMessagesOfTheSameID(t *testing.T) {
 	if err != nil || len(msgs) != 1 || msgs[0].Terminal != "%2" {
 		t.Fatalf("the message's runs: %+v %v", msgs, err)
 	}
+	// Block 0 sorts first by name but started later: the runs go by start.
+	if _, err := Start(q, Block{Message: 7, N: 0, Reply: true}, "%3", 300); err != nil {
+		t.Fatal(err)
+	}
 	all, err := Replies(q)
-	if err != nil || len(all) != 1 || len(all[7]) != 1 || all[7][0].Block != "r7:2" {
-		t.Fatalf("every reply's runs: %+v %v", all, err)
+	if err != nil || len(all) != 1 || len(all[7]) != 2 || all[7][0].Block != "r7:2" || all[7][1].Block != "r7:0" {
+		t.Fatalf("every reply's runs, oldest start first: %+v %v", all, err)
 	}
 }

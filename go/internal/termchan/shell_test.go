@@ -236,6 +236,15 @@ func TestAFinishedRunsWindowIsNotAShellInUseAndARerunClosesItsOld(t *testing.T) 
 	if again := open("5:0"); len(h.closed) != 1 || h.closed[0] != first || again == first || other == first {
 		t.Fatalf("a rerun of a block closes the window it had: %v", h.closed)
 	}
+	// A reply's block the same: its runs are read under the reply, not message 5000's.
+	if _, err := r.e.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('ann', 1, 's', NULL, 100, 'text', 5000, '{"text":"x"}')`); err != nil {
+		t.Fatal(err)
+	}
+	reply := open("r5000:0")
+	h.ended[reply] = term.PaneRun{Tag: cmdruns.Run{Block: "r5000:0", Started: cmdruns.Now()}.Tag()}
+	if open("r5000:0"); len(h.closed) != 2 || h.closed[1] != reply {
+		t.Fatalf("a rerun of a reply's block closes the window it had: %v", h.closed)
+	}
 	shell, _ := r.e.shellOpen(person("casey"), map[string]any{"agent": "ann"})
 	plain := shell.(map[string]any)["terminal"].(string)
 	cmdruns.Start(r.e.DB, cmdruns.Block{Message: 7, N: 0}, plain, cmdruns.Now()) // after a tmux restart a run row names a handle a plain shell now has

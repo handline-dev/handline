@@ -273,6 +273,8 @@ func TestARunKeptBeforeTheFirstLookIsNotNews(t *testing.T) {
 func TestARunOfAReplysBlockIsTheItemSaidAgainWithItsRuns(t *testing.T) {
 	r := newChatRig(t)
 	exec(t, r.d, `INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', 1, 's', NULL, 100, 'text', 1000, '{"text":"run make"}')`)
+	// A message with the same id as the item: the reply's run is not its news.
+	exec(t, r.d, "INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1000, 100, 'bob', 'human', 'same id', 'landed', 'say')")
 	started := cmdruns.Now() - 10
 	panes := map[string]term.PaneRun{}
 	c := r.chat()

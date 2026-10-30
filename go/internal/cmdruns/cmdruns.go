@@ -126,7 +126,7 @@ func Replies(q db.Q) (map[int64][]Run, error) {
 	all, err := read(q, prefix+"r%")
 	out := map[int64][]Run{}
 	for _, r := range all {
-		if b, ok := ParseBlock(r.Block); ok && b.Reply {
+		if b, ok := ParseBlock(r.Block); ok { // the LIKE has kept only reply blocks
 			out[b.Message] = append(out[b.Message], r)
 		}
 	}
