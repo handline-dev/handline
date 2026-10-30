@@ -58,7 +58,11 @@ export function CommandCard({ text, index }: { text: string; index: number }) {
         style={{ backgroundColor: c.line, borderRadius: radius.m, paddingHorizontal: space.sm, paddingBottom: space.sm }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: HIT }}>
-          <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: c.muted, marginRight: space.sm, fontFamily: 'Menlo', fontSize: font.size.xs }}>
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="head"
+            style={{ flex: 1, color: c.muted, marginRight: space.sm, fontFamily: 'Menlo', fontSize: font.size.xs }}
+          >
             {folder ?? ''}
           </Text>
           {copied && (
