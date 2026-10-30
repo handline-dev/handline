@@ -64,17 +64,20 @@ describe('the daemon build notice', () => {
     await mount({ sha: 'abc123def456', canRestart: true, restart: refuse });
     await until(() => $('.topbar .daemon-build button'), 'the button');
     await act(async () => void ($('.topbar .daemon-build button') as HTMLElement).click());
-    await until(() => $('.topbar .daemon-build')!.textContent!.includes('Not restarted: exe prints another sha'), 'the reason');
+    await until(() => $('.topbar .daemon-build')!.textContent!.includes('Not restarted'), 'the bar line');
+    expect($('.topbar .daemon-build')!.textContent).not.toContain('exe prints');
   });
-  it("shows the daemon's whole refusal, wrapped and not cut", async () => {
+  it('keeps the top bar to one line and puts the whole refusal in a notice with Try again', async () => {
     const why = 'the daemon did not upgrade: daemon.upgrade is for a founder or above; this caller is anonymous';
-    await mount({ sha: 'abc123def456', canRestart: true, restart: async () => ({ ok: false, code: 'cannot_restart', message: why }) });
+    const restart = vi.fn(async () => ({ ok: false, code: 'cannot_restart', message: why }));
+    await mount({ sha: 'abc123def456', canRestart: true, restart });
     await until(() => $('.topbar .daemon-build button'), 'the button');
     await act(async () => void ($('.topbar .daemon-build button') as HTMLElement).click());
-    await until(() => $('.topbar .daemon-build [role=alert]'), 'the reason');
-    const alert = $('.topbar .daemon-build [role=alert]')!;
-    expect(alert.textContent).toBe(`Not restarted: ${why}`);
-    expect(alert.className).not.toContain('truncate');
+    await until(() => document.body.textContent!.includes(why), 'the notice');
+    expect($('.topbar .daemon-build')!.textContent).toBe('Not restartedRestart daemon');
+    const again = [...document.querySelectorAll('.toast button')].find((b) => b.textContent === 'Try again') as HTMLElement;
+    await act(async () => void again.click());
+    expect(restart).toHaveBeenCalledTimes(2);
   });
   it('says nothing for the same build or in a plain browser, and offers no button for a daemon on another device', async () => {
     await mount({ sha: 'fake0000', canRestart: true });
