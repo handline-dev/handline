@@ -10,6 +10,7 @@ import {
   changeAsked,
   laterKeyOf,
   noteIsLong,
+  taskRef,
   type Card,
   type CardAction,
   type LaterAt,
@@ -225,7 +226,9 @@ function CardDetail({
                 ))}
               </MenuButton>
             ) : null}
-            {openAct ? <SeeInFull onClick={() => run(openAct)}>{card.task != null ? `Open T${card.task}` : 'Open'}</SeeInFull> : null}
+            {openAct ? (
+              <SeeInFull onClick={() => run(openAct)}>{card.task != null ? `Open ${taskRef(card.task)}` : 'Open'}</SeeInFull>
+            ) : null}
           </>
         }
       >

@@ -182,4 +182,27 @@ describe('the Requests page', () => {
     expect(text(document.querySelector('article'))).toContain('Decide the thing'); // not the first request
     expect($$('button').some((b) => text(b).startsWith('Later:'))).toBe(true);
   });
+
+  it('a task card keeps its answers as buttons and has Open as the last, plain link that goes to the task', async () => {
+    const s = setup();
+    s.daemon.tasks.seed({ id: 9201, from: 'handline.architect', to: 'human', title: 'Decide the thing', state: 'queued' });
+    await mount('#/requests', s);
+    await until(() => $$('[data-card-row]').some((r) => text(r).includes('Decide the thing')), 'the rows');
+    await click(
+      $$('[data-card-row]')
+        .find((r) => text(r).includes('Decide the thing'))!
+        .querySelector('button'),
+    );
+    await until(() => button('Done'), 'the answers');
+    const answers = button('Done')!.parentElement!;
+    const buttons = [...answers.querySelectorAll('button')].map((b) => text(b).trim());
+    expect(buttons).toContain('Done');
+    expect(buttons).toContain('Later');
+    expect(buttons).not.toContain('Open');
+    const open = [...answers.children].at(-1) as HTMLElement;
+    expect(text(open)).toBe('Open T9201');
+    expect(open.className).toContain('text-acc-ink'); // the link look, not an outlined button
+    await click(open);
+    await until(() => location.hash === '#/tasks/9201', 'the task');
+  });
 });
