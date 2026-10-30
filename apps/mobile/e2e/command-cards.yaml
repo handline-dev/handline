@@ -11,32 +11,46 @@ appId: dev.handline.mobile
 - assertVisible:
     id: command-0
 - takeScreenshot: shots/command-1-cards
+- scrollUntilVisible:
+    element:
+      id: command-copy-0
+    direction: UP
+    timeout: 8000
 - tapOn:
     id: command-copy-0
-    index: 0
-- assertVisible:
-    id: command-copied-0
 - takeScreenshot: shots/command-2-copied
+- scrollUntilVisible:
+    element:
+      id: command-run-0
+    direction: UP
+    timeout: 8000
 - tapOn:
     id: command-run-0
-    index: 0
 - assertVisible: It runs on your computer as you.
 - takeScreenshot: shots/command-3-confirm
 - tapOn:
     id: command-go-0
 - takeScreenshot: shots/command-4-running
+- scrollUntilVisible:
+    element:
+      id: command-run-1
+    direction: UP
+    timeout: 8000
 - tapOn:
-    id: command-run-0
-    index: 1
+    id: command-run-1
 - tapOn:
-    id: command-go-0
+    id: command-go-1
 - assertVisible: Done · exit 0
 - takeScreenshot: shots/command-5-done
+- scrollUntilVisible:
+    element:
+      id: command-run-2
+    direction: UP
+    timeout: 8000
 - tapOn:
-    id: command-run-0
-    index: 2
+    id: command-run-2
 - assertVisible:
-    id: command-risk-0
+    id: command-risk-2
 - takeScreenshot: shots/command-6-risky
 - tapOn:
-    id: command-cancel-0
+    id: command-cancel-2

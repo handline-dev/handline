@@ -103,13 +103,10 @@ if (process.argv.includes('--picture')) {
   );
 }
 if (process.argv.includes('--commands')) {
-  // Command cards in handline.architect's chat: one that keeps running, one that ends at once, one that is risky. The fake runs nothing itself.
-  for (const [i, body] of [
-    'Not yet checked. Run the web tests:\n```sh\npnpm test --filter @handline/web\n```',
-    'This one ends at once:\n```sh\ntrue\n```',
-    'And this one deletes:\n```sh\nrm -rf dist\n```',
-  ].entries())
-    daemon.chat.send({ agent: 'handline.architect', body, request_id: `e2e-command-${i}` }, 'founder', daemon.uploads.message);
+  // Command cards in handline.architect's chat: one message with three blocks, one that keeps running, one that ends at once, one that is risky.
+  // The fake runs nothing itself.
+  const body = 'Run these:\n```sh\npnpm test --filter @handline/web\n```\n```sh\ntrue\n```\n```sh\nrm -rf dist\n```';
+  daemon.chat.send({ agent: 'handline.architect', body, request_id: 'e2e-commands' }, 'founder', daemon.uploads.message);
 }
 if (process.argv.includes('--readers')) {
   // A founder comment on task 1684 that three agents were told about: one read it, one holds it for the next pickup, one has it unread.
