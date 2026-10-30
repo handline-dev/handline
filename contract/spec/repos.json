@@ -377,7 +377,7 @@
      "required": false,
      "schema": {
       "type": "string",
-      "description": "Matched case-insensitively as a subsequence of the path: its letters appear in the path in order, not necessarily side by side. Absent or empty lists every file. Anything but a string is bad_request (field query)."
+      "description": "Matched case-insensitively as a subsequence of the path: its letters appear in the path in order, not necessarily side by side. Absent, null or empty lists every file. Anything else that is not a string is bad_request (field query)."
      }
     },
     {
@@ -388,7 +388,7 @@
       "minimum": 1,
       "maximum": 200,
       "default": 50,
-      "description": "The most files returned. Outside 1..200, or not an integer: bad_request (field limit)."
+      "description": "The most files returned; absent or null is 50. Outside 1..200, or not an integer: bad_request (field limit)."
      }
     }
    ],

@@ -33,7 +33,7 @@ func (e *Env) list(_ *rpc.Conn, p map[string]any) (any, error) {
 	limit := listDefault
 	if v, has := p["limit"]; has && v != nil {
 		n, ok := rpc.AsInt(v)
-		if _, isBool := v.(bool); !ok || isBool || n < 1 || n > listMax {
+		if !ok || n < 1 || n > listMax {
 			return nil, bad(fmt.Sprintf("limit is an integer from 1 to %d", listMax), "limit")
 		}
 		limit = int(n)
