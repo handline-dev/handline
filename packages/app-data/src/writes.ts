@@ -168,6 +168,8 @@ const tasks: Record<string, WriteSpec> = {
   },
   // The tasks topic's event brings the task again; the params name no task, so the comment lists are read again here.
   'task.comment.send_now': { ...decided('send now'), touches: (d) => [['d', d, 'memos']] },
+  // The event brings every place the image is named; the dry run only counts them.
+  'attachment.remove': decided('delete photo'),
   'file.write': decided('save file'), // the page keeps the new etag from the reply
   'task.view.save': { kind: 'decided', label: 'save view', touches: (d) => [qk.taskViews(d)] },
   'task.view.delete': { kind: 'decided', label: 'delete view', touches: (d) => [qk.taskViews(d)] },
