@@ -3,7 +3,7 @@ import { FlatList, Pressable, Text, View } from 'react-native';
 import type { AgentView as Agent } from '@handline/client';
 import { useAgents, useHrCount, useMyTurn, useNav, useOpenTasks, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { font, radius, rowHeight, space } from '@handline/tokens';
+import { font, rowHeight, space } from '@handline/tokens';
 import {
   ago,
   rowWord,
@@ -165,13 +165,13 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
                     style={{
                       paddingHorizontal: space.md,
                       paddingVertical: space.xs,
-                      borderRadius: radius.pill,
+                      borderRadius: 999,
                       backgroundColor: on ? c.panel : 'transparent',
                       borderWidth: 1,
                       borderColor: on ? c.accent : c.line,
                     }}
                   >
-                    <Text style={{ color: on ? c.accent : c.muted, fontSize: font.size.body, fontWeight: on ? '700' : '500' }}>
+                    <Text style={{ color: on ? c.accent : c.muted, fontSize: font.size.md, fontWeight: on ? '700' : '500' }}>
                       {x.label}
                       {x.id === 'unread' ? ` ${counts[x.id]}` : ''}
                     </Text>
@@ -198,7 +198,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
                 <Text
                   style={{
                     color: c.muted,
-                    fontSize: font.size.label,
+                    fontSize: font.size.sm,
                     paddingHorizontal: space.lg,
                     paddingTop: space.md,
                     paddingBottom: space.xs,
@@ -248,21 +248,21 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
                         style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
                       >
                         <Icon name="tasks" size={11} color={c.muted} decorative />
-                        <Text style={{ color: c.muted, fontSize: font.size.hint }}>{queued}</Text>
+                        <Text style={{ color: c.muted, fontSize: font.size.xs }}>{queued}</Text>
                       </Pressable>
                     ) : null}
                   </View>
                   <Text
                     numberOfLines={1}
                     testID={need ? `needs-${a.name}` : undefined}
-                    style={{ color: need ? c.wait : c.muted, fontSize: font.size.label }}
+                    style={{ color: need ? c.wait : c.muted, fontSize: font.size.sm }}
                   >
                     {doing || ' '}
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ color: need ? c.wait : a.block ? c.block : c.muted, fontSize: font.size.label }}>{word}</Text>
-                  {age ? <Text style={{ color: c.muted, fontSize: font.size.hint }}>{ago(age)}</Text> : null}
+                  <Text style={{ color: need ? c.wait : a.block ? c.block : c.muted, fontSize: font.size.sm }}>{word}</Text>
+                  {age ? <Text style={{ color: c.muted, fontSize: font.size.xs }}>{ago(age)}</Text> : null}
                 </View>
               </Pressable>
             );

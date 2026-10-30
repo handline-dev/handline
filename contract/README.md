@@ -4,7 +4,7 @@
 
 ## Conformance fixtures
 
-`fixtures/*.json` are scripted exchanges that any daemon (Python, Go) or fake daemon must satisfy. They are the behaviour; prose follows them.
+`fixtures/*.json` are scripted exchanges that any daemon (the Go daemon or the fake daemon) must satisfy. They are the behaviour; prose follows them.
 
     python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [--allow-skip] [--allow-missing METHOD ...] [--allow-missing-file PATH] [--allow-needvar-file PATH] [FILE ...]
 
@@ -15,7 +15,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 - `name`: `area.case`, unique. `spec`: the method (or `x-` section) of the spec it pins. `about`: one line.
 - `as`: the role of the connection: `founder` (the default and SOCKET itself), `agent`, `member`, `anonymous`. A role with no `--as` socket is SKIPPED, never passed; `--allow-skip` covers only this.
 - A fixture is reported NEEDVAR when it needs a `--var` that was not given, and MISSING ("method not implemented by this daemon") when its `spec` is a method the daemon does not list in `hello`. Both fail the run unless the fixture's `spec` method is named by `--allow-missing METHOD` (repeatable) or in `--allow-missing-file PATH` (one method per line, `#` comments): a daemon that is still growing keeps that list, and shrinks it as methods land. A method the daemon lists and then fails to serve is a FAIL. Such a file is a set, one name per line, so `.gitattributes` merges it as a union and branches append and delete lines without conflicts; the run prints STALE (and exits 1) for a name listed twice or one the daemon now serves, so nothing rots. Generated files (`protocol.md`, `protocol.ts`, `gen/`, `go/internal/rpc/contract.json`) are never resolved by hand: after a merge run `python3 contract/generate.py` and `python3 tools/go_contract.py`.
-- Each fixture gets a fresh connection. `steps` run in order; a step has one of `send` (a JSON-RPC request object), `raw` (a line sent as written) or `legacy` (a legacy `{verb}` request object, whose one `{ok, said}` reply is matched against the step's `reply`; the connection is then closed by the daemon, so it is a fixture's only step), then:
+- Each fixture gets a fresh connection. `steps` run in order; a step has one of `send` (a JSON-RPC request object) or `raw` (a line sent as written), then:
   - `result` or `error`: what the reply with that id must hold. `error` has `code`, `message`, `data`.
   - `notices`: notifications that must arrive after the reply, in this order (others may be interleaved); waits 1 s, or `notices_within_s` (a bound on the wait, never a pause: it returns as soon as they have come). `notices_any_order: true` matches each listed notice against any that has arrived, not only those after the one matched before it.
   - `notice_next`: the very next notification must match, none before it; it is how a fixture shows no gap and no duplicate. It is checked before `notices`.
@@ -29,7 +29,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 
 ## Running them
 
-- Founder: the connection proves it by the founder key, which a fixture sends as `{{founder_key}}` in `hello`. Pass it with `--var founder_key=KEY`. The Python daemon keeps it in its protected store (`sessiontoken.founder_key_held()`, minted by `sessiontoken.ensure_founder_key()`); the Go daemon's own test harness mints one.
+- Founder: the connection proves it by the founder key, which a fixture sends as `{{founder_key}}` in `hello`. Pass it with `--var founder_key=KEY`. The daemon keeps it in its protected store (`FounderKeyHeld`, minted by `EnsureFounderKey`, in `go/internal/sessiontoken`); the Go test harness mints one.
 - Anonymous: the same socket, a hello without the key.
 - A role limit can sit inside one method: an agent may call `session.stop` with mode exit or close, never kill (refused, gate `role`). `session_stop.json` pins the kill refusal.
 - `shell_input.json` needs `--var shell_agent=NAME`: an agent whose pane is a shell prompt (its session has exited). `session.input` is refused there, gate `state`; the harness cannot make that screen, so the daemon under test must already be in that state.
@@ -52,7 +52,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 - `task_done.json` runs as an agent beside a founder connection.
 - `task_page.json`'s first fixture needs `--var task_owner=NAME`: an agent other than the caller, whom the caller opens a task for. It runs as an agent. The Go run seeds it.
 - `admin_writes.json` needs `--var account=NAME` (an account the daemon has) and `--var schedule_agent=NAME` (an agent it knows). The Go run seeds them.
-- `needs_you.json`'s dialog-rule fixture needs `--var dialogs_retired=1`: a daemon that answers no dialog and refuses to save a dialog rule (the var only names that it is so). The Python daemon keeps saving them until the cutover.
+- `needs_you.json`'s dialog-rule fixture needs `--var dialogs_retired=1`: a daemon that answers no dialog and refuses to save a dialog rule (the var only names that it is so).
 - `prefs.json`'s order fixtures need `--var order_a` and `order_b` (two agents), `order_retire_agent` (one the founder may retire: no session, nothing under it), `order_rename_agent` (one an hr rename may rename) and `order_rename_to` (a name no agent has). The rename one also runs an agent connection, which proposes the rename. The Go run does not supply them yet (`go/conformance-needvar.txt`). The TS fake plays all but the rename (it applies no hr change): `order_a=handline.architect order_b=handline.auditor order_retire_agent=handline.term-build`.
 - `load_person.json` needs `--var load_wake_agent`: a closed agent that nothing but the machine's load would hold, on an account with room. It sets ram_free_min_pct to 100, puts back the value it read before its check, and its agent really wakes. The Go run does not supply it yet (`go/conformance-needvar.txt`).
 - `account_cache_life.json` needs `--var cold_agent` (an agent at rest whose cache_until has passed) and `warm_agent` (an agent at rest whose cache_until is in the future), and reuses `view_busy_agent` (a running agent). The Go run does not supply them yet (`go/conformance-needvar.txt`).
@@ -61,11 +61,11 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 - `hr_applying.json` needs `--var hr_turn_agent` (an agent hr may rename, mid-turn in a turn that ends on its own 20 to 60 s after the fixture starts) and `hr_turn_rename_to` (a free name); `agent_retire.json`'s running fixture needs `retire_turn_agent` (one the founder may retire, mid-turn the same way). A change to an agent with a session running waits for its turn to end; it is never refused for the session. The Go run does not supply them yet (`go/conformance-needvar.txt`).
 - Agent and member cannot be faked: an agent is a peer process that descends from a recorded session, a member a paired device. A CI run supplies them with `--as agent=SOCKET` from a process started inside such a session, and `--as member=SOCKET` over a device token; without them those fixtures SKIP and the run exits 3, which `--allow-skip` turns into 0. The Go run records a child process as an agent's session in its scratch home and takes the agent's socketpairs from it.
 - `--skip-file PATH` names fixtures whose failure does not count, one per line (`go/conformance-skip.txt`: those left failing on a known gap, each with its reason). They still run: one that fails is counted as skipped by name and does not make the run exit 3, and one that passes is stale and fails the run.
-- A socket can also be a function returning a connected socket (`conformance.run_all`), which is how the tests serve the Python daemon over a socket pair.
+- A socket can also be a function returning a connected socket (`conformance.run_all`).
 
 ## Prompt captures
 
-`prompts/*.json` are screens of open prompts and what `prompt.list` must read from each: `{name, source, screen, expect}`. `screen` is the terminal's rows as captured, `expect` the prompt's `kind`, `tool`, `command`, `reason` and option `keys`. A field the screen does not state is null. `tests/daemon/test_prompt_fields.py` runs each through the Python daemon's screen watch; the Go daemon is to read the same screens to the same answers. Not covered: the folder-trust screen (the screen watch does not list it: trust has its own path) and an edit approval (never captured); one that reaches the watch as a dialog is listed with its raw lines and no fields.
+`prompts/*.json` are screens of open prompts and what `prompt.list` must read from each: `{name, source, screen, expect}`. `screen` is the terminal's rows as captured, `expect` the prompt's `kind`, `tool`, `command`, `reason` and option `keys`. A field the screen does not state is null. `go/internal/prompts` runs each through the screen watch and checks it reads the same answers. Not covered: the folder-trust screen (the screen watch does not list it: trust has its own path) and an edit approval (never captured); one that reaches the watch as a dialog is listed with its raw lines and no fields.
 
 ## The network transport
 

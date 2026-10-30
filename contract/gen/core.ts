@@ -32,7 +32,7 @@ export type Actor = {
 /** Every write's result. A refusal is the `refused` error, never an accepted:false result. */
 export type Accepted = {
   accepted: true;
-  /** One sentence for a person, the legacy `said`. */
+  /** One sentence for a person. */
   said: string;
   /** True when this is the stored reply to a retried request_id; the action was not repeated. */
   replayed?: boolean;
@@ -573,7 +573,6 @@ export type MachineNeed = {
   since: Timestamp;
   /** The item in plain words, with the free space in it. */
   text: string;
-  later?: Later;
 };
 
 /** A For you item the founder can defer: a task (id is its number), a comment's ask to the founder (id is the comment's number, `memo`) or a need of the machine (id is `disk`). A session's ask and an HR proposal are never deferred: an agent is stopped on them. */
@@ -582,7 +581,7 @@ export type LaterItem = {
   id: string;
 };
 
-/** Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. Absent from an item that is not deferred. The apps filter and count on it. */
+/** Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. for_you.list carries it on a deferred item (ForYouItem.later); an item that is not deferred has none. */
 export type Later = {
   until?: Timestamp;
   after_task?: number;

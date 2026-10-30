@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -100,6 +101,7 @@ func fakeClaude() {
 			perm <- m["response"].(map[string]any)["response"].(map[string]any)
 		case "user":
 			msg := m["message"].(map[string]any)
+			emit(map[string]any{"type": "system", "subtype": "fake_received", "uuid": m["uuid"]}) // in stdin order, unlike the turns' echoes
 			go turn(m["uuid"].(string), msg["content"].(string))
 		}
 	}
@@ -151,6 +153,10 @@ func ctx(t *testing.T) context.Context {
 	return c
 }
 
+func received(uid string) func(map[string]any) bool {
+	return func(m map[string]any) bool { return m["subtype"] == "fake_received" && m["uuid"] == uid }
+}
+
 func isEcho(uid string) func(map[string]any) bool {
 	return func(m map[string]any) bool { return m["type"] == "user" && m["uuid"] == uid }
 }
@@ -169,6 +175,40 @@ func TestAMessageIsDeliveredNowAndConfirmedByItsEcho(t *testing.T) {
 	}
 }
 
+// the confirmation is settled only after the echo event is published: when OnEvent sees the echo, its message is not yet settled
+func TestTheEchoIsPublishedBeforeTheDeliveryIsConfirmed(t *testing.T) {
+	var sess atomic.Pointer[Session]
+	checked := make(chan struct{})
+	h := Handlers{OnEvent: func(m map[string]any) {
+		if m["type"] != "user" {
+			return
+		}
+		defer close(checked)
+		s := sess.Load()
+		s.mu.Lock()
+		e := s.ledger["op-1"]
+		s.mu.Unlock()
+		select {
+		case <-e.settled:
+			t.Error("settled before the echo was published")
+		default:
+		}
+	}}
+	s, err := Open(context.Background(), launch(t), h, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	sess.Store(s)
+	if _, err := s.Send("op-1", "hello", delivery.Now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WaitConfirmed(ctx(t), "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	<-checked
+}
+
 func TestARetryWithTheSameOperationIdIsNeverSentTwice(t *testing.T) {
 	s, ev := open(t, Handlers{})
 	a, _ := s.Send("op-1", "hello", delivery.Now)
@@ -177,8 +217,10 @@ func TestARetryWithTheSameOperationIdIsNeverSentTwice(t *testing.T) {
 		t.Fatalf("%v %v", b, err)
 	}
 	s.WaitConfirmed(ctx(t), "op-1")
-	time.Sleep(100 * time.Millisecond)
-	if n := ev.count(func(m map[string]any) bool { return m["type"] == "user" }); n != 1 {
+	if _, err := s.Settings(ctx(t)); err != nil { // the CLI reads its input in order: what was written has been received by now
+		t.Fatal(err)
+	}
+	if n := ev.count(func(m map[string]any) bool { return m["subtype"] == "fake_received" }); n != 1 {
 		t.Fatalf("%d user messages reached the CLI", n)
 	}
 }
@@ -191,8 +233,10 @@ func TestAQueuedMessageWaitsForTheTurnToEndAndThenGoes(t *testing.T) {
 	if err != nil || q.State != delivery.Queued {
 		t.Fatalf("a queue send behind a running turn is held: %v %v", q, err)
 	}
-	time.Sleep(150 * time.Millisecond)
-	if ev.count(isEcho(q.UUID)) != 0 {
+	if _, err := s.Settings(ctx(t)); err != nil { // the CLI reads its input in order: a written message has been received by now
+		t.Fatal(err)
+	}
+	if ev.count(received(q.UUID)) != 0 {
 		t.Fatal("the held message reached the CLI during the turn")
 	}
 	if err := s.Interrupt(ctx(t)); err != nil {

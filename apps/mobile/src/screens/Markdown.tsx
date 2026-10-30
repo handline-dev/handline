@@ -98,8 +98,8 @@ export function Markdown({
     <View testID={testID} style={{ gap: space.sm }}>
       {blocks(text, breaks).map((b, i) =>
         b.kind === 'code' ? (
-          <View key={i} style={{ backgroundColor: c.line, borderRadius: radius.card, padding: space.sm }}>
-            <Text selectable={selectable} style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.label }}>
+          <View key={i} style={{ backgroundColor: c.line, borderRadius: radius.m, padding: space.sm }}>
+            <Text selectable={selectable} style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.sm }}>
               {b.text}
             </Text>
           </View>
@@ -118,7 +118,7 @@ export function Markdown({
             style={{
               color: b.kind === 'quote' ? c.muted : c.ink,
               ...(b.kind === 'heading'
-                ? { fontWeight: '700', fontSize: b.level === 1 ? font.size.page : b.level === 2 ? font.size.title : font.size.body }
+                ? { fontWeight: '700', fontSize: b.level === 1 ? font.size.xl : b.level === 2 ? font.size.lg : font.size.md }
                 : {}),
               ...(b.kind === 'quote' ? { borderLeftWidth: 2, borderLeftColor: c.line, paddingLeft: space.sm } : {}),
             }}

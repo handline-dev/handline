@@ -338,8 +338,7 @@ test('reconnect resumes at the newest event, replays nothing, and takes a fresh 
   assert.equal(seen.length, first, 'nothing from the outage is replayed');
   daemon.emit('agents', 'agent.changed', { agent: A });
   await until(() => seen.length === first + 1, 'the stream continues');
-  const all = (daemon as unknown as { events: Event[] }).events.map((e: Event) => e.cursor) as number[];
-  assert.equal(seen.at(-1), all.at(-1), 'the first event after the outage is the newest one');
+  assert.equal(seen.at(-1), daemon.log.head, 'the first event after the outage is the newest one');
   assert.deepEqual(view.text(), daemon.sessions.get(A)!.lines.slice(-view.text().length));
   client.close();
   other.close();
@@ -437,7 +436,9 @@ test('hello carries the founder key when the client has one, read at each connec
     send(m: string) {
       const msg = JSON.parse(m) as { id: number; method: string; params: unknown };
       sent.push(msg.params);
-      queueMicrotask(() => t.onmessage?.(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocol: 1, min_client: 1, capabilities: {} } })));
+      queueMicrotask(() =>
+        t.onmessage?.(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocol: 1, min_client: 1, capabilities: {} } })),
+      );
     },
   };
   let key: string | null = null;

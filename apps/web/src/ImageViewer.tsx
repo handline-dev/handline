@@ -30,7 +30,7 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
           <>
             {at > 0 ? <Arrow side="left" label="Previous picture" onClick={() => step(-1)} /> : null}
             {at < pictures.length - 1 ? <Arrow side="right" label="Next picture" onClick={() => step(1)} /> : null}
-            <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-chip bg-panel px-2 text-[12px] muted">
+            <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-sm bg-panel px-2 text-[12px] muted">
               {at + 1} / {pictures.length}
             </span>
           </>
@@ -46,7 +46,7 @@ function Arrow({ side, label, onClick }: { side: 'left' | 'right'; label: string
       type="button"
       aria-label={label}
       title={label}
-      className={`absolute top-1/2 ${side === 'left' ? 'left-2' : 'right-2'} -translate-y-1/2 rounded-chip bg-panel px-3 py-2 text-title`}
+      className={`absolute top-1/2 ${side === 'left' ? 'left-2' : 'right-2'} -translate-y-1/2 rounded-sm bg-panel px-3 py-2 text-lg`}
       onClick={onClick}
     >
       {side === 'left' ? '‹' : '›'}

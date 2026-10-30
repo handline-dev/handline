@@ -1,35 +1,14 @@
 // Seeds a UI check needs that the first-load fixtures leave out: switch them on by name, in a test or at serve time.
-import { crc32, deflateSync } from 'node:zlib';
 import type { FakeDaemon } from '#src/daemon.ts';
+import { task } from '#src/seedkit.ts';
+import { CHAT_SEEDS } from '#src/seeds-chat.ts';
+import { HR_SEEDS } from '#src/seeds-hr.ts';
 
 const ARCH = 'handline.architect';
 const AUD = 'handline.auditor';
 const ME = 'human';
 
 type Seed = (d: FakeDaemon) => void;
-
-/** A one-colour PNG of the size given: a picture with a real height for a layout check. */
-function solidPng(w: number, h: number): Buffer {
-  const chunk = (type: string, data: Buffer) => {
-    const out = Buffer.concat([Buffer.alloc(4), Buffer.from(type), data, Buffer.alloc(4)]);
-    out.writeUInt32BE(data.length, 0);
-    out.writeUInt32BE(crc32(out.subarray(4, out.length - 4)), out.length - 4);
-    return out;
-  };
-  const head = Buffer.alloc(13);
-  head.writeUInt32BE(w, 0);
-  head.writeUInt32BE(h, 4);
-  head.set([8, 2, 0, 0, 0], 8);
-  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(w * 3, 0x9a)]);
-  return Buffer.concat([
-    Buffer.from('89504e470d0a1a0a', 'hex'),
-    chunk('IHDR', head),
-    chunk('IDAT', deflateSync(Buffer.concat(Array.from({ length: h }, () => row)))),
-    chunk('IEND', Buffer.alloc(0)),
-  ]);
-}
-
-const task = (d: FakeDaemon, id: number, more: Parameters<FakeDaemon['tasks']['seed']>[0]) => d.tasks.seed({ ...more, id });
 
 export const SEEDS: Record<string, Seed> = {
   /** An inbox card the daemon raised after its recovery failed, with an agent, so it offers Open terminal. */
@@ -81,66 +60,6 @@ export const SEEDS: Record<string, Seed> = {
       title: "18% of theta's weekly use will be lost at 02:10. These spare tasks can use it: T7101, T7102, T7103, T7104.",
       state: 'doing',
       tags: ['spare-notice'],
-    });
-  },
-
-  /** Three HR proposals: a new agent (team, model), a setting change old -> new, and one to reject. */
-  hr: (d) => {
-    const hr = d.script.hr;
-    hr.raise({
-      id: 901,
-      kind: 'add',
-      agent: 'handline.new-builder',
-      title: 'add handline.new-builder',
-      diff: 'add agent handline.new-builder\nteam: handline\nmodel: sonnet',
-      asked: { vendor: 'claude', model: 'sonnet', team: 'handline' },
-      reason: 'The story has nine independent UI tasks and one builder.',
-    });
-    hr.raise({
-      id: 902,
-      kind: 'settings',
-      agent: ARCH,
-      title: `settings ${ARCH}`,
-      diff: 'model: sonnet -> opus',
-      asked: { sets: { model: 'opus' } },
-      reason: 'Design reviews need the stronger model.',
-    });
-    hr.raise({
-      id: 903,
-      kind: 'retire',
-      agent: 'handline.term-build',
-      title: 'retire handline.term-build',
-      diff: 'retire agent handline.term-build',
-      reason: 'Its work is merged. Reject this one to keep the agent.',
-    });
-  },
-
-  /** Two agents set their own handoff prompt, so the global one is ignored by them. */
-  'handoff-own': (d) => {
-    d.admin.handoffOwn.push('handline.auditor', 'handline.term-build');
-  },
-
-  /** Two more HR proposals: one applying, held for the agent's running turn, and one the founder asked for themself (`requested_by` human). */
-  'hr-held': (d) => {
-    const hr = d.script.hr;
-    hr.raise({
-      id: 904,
-      kind: 'settings',
-      agent: 'handline.auditor',
-      title: 'settings handline.auditor',
-      diff: 'effort: medium -> high',
-      asked: { sets: { effort: 'high' } },
-      state: 'applying',
-      waiting_on: ['handline.auditor'],
-    });
-    hr.raise({
-      id: 905,
-      kind: 'retire',
-      agent: 'handline.term-build',
-      title: 'retire handline.term-build',
-      diff: 'retire agent handline.term-build',
-      requested_by: 'human',
-      reason: 'Held until its running session ends.',
     });
   },
 
@@ -227,78 +146,11 @@ export const SEEDS: Record<string, Seed> = {
     s.fx.view = { ...s.fx.view, needs_you: { kind: 'usage', since, text: null, source: 'hook' } };
   },
 
-  /** An approved proposal that did not apply, the daemon's error in its own words, and the daemon down notice's page. */
-  'hr-apply-failed': (d) => {
-    d.script.hr.raise({
-      id: 908,
-      kind: 'settings',
-      agent: ARCH,
-      title: 'settings handline.architect',
-      diff: 'effort: high',
-      state: 'apply_failed',
-      error:
-        'proposal p908 was not applied: agent.yaml is locked by another process. Retry when the lock clears (/Users/x/.handline/agents/handline.architect/agent.yaml).',
-    });
-  },
-
-  /** Two approved proposals whose change is applied but whose agent did not start: the architect's waits for the load, the auditor's failed. */
-  'hr-followup': (d) => {
-    const hr = d.script.hr;
-    hr.raise({
-      id: 906,
-      kind: 'settings',
-      agent: ARCH,
-      title: 'rename handline.architect',
-      diff: 'rename handline.architect -> handline.planner',
-      state: 'approved',
-      settled: new Date().toISOString(),
-      follow_up: { agent: ARCH, state: 'waiting', text: 'held: machine load - load 3.09 per core, limit 1.50' },
-    });
-    hr.raise({
-      id: 907,
-      kind: 'settings',
-      agent: AUD,
-      title: 'rename handline.auditor',
-      diff: 'rename handline.auditor -> handline.reviewer',
-      state: 'approved',
-      settled: new Date().toISOString(),
-      follow_up: { agent: AUD, state: 'failed', text: 'start failed: no free account' },
-    });
-  },
-
-  /** Chat messages with one-tap actions: OK / No on an open task the founder owns. */
-  'chat-actions': (d) => {
-    task(d, 6902, { id: 6902, from: ARCH, to: ME, title: 'Open task the founder owns', state: 'doing' });
-    d.chat.seed(ARCH, {
-      from: ARCH,
-      to: ME,
-      body: 'T6902 is yours. Is it fine to go ahead?',
-      tasks: [{ id: 6902, title: 'Open task the founder owns' }],
-      actions: [
-        { key: 'ok', label: 'OK', verb: 'task.done', task: 6902, params: { task: 6902 } },
-        { key: 'no', label: 'No', verb: 'task.handoff', task: 6902, params: { task: 6902, to: ARCH }, needs: 'note' },
-      ],
-    });
-  },
-
-  /** A long chat with the architect: 120 messages (four pages), every seventh with a picture, for paging up through history. */
-  'chat-long': (d) => {
-    const png = solidPng(240, 160);
-    for (let n = 1; n <= 120; n++) {
-      const mine = n % 2 === 0;
-      const shot = n % 7 === 0 ? d.uploads.add(`shot-${n}.png`, png) : null;
-      d.chat.seed(ARCH, {
-        from: mine ? ME : ARCH,
-        to: mine ? ARCH : ME,
-        body: `Message ${n}. ${'A line of the talk. '.repeat(1 + (n % 5))}`,
-        ...(shot ? { attachments: [{ id: shot.id, name: shot.name, mime: 'image/png', bytes: png.length }] } : {}),
-      });
-    }
-  },
-
   /** The account beta stalled on a billing error: its row shows STALLED and a founder can Wake it. */
   'account-stalled': (d) =>
     void d.accounts.stall('beta', { reason: 'billing_error', detail: 'The turn ended: the organization has a billing problem.' }),
+  ...HR_SEEDS,
+  ...CHAT_SEEDS,
 };
 
 /** Switches the named seeds on: a comma-separated list, or `all`. An unknown name is an error, not a silent no-op. */

@@ -11,10 +11,10 @@ function Thumb({ id, name, onOpen }: { id: string; name: string; onOpen: () => v
   const { url } = useAttachmentUrl(id, true);
   return url ? (
     <button type="button" className="border-0 bg-transparent p-0" aria-label={`Open ${name}`} title={name} onClick={onOpen}>
-      <img src={url} alt={name} className="h-16 w-auto max-w-[160px] rounded-card border border-line object-cover" />
+      <img src={url} alt={name} className="h-16 w-auto max-w-[160px] rounded-md border border-line object-cover" />
     </button>
   ) : (
-    <span className="muted text-hint">{name}</span>
+    <span className="muted text-xs">{name}</span>
   );
 }
 

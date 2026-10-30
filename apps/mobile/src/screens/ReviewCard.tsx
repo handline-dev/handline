@@ -34,8 +34,7 @@ export function ReviewCard(props: { task: number; item: number; off: string | un
       (r) => setShot(r.uri),
       (e: unknown) => setProblem(sentence(classify(e))),
     );
-  const finish = (evidence: string) =>
-    done.mutateAsync({ task: props.task, evidence, reason: true }).then(() => props.markRead());
+  const finish = (evidence: string) => done.mutateAsync({ task: props.task, evidence, reason: true }).then(() => props.markRead());
   const send = async () => {
     setSending(true);
     setProblem('');
@@ -71,7 +70,7 @@ export function ReviewCard(props: { task: number; item: number; off: string | un
             placeholder="What should change?"
             placeholderTextColor={c.muted}
             accessibilityLabel="What should change"
-            style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 64 }}
+            style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 64 }}
           />
           <Button
             testID="review-mark"
@@ -79,10 +78,17 @@ export function ReviewCard(props: { task: number; item: number; off: string | un
             disabled={first.state !== 'ready' || sending}
             onPress={() => void mark()}
           />
-          {shot && <MarkPicture uri={shot} start={marked?.marks} onCancel={() => setShot(null)} onDone={(r) => {
-            setMarked(r ?? marked);
-            setShot(null);
-          }} />}
+          {shot && (
+            <MarkPicture
+              uri={shot}
+              start={marked?.marks}
+              onCancel={() => setShot(null)}
+              onDone={(r) => {
+                setMarked(r ?? marked);
+                setShot(null);
+              }}
+            />
+          )}
         </Sheet>
       )}
       <View style={{ flexDirection: 'row', gap: space.sm }}>
@@ -94,7 +100,13 @@ export function ReviewCard(props: { task: number; item: number; off: string | un
           onPress={() => void finish(APPROVED).catch(() => {})} // the refusal is reported by the write itself
           style={BIG}
         />
-        <Button testID={`inbox-ask-${props.item}`} label="Ask for change" disabled={!!props.off} onPress={() => setAsking(true)} style={BIG} />
+        <Button
+          testID={`inbox-ask-${props.item}`}
+          label="Ask for change"
+          disabled={!!props.off}
+          onPress={() => setAsking(true)}
+          style={BIG}
+        />
       </View>
     </View>
   );

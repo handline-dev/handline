@@ -165,7 +165,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
               <Text
                 numberOfLines={1}
                 adjustsFontSizeToFit
-                style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.label }}
+                style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.sm }}
               >
                 {t === 'agents' ? 'Agents' : t === 'inbox' ? `My turn${turn ? ` (${turn})` : ''}` : t === 'tasks' ? 'Tasks' : 'Usage'}
               </Text>

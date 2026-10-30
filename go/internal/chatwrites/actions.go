@@ -30,10 +30,6 @@ type Result struct {
 
 func refusal(msg string) *Result { return &Result{Msg: msg} }
 
-func said(msg string) *Result {
-	return &Result{OK: true, Note: msg, Tell: func() string { return msg }}
-}
-
 // guarded runs what follows a commit: a failure there is logged and the message left empty, since the write is done and the tick is the net.
 // With a port missing (the daemon serves the writes before every port has landed) nothing is told.
 func guarded(e *supervisor.Env, what string, fn func() (string, error)) (out string) {

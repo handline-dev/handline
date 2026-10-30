@@ -59,13 +59,13 @@ export function HandoffPrompt({ settings }: { settings: HandoffSettings }) {
           }}
         />
         {bad ? (
-          <p className="m-0 flex items-center gap-1.5 text-hint text-bad" role="alert">
+          <p className="m-0 flex items-center gap-1.5 text-xs text-bad" role="alert">
             <Icon name="failed" size={14} label="Not saved" />
             Not saved, the old text stays. {bad}
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          {isBuiltin && !dirty ? <span className="rounded-ctl bg-raised px-1.5 text-hint text-ink-2">Built-in</span> : null}
+          {isBuiltin && !dirty ? <span className="rounded-sm bg-raised px-1.5 text-xs text-ink-2">Built-in</span> : null}
           <Button
             variant="outline"
             size="sm"
@@ -74,11 +74,11 @@ export function HandoffPrompt({ settings }: { settings: HandoffSettings }) {
             onClick={reset}
           />
         </div>
-        <div className="min-w-0 text-hint text-ink-2">
+        <div className="min-w-0 text-xs text-ink-2">
           <button
             type="button"
             aria-expanded={showReads}
-            className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-hint text-ink-2"
+            className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-xs text-ink-2"
             onClick={() => setShowReads(!showReads)}
           >
             <span className="flex shrink-0">
@@ -92,17 +92,17 @@ export function HandoffPrompt({ settings }: { settings: HandoffSettings }) {
             {showReads ? null : <span className="truncate">{reads.split('\n')[0]}</span>}
           </button>
           {showReads ? (
-            <p data-reads className="m-0 mt-1 whitespace-pre-wrap rounded-ctl bg-raised px-3 py-2">
+            <p data-reads className="m-0 mt-1 whitespace-pre-wrap rounded-sm bg-raised px-3 py-2">
               {reads}
             </p>
           ) : null}
         </div>
         {warning ? (
-          <p className="m-0 flex flex-wrap items-center gap-x-2 text-hint text-wait" role="status">
+          <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-wait" role="status">
             {warning}
             <button
               type="button"
-              className="cursor-pointer border-0 bg-transparent p-0 text-hint text-ink-2 underline"
+              className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 underline"
               onClick={() => setShowOwn(!showOwn)}
             >
               {showOwn ? 'Hide' : 'Show'}

@@ -24,17 +24,17 @@ function Card({ c, lit, dim, onPick }: { c: ColumnCard; lit: boolean; dim: boole
       data-lit={lit || undefined}
       data-dim={dim || undefined}
       title={`${taskRef(c.id)} ${c.title} · ${c.holder}`}
-      className="absolute flex cursor-pointer flex-col gap-0.5 overflow-hidden rounded-ctl border border-line bg-panel px-2.5 py-1.5 text-left text-body text-ink data-[band=done]:text-ink-3 data-[band=running]:border-working data-[dim]:opacity-35 data-[lit]:border-ink"
+      className="absolute flex cursor-pointer flex-col gap-0.5 overflow-hidden rounded-sm border border-line bg-panel px-2.5 py-1.5 text-left text-md text-ink data-[band=done]:text-ink-3 data-[band=running]:border-working data-[dim]:opacity-35 data-[lit]:border-ink"
       style={{ left: c.x, top: c.y, width: CARD_W, height: CARD_H }}
       onClick={onPick}
     >
       <span className="line-clamp-2 font-medium">{c.title}</span>
-      <span className="mt-auto flex items-center gap-1 truncate text-hint text-ink-2">
+      <span className="mt-auto flex items-center gap-1 truncate text-xs text-ink-2">
         <Icon name={STATE_GLYPH[c.state] ?? 'taskPending'} size={12} aria-hidden="true" />
         {taskRef(c.id)} · {c.state} · {c.holder}
       </span>
       {c.waitsOn || c.onYou ? (
-        <span className={`flex items-center gap-1 truncate text-hint ${c.onYou ? 'text-wait' : 'text-ink-3'}`}>
+        <span className={`flex items-center gap-1 truncate text-xs ${c.onYou ? 'text-wait' : 'text-ink-3'}`}>
           {c.onYou ? <Icon name="waiting" size={12} aria-hidden="true" /> : null}
           {c.waitsOn ?? 'needs you'}
         </span>
@@ -109,7 +109,7 @@ export function TaskColumns({
           {g.columns.map((c) => (
             <h2
               key={c.key}
-              className="absolute m-0 truncate text-label font-semibold text-ink-2"
+              className="absolute m-0 truncate text-sm font-semibold text-ink-2"
               style={{ left: c.x * zoom, top: 8, width: CARD_W * zoom, height: HEAD - 8 }}
             >
               {c.label}
@@ -121,14 +121,14 @@ export function TaskColumns({
           {g.bands.map((b) => (
             <span
               key={b.y}
-              className="absolute text-hint font-semibold uppercase tracking-wide text-ink-3"
+              className="absolute text-xs font-semibold uppercase tracking-wide text-ink-3"
               style={{ left: 8, top: b.y, width: GUTTER - 16 }}
             >
               {b.label}
             </span>
           ))}
           <span
-            className="absolute text-hint font-semibold uppercase tracking-wide text-working"
+            className="absolute text-xs font-semibold uppercase tracking-wide text-working"
             style={{ left: 8, top: g.nowY, width: GUTTER - 16 }}
           >
             Now
@@ -169,7 +169,7 @@ export function TaskColumns({
           ))}
         </div>
       </div>
-      <footer className="flex items-center gap-2 px-3 py-2 text-hint text-ink-3">
+      <footer className="flex items-center gap-2 px-3 py-2 text-xs text-ink-3">
         <span className="mr-auto">
           Solid arrow: waits on. Dashed: the agent's next. Click a card to light its chain, click it again to open.
         </span>

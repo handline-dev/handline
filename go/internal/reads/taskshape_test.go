@@ -7,8 +7,7 @@ import (
 	"github.com/handline/handline/go/internal/contracttest"
 )
 
-// The Python CLI reads these keys unguarded, so every one of the contract's Task must be on the row, but those that are absent when they
-// do not apply (later is only on a task the founder deferred).
+// The Python CLI reads these keys unguarded, so every one of the contract's Task must be on the row.
 func TestATaskRowCarriesEveryKeyOfTheContractTask(t *testing.T) {
 	raw := contracttest.Spec(t)
 	var proto struct {
@@ -35,7 +34,7 @@ func TestATaskRowCarriesEveryKeyOfTheContractTask(t *testing.T) {
 	}
 	for id, task := range got {
 		for k := range keys {
-			if _, ok := task[k]; !ok && k != "later" {
+			if _, ok := task[k]; !ok {
 				t.Errorf("T%d lacks %q", id, k)
 			}
 		}

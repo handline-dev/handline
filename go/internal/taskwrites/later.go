@@ -80,6 +80,9 @@ func laterOwnTask(q db.Q, kind, id string) (int64, error) {
 	return 0, nil
 }
 
+// laterNow is the clock later.set judges a time by.
+var laterNow = time.Now
+
 // laterSet is later.set. The founder's alone.
 func laterSet(c *rpc.Conn, p map[string]any) (any, error) {
 	kind, id, err := laterItem(p)
@@ -112,7 +115,7 @@ func laterSet(c *rpc.Conn, p map[string]any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		now := time.Now().Unix()
+		now := laterNow().Unix()
 		if until != nil && *until <= now {
 			return nil, rpc.Refused("until is not in the future", "", "")
 		}

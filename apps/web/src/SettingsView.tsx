@@ -51,7 +51,7 @@ export function SettingsView({ agent }: { agent: string }) {
     <ScrollPage className="settings" aria-label={`${agent} settings`}>
       <PageHead className="settings-head settings-agent" back={{ label: agent, to: () => leave(`#/agents/${encodeURIComponent(agent)}`) }}>
         <PageTitle>Settings</PageTitle>
-        <p className="settings-lede m-0 basis-full text-body text-ink-2">Each change saves as you make it.</p>
+        <p className="settings-lede m-0 basis-full text-md text-ink-2">Each change saves as you make it.</p>
       </PageHead>
       {served ? null : <p className="muted pad">This daemon does not edit agent settings.</p>}
       {served && !editable ? <p className="muted pad">Only the founder edits agent settings.</p> : null}
@@ -217,7 +217,7 @@ function Sites({ value, off, save }: { value: string; off: boolean; save: (v: st
       {sites.map((s) => (
         <span
           key={s}
-          className="site-chip inline-flex items-center gap-1 rounded-chip border border-line-strong pl-2 font-mono text-[12px]/4 font-normal"
+          className="site-chip inline-flex items-center gap-1 rounded-sm border border-line-strong pl-2 font-mono text-[12px]/4 font-normal"
         >
           {s}
           <Button

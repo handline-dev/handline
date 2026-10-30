@@ -3,7 +3,7 @@
   {
    "name": "later.set_replaces_and_clear_returns_a_task",
    "spec": "later.set",
-   "about": "A deferred task carries later {until} on its read; a second set replaces the first; clear removes it; a second clear finds nothing.",
+   "about": "A second set replaces the first; clear returns the item; a second clear finds nothing.",
    "as": "founder",
    "steps": [
     {
@@ -59,22 +59,6 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 4,
-      "method": "task.get",
-      "params": {
-       "task": "{{a0}}"
-      }
-     },
-     "result": {
-      "later": {
-       "$exact": true,
-       "until": "2099-01-01T00:00:00Z"
-      }
-     }
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
       "id": 5,
       "method": "later.set",
       "params": {
@@ -93,22 +77,6 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 6,
-      "method": "task.get",
-      "params": {
-       "task": "{{a0}}"
-      }
-     },
-     "result": {
-      "later": {
-       "$exact": true,
-       "until": "2099-02-02T00:00:00Z"
-      }
-     }
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
       "id": 7,
       "method": "later.clear",
       "params": {
@@ -121,21 +89,6 @@
      },
      "result": {
       "accepted": true
-     }
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
-      "id": 8,
-      "method": "task.get",
-      "params": {
-       "task": "{{a0}}"
-      }
-     },
-     "result": {
-      "later": {
-       "$absent": true
-      }
      }
     },
     {
@@ -164,7 +117,7 @@
   {
    "name": "later.a_task_returns_when_the_task_it_waits_for_is_done",
    "spec": "later.set",
-   "about": "With after_task the item is deferred while that task is open and carries later {after_task}; it loses it the moment the task is done.",
+   "about": "A task can wait for another task; the call is accepted while that task is open.",
    "as": "founder",
    "steps": [
     {
@@ -239,24 +192,6 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 5,
-      "method": "task.get",
-      "params": {
-       "task": "{{a1}}"
-      }
-     },
-     "result": {
-      "later": {
-       "$exact": true,
-       "after_task": {
-        "$type": "integer"
-       }
-      }
-     }
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
       "id": 6,
       "method": "task.done",
       "params": {
@@ -268,21 +203,6 @@
      },
      "result": {
       "accepted": true
-     }
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
-      "id": 7,
-      "method": "task.get",
-      "params": {
-       "task": "{{a1}}"
-      }
-     },
-     "result": {
-      "later": {
-       "$absent": true
-      }
      }
     }
    ]
@@ -594,21 +514,6 @@
       "data": {
        "code": "not_found",
        "what": "machine"
-      }
-     }
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
-      "id": 16,
-      "method": "task.get",
-      "params": {
-       "task": "{{a2}}"
-      }
-     },
-     "result": {
-      "later": {
-       "$absent": true
       }
      }
     }

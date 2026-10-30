@@ -105,7 +105,8 @@ export type Stats = {
   since: Timestamp;
   until: Timestamp;
   tasks_done: number;
-  working_seconds: { [key: string]: number };
+  /** Each agent's use of each account in the window, largest cost first; an agent on two accounts has two rows. */
+  use: AgentAccountUse[];
   moves: number;
   handoffs: number;
   blocks: number;
@@ -114,6 +115,21 @@ export type Stats = {
     five_hour_used_pct: number | null;
     weekly_used_pct: number | null;
   }[];
+};
+
+/** One agent's use of one account. tokens and cost are measured; week_pct is an estimate of the split, not of the account's rise. */
+export type AgentAccountUse = {
+  /** Empty for the calls of no agent's worktree (the founder's own sessions, the usage poll); drawn as Other. */
+  agent: string;
+  account: string;
+  /** Input, cache and output tokens. */
+  tokens: number;
+  /** List price, USD. */
+  cost: number;
+  /** This row's cost over the account's cost in the window, 0 to 1. */
+  share: number;
+  /** null when the account has no reading in the window or its calls had no list price. */
+  week_pct: number | null;
 };
 
 export type Outlook = {
@@ -159,7 +175,7 @@ export type Outlook = {
   }[];
   /** Only with `agent`: the points of the combined week the pick had used by each time of `past`, one number per `past` entry in the same order: its cost share of each account times what that account had used so far, averaged over the accounts. Empty when the pick used nothing in the span or is not an agent or group. Absent from a daemon that does not send it. */
   overlay?: number[];
-  /** Each account that has a reading in the span, by name: its windows and its pace line, for a chart per account. It replaces stats.headroom. Absent from a daemon that does not send it. */
+  /** Each account that has a reading in the span, by name: its windows and its pace line, for a chart per account. Absent from a daemon that does not send it. */
   by_account?: {
     account: string;
     /** What usage samples recorded, at the same points as `past`. */
@@ -184,56 +200,6 @@ export type Outlook = {
       unused_pct?: number;
     }[];
   }[];
-};
-
-export type Headroom = {
-  now: Timestamp;
-  step_s: number;
-  combined: {
-    /** Points up to now, oldest first. */
-    past: {
-      at: Timestamp;
-      left_pct: number | null;
-    }[];
-    /** Points after now: a guess, kept apart from `past`. An account with no recent reading is left out. */
-    future: {
-      at: Timestamp;
-      left_pct: number | null;
-    }[];
-  };
-  /** Accounts that have a reading in the samples, by name. */
-  accounts: {
-    account: string;
-    /** What usage samples recorded, at the same points as `combined.past`. */
-    past: {
-      at: Timestamp;
-      five_left: number | null;
-      week_left: number | null;
-    }[];
-    /** A guess: each window keeps its pace (the 5h one over the last day, the weekly one over this week) and starts again from nothing at its reset, so the 5h line is a saw. Null when the account's last reading is stale; 0 after an account ends. */
-    future: {
-      at: Timestamp;
-      five_left: number | null;
-      week_left: number | null;
-    }[];
-    /** A guess: the percent of this account's week still unused when it resets, if it goes on using the week at the rate of the last 24 hours (never below 0). Null when the week cannot be read or is over, or the last day has under 2 hours of readings to take a rate from. */
-    left_at_reset?: number | null;
-    /** The percent of this account's unused week that even full 5h windows from now to its reset could not use, at the account's measured ratio of weekly to 5h use (never below 0). Null when left_at_reset is, or the ratio is unknown. */
-    lost_anyway?: number | null;
-    /** Resets in the span, oldest first: those samples recorded, then those guessed (a 5h window opens again at its reset only while it is used). */
-    resets: {
-      at: Timestamp;
-      window: "5h" | "7d";
-      /** Only on a weekly (7d) reset the samples recorded: the percent of that week left unused at the last sample before it. Absent for a 5h reset, a guessed one, or a week with no sample. */
-      unused_pct?: number;
-    }[];
-  }[];
-  runs_out_at: Timestamp | null;
-  next_reset: {
-    at: Timestamp;
-    account: string;
-    window: "5h" | "7d";
-  } | null;
 };
 
 export interface AccountsMethods {
@@ -316,14 +282,6 @@ export interface AccountsMethods {
   "stats.get": { params: {
   window: "24h" | "7d";
 }; result: Stats };
-  "stats.headroom": { params: {
-  /** The first point. Default: 3 days before now. */
-  from?: Timestamp;
-  /** No point after this. Default: 3 days after now. After `from`. */
-  to?: Timestamp;
-  /** Seconds between points, from `from` on. Default 900. At most 2000 points. */
-  step_s?: number;
-}; result: Headroom };
   "stats.outlook": { params: {
   /** Headroom: that long back and as long ahead. Cost per day: the last that many days (under 1 day counts as 1). */
   range: "12h" | "24h" | "3d" | "7d" | "14d" | "30d";
@@ -343,6 +301,5 @@ export const ACCOUNTS_METHODS: { [K in keyof AccountsMethods]: { role: Role; cal
   "account.login_code": { role: "founder", callers: null, write: true, since: 1 },
   "account.remove": { role: "founder", callers: null, write: true, since: 1 },
   "stats.get": { role: "member", callers: null, write: false, since: 1 },
-  "stats.headroom": { role: "member", callers: null, write: false, since: 1 },
   "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
 };

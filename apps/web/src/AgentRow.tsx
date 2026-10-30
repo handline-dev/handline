@@ -3,9 +3,11 @@ import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
 import { ago, dotOf, queuedBehind, rowName, agentStateWord, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
-import { Badges } from '#src/Badges.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
-import { Icon, Menu, type At, MenuContent, MenuTrigger } from '#src/ui/index.ts';
+import { Hand } from 'lucide-react';
+import { Chip } from '#src/ds/Chip.tsx';
+import { Badges } from '#src/Badges.tsx';
+import { Icon, Menu, type At, MenuContent, MenuTrigger, VisuallyHidden } from '#src/ui/index.ts';
 import { goAgent } from '#src/route.ts';
 import { AgentMenu, RowControls } from '#src/RowControls.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
@@ -89,8 +91,8 @@ function AgentRowView({
   }, [kindLen]);
   const queued = queuedBehind(a) || 0;
   const queuedTip = [`${queued} waiting behind the current task`, ...waiting.map((t) => `${taskRef(t.id)} ${t.title}`)].join('\n');
-  const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
   const badges = badgesOf(a, me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
+  const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
   const tip = [a.name, mark ?? agentStateWord(a.state), ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
     .join(' · ');
@@ -151,33 +153,31 @@ function AgentRowView({
                     {a.handoff ? (
                       <span
                         title="Restarting…"
-                        className="restarting inline-flex flex-none items-center gap-1 whitespace-nowrap text-label text-primary"
+                        className="restarting inline-flex flex-none items-center gap-1 whitespace-nowrap text-sm text-acc"
                       >
                         <Icon name="refresh" size={12} aria-hidden className="animate-spin motion-reduce:animate-none" />
                         {roomy ? 'Restarting…' : null}
                       </span>
                     ) : null}
                     {a.needs_you ? (
-                      <span
-                        className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
-                        title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}
-                      >
-                        <Icon name={a.needs_you.kind === 'permission' ? 'permission' : 'answer'} size={12} label={a.needs_you.kind} />
-                        {wide ? <span>{a.needs_you.kind}</span> : null}
+                      <span className="needs inline-flex flex-none" title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}>
+                        <Chip kind="you" icon={Hand}>
+                          {wide ? a.needs_you.kind : <VisuallyHidden>{a.needs_you.kind}</VisuallyHidden>}
+                        </Chip>
                       </span>
                     ) : null}
+                    <Badges badges={badges} mark />
                     {a.founder_unread ? (
                       <span
-                        className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
+                        className="unread inline-flex flex-none"
                         title={`${a.founder_unread} unseen ${a.founder_unread === 1 ? 'request' : 'requests'} to you`}
                       >
-                        {a.founder_unread}
+                        <Chip kind="unread">{a.founder_unread}</Chip>
                       </span>
                     ) : null}
-                    <Badges badges={badges} />
                     {stuck ? (
                       <span
-                        className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-wait"
+                        className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-xs text-wait"
                         title={`${stuck} under ${a.name} cannot go on: held for load, waiting on a dialog, or blocked`}
                       >
                         <Icon name="warn" size={11} aria-hidden />
@@ -186,7 +186,7 @@ function AgentRowView({
                     ) : null}
                     {working ? (
                       <span
-                        className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-working"
+                        className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-xs text-working"
                         title={`${working} working under ${a.name}`}
                       >
                         <Icon name="working" size={11} aria-hidden className="animate-spin motion-reduce:animate-none" />
@@ -195,7 +195,7 @@ function AgentRowView({
                     ) : null}
                     {queued ? (
                       <span
-                        className="row-queued inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-ink-2"
+                        className="row-queued inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-xs text-ink-2"
                         title={queuedTip}
                       >
                         <Icon name="tasks" size={11} aria-hidden />
@@ -203,10 +203,10 @@ function AgentRowView({
                       </span>
                     ) : null}
                   </span>
-                  <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3">{ago(stamp)}</span>
+                  <span className="row-time flex-none whitespace-nowrap text-xs text-ink-3">{ago(stamp)}</span>
                 </button>
                 <span
-                  className={`row-line block h-4 cursor-pointer truncate pl-[22px] text-hint leading-4 ${a.founder_unread ? 'font-medium text-ink' : 'text-ink-2'}`}
+                  className={`row-line block h-4 cursor-pointer truncate pl-[22px] text-xs leading-4 ${a.founder_unread ? 'font-medium text-ink' : 'text-ink-2'}`}
                   title={line}
                   onClick={() => goAgent(a.name)}
                 >

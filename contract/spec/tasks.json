@@ -363,14 +363,6 @@
      "status": {
       "$ref": "#/components/schemas/Status",
       "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
-     },
-     "later": {
-      "allOf": [
-       {
-        "$ref": "#/components/schemas/Later"
-       }
-      ],
-      "description": "Only while the founder has the task deferred (later.set): when it returns. Absent otherwise. A client leaves the task out of For you and shows the Waiting for a time glyph by it."
      }
     },
     "required": [

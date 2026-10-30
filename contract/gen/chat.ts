@@ -1,6 +1,6 @@
 // Generated from contract/spec/ by contract/generate.py; do not edit.
 /* eslint-disable */
-import type { Accepted, AgentName, AttachmentId, Duration, ImagePart, Later, Prompt, ReadCursor, RequestId, RequestName, RequestRef, Role, TextPart, Timestamp } from './core.ts';
+import type { Accepted, AgentName, AttachmentId, Duration, ImagePart, Prompt, ReadCursor, RequestId, RequestName, RequestRef, Role, TextPart, Timestamp } from './core.ts';
 
 export type InboxItem = {
   id: number;
@@ -18,8 +18,6 @@ export type InboxItem = {
   fix?: "open_terminal";
   /** Only on an ask an agent's task comment raised by naming `@human` (task.comment.add): that comment's id on `task`. A client opens the comment itself. Absent on any other item. */
   memo?: number;
-  /** Only on a deferred ask of a task comment (with `memo`): when it returns. Absent when not deferred. */
-  later?: Later;
 };
 
 /** Landing state of a message; open set. */
@@ -88,6 +86,16 @@ export type TranscriptItem = {
   /** Prompt card; `open` says whether it can still be answered. */
   prompt?: Prompt;
   open?: boolean;
+  /** For kind prompt, once it is answered or closed: what it got. Answered through Handline (prompt.answer): `label` is the words for the choice (Allowed or Denied for a permission; the picked options' labels, joined by ", ", for a question, or Other for typed text; the option's label for a dialog; Cancelled for Esc), `note` the typed text or a deny's reason when there is one, `by` who answered (a person or a paired device, by name) and `at` when. Closed any other way (answered in the terminal, or gone): `outside` true and `at` when the daemon saw it close. Absent while the prompt is open and unanswered. */
+  answer?: {
+    label: string;
+    note?: string;
+    by: string;
+    at: Timestamp;
+  } | {
+    outside: true;
+    at: Timestamp;
+  };
   task_event?: {
     event: "opened" | "changed" | "done" | "withdrawn";
     task: number;

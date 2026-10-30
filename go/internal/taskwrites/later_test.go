@@ -129,3 +129,31 @@ func TestTheFounderDefersAnItemAndReturnsIt(t *testing.T) {
 		t.Errorf("a second clear: %q", got)
 	}
 }
+
+// A time is in the future only when it is after now: the second itself is not.
+func TestAnUntilAtThisVeryTimeIsRefused(t *testing.T) {
+	sdb, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sdb.Close()
+	if _, err := sdb.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'human', 'boss', 1)"); err != nil {
+		t.Fatal(err)
+	}
+	was := laterNow
+	laterNow = func() time.Time { return time.Unix(1_000_000, 0) }
+	defer func() { laterNow = was }()
+	s := rpc.NewServer(auth{""}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	s.DB = sdb
+	Register(s, t.TempDir(), &fakeTeller{}, nil)
+	at := func(unix int64, rid string) map[string]any {
+		return call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"later.set","params":{"item":{"kind":"task","id":"1"},"until":%q,"request_id":%q}}`,
+			time.Unix(unix, 0).UTC().Format(time.RFC3339), rid))[0]
+	}
+	if r := at(1_000_000, "a"); r["error"] == nil {
+		t.Errorf("until now was accepted: %v", r)
+	}
+	if r := at(1_000_001, "b"); r["error"] != nil {
+		t.Errorf("one second on was refused: %v", r)
+	}
+}

@@ -68,7 +68,7 @@ const dash = (v: string | number | null | undefined) => (v === null || v === und
 /** What `hl account list` adds to the gauges: plan and runway, and whether another agent may start and why not; `working` adds the agents count a list row already shows in its head. Nothing until the usage read arrives. */
 function UsageLines({ a, working }: { a: Account; working?: boolean }) {
   const c = usePalette();
-  const style = { color: c.muted, fontSize: font.size.label };
+  const style = { color: c.muted, fontSize: font.size.sm };
   if (a.plan === undefined && a.runway === undefined && a.assignable === undefined && !(working && a.agents_running !== undefined))
     return null;
   return (
@@ -109,7 +109,7 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
         </Text>
       </View>
       {props.detail && g.resetIn !== null ? (
-        <Text style={{ color: c.muted, fontSize: font.size.label }}>resets in {span(g.resetIn)}</Text>
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>resets in {span(g.resetIn)}</Text>
       ) : null}
     </View>
   );
@@ -120,7 +120,7 @@ function PaceLine({ a }: { a: Account }) {
   const c = usePalette();
   const line = paceLine(a);
   return line ? (
-    <Text testID={`pace-line-${a.name}`} style={{ color: a.pace?.state === 'over' ? c.block : c.muted, fontSize: font.size.label }}>
+    <Text testID={`pace-line-${a.name}`} style={{ color: a.pace?.state === 'over' ? c.block : c.muted, fontSize: font.size.sm }}>
       {line}
     </Text>
   ) : null;
@@ -169,7 +169,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                 <Text style={{ color: c.ink, fontWeight: '600' }}>{a.label}</Text>
                 <Text style={{ color: c.muted }}>{agentsLine(a)}</Text>
               </View>
-              {stateText(a) ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{stateText(a)}</Text> : null}
+              {stateText(a) ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{stateText(a)}</Text> : null}
               {stateOf(a) === 'needs_login' ? (
                 <Button
                   testID={`login-${a.name}`}
@@ -237,7 +237,7 @@ function Input(props: { value: string; onChange: (v: string) => void; label: str
       onChangeText={props.onChange}
       keyboardType={props.keyboardType}
       autoCapitalize="none"
-      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
+      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 44 }}
     />
   );
 }
@@ -260,7 +260,7 @@ function Body({ a }: { a: Account }) {
   const c = usePalette();
   return (
     <ScrollView testID="account-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
-      <Text style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700' }}>{a.label}</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>{a.label}</Text>
       {stateText(a) ? <Text style={{ color: c.muted }}>{stateText(a)}</Text> : null}
       <Gauge label="5 hours" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
@@ -411,7 +411,7 @@ function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
       {would ? (
         <>
           <Input testID="sheet-confirm" label={`Type ${a.name} to confirm`} value={typed} onChange={setTyped} />
-          <Text style={{ color: c.muted, fontSize: font.size.label }}>Its directory is moved aside, not deleted.</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.sm }}>Its directory is moved aside, not deleted.</Text>
         </>
       ) : null}
     </Sheet>

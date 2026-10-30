@@ -6,6 +6,9 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 )
 
+// maxPushToken bounds a push token: an APNs token is 64 hex characters and an FCM one a few hundred, so this is room, not a format.
+const maxPushToken = 4096
+
 // Emit puts an event on the devices topic; actor is nil for none. A nil Emit sends none.
 type Emit func(typ string, data map[string]any, actor map[string]any, title string)
 
@@ -68,6 +71,35 @@ func Register(s *rpc.Server, m *Manager, emit Emit) {
 			return nil, rpc.NotFoundError("no such device: " + id)
 		}
 		emit("device.revoked", map[string]any{"device": id}, c.Caller.ActorInfo(), "device "+id+" revoked")
+		return map[string]any{"accepted": true}, nil
+	}})
+	s.Register("device.push_token", rpc.Method{Role: "founder", Write: true, Handler: func(c *rpc.Conn, p map[string]any) (any, error) {
+		id, _ := c.Caller.Info["device"].(string)
+		if id == "" {
+			return nil, rpc.Refused("device.push_token is a paired device's own call: this connection is no device", "device", "")
+		}
+		platform, _ := p["platform"].(string)
+		if platform != "apns" && platform != "fcm" {
+			return nil, rpc.BadRequestError("platform is apns or fcm", "platform", rpc.InvalidParams)
+		}
+		token, _ := p["token"].(string)
+		if token == "" || len(token) > maxPushToken {
+			return nil, rpc.BadRequestError("token is the push token the OS gave, a string of at most 4096 bytes", "token", rpc.InvalidParams)
+		}
+		sandbox, ok := p["sandbox"].(bool)
+		if _, has := p["sandbox"]; has && !ok {
+			return nil, rpc.BadRequestError("sandbox is true or false", "sandbox", rpc.InvalidParams)
+		}
+		if m == nil {
+			return nil, off()
+		}
+		found, err := m.SetPush(id, Push{Platform: platform, Token: token, Sandbox: sandbox})
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, rpc.NotFoundError("no such device: " + id)
+		}
 		return map[string]any{"accepted": true}, nil
 	}})
 	s.Register("devices.list", rpc.Method{Role: "founder", Handler: func(c *rpc.Conn, p map[string]any) (any, error) {

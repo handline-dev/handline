@@ -12,11 +12,11 @@ function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: num
       className="hit flex w-full flex-col items-start gap-0.5 border-0 bg-transparent px-2 py-1.5 text-left tint"
       onClick={() => onGo(m.id)}
     >
-      <span className="flex w-full items-baseline gap-2 text-label text-ink-2">
+      <span className="flex w-full items-baseline gap-2 text-sm text-ink-2">
         <strong className="font-medium text-ink">{m.from}</strong>
         <span>{dateTime(m.at)}</span>
       </span>
-      <span className="text-body text-ink">{searchSnippet(m.body, query)}</span>
+      <span className="text-md text-ink">{searchSnippet(m.body, query)}</span>
     </button>
   );
 }
@@ -65,11 +65,11 @@ export function ChatSearch({
       />
       {showing ? (
         <div
-          className="results absolute top-full right-0 z-10 mt-1 max-h-80 w-96 max-w-[80vw] overflow-auto rounded-dialog border border-line bg-panel shadow-[var(--shadow-2)]"
+          className="results absolute top-full right-0 z-10 mt-1 max-h-80 w-96 max-w-[80vw] overflow-auto rounded-lg border border-line bg-panel shadow-[var(--shadow)]"
           aria-live="polite"
         >
           {found.isError ? (
-            <p className="p-2 text-body text-ink-2" role="alert">
+            <p className="p-2 text-md text-ink-2" role="alert">
               {sentence(classify(found.error)) ?? 'Search failed'}
             </p>
           ) : found.data && !hits.length ? (
@@ -78,7 +78,7 @@ export function ChatSearch({
             hits.map((m) => <Hit key={m.id} m={m} query={query} onGo={go} />)
           )}
           {found.isFetching ? (
-            <p className="flex items-center gap-1.5 p-2 text-body text-ink-3">
+            <p className="flex items-center gap-1.5 p-2 text-md text-ink-3">
               <Icon name="search" size={14} aria-hidden /> Searching…
             </p>
           ) : null}

@@ -32,8 +32,6 @@ func duration(secs int64) string {
 	return fmt.Sprintf("%ds", secs)
 }
 
-func ended(t row) bool { return t.str("done_evidence") != "" || t.str("discarded_by") != "" }
-
 // openTask is ended in SQL, negated: a task with no done evidence that was not discarded.
 const openTask = "COALESCE(done_evidence, '') = '' AND COALESCE(discarded_by, '') = ''"
 
@@ -433,11 +431,6 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	}
 	if len(blockedBy) > 0 {
 		task["block_reason"] = "waiting on " + tids(blockedBy)
-	}
-	if later, err := e.laterOf(db.LaterTask, t.i("id")); err != nil {
-		return nil, err
-	} else if later != nil {
-		task["later"] = later
 	}
 	return task, nil
 }

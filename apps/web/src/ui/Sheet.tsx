@@ -20,13 +20,13 @@ export function Sheet({
 }: ComponentProps<'form'> & { kind?: Kind; as?: 'div' | 'span' | 'form'; danger?: boolean }) {
   const Tag = motion[As] as unknown as ComponentType<ComponentProps<'form'>>; // one of three tags that take the same props
   const open = useOpenMotion();
-  const look = danger ? 'danger basis-full bg-[color-mix(in_srgb,var(--s-bad)_8%,var(--panel))]' : '';
+  const look = danger ? 'danger basis-full bg-[color-mix(in_srgb,var(--s-bad)_8%,var(--bg-2))]' : '';
   return (
     <Tag
       {...open}
       {...rest}
       style={{ overflowY: 'clip', overflowX: 'visible', ...rest.style }}
-      className={`${SIZE[kind]} flex flex-wrap items-center rounded-card bg-panel ${look}${className ? ` ${className}` : ''}`}
+      className={`${SIZE[kind]} flex flex-wrap items-center rounded-md bg-panel ${look}${className ? ` ${className}` : ''}`}
     />
   );
 }

@@ -4,7 +4,7 @@ import { fillTab, openTab, splitPane, tabId } from '@handline/app-core';
 import { Button, Dialog } from '#src/ui/index.ts';
 import { useWorkspaceIfAny } from '#src/Workspace.tsx';
 
-const LINK = 'ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline cursor-pointer break-all text-left';
+const LINK = 'ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-acc-ink underline cursor-pointer break-all text-left';
 
 /** The web addresses of a text, trailing punctuation left out. */
 export function findUrls(text: string): { start: number; end: number }[] {
@@ -34,7 +34,7 @@ export function WebLink({ url }: { url: string }) {
       </button>
       {asking ? (
         <Dialog title="Open link" onClose={() => setAsking(false)} action={{ label: 'In app', onClick: inside }}>
-          <p className="m-0 break-all text-body text-ink-2">{url}</p>
+          <p className="m-0 break-all text-md text-ink-2">{url}</p>
           <div>
             <Button variant="outline" label="External browser" onClick={outside} />
           </div>

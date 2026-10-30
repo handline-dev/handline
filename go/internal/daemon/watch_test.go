@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,4 +82,45 @@ func TestTheWatcherIsOffUntilCutoverAndThenOneChangeIsOneRow(t *testing.T) {
 			t.Errorf("one change wrote %d %s rows", n, typ)
 		}
 	}
+}
+
+// A deferral's time passes with no commit to mark it, so only the watch's signature wakes a quiet daemon to return the item.
+func TestADeferralReturnsWhenItsTimePassesInAQuietDaemon(t *testing.T) {
+	dir, err := os.MkdirTemp("", "hl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	d, err := Start(Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), SocketFile: filepath.Join(dir, "d.sock"), Auth: fakeAuth{}, Watch: true})
+	if err != nil {
+		if strings.Contains(err.Error(), "operation not permitted") {
+			t.Skipf("this environment will not bind a socket: %v", err)
+		}
+		t.Fatal(err)
+	}
+	defer d.Close()
+	for i := 0; i < 200; i++ { // the last detector's first look sets its cursors
+		var n int
+		if d.db.QueryRow("SELECT COUNT(*) FROM cursors WHERE name = 'stream:chat_prompts'").Scan(&n); n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'human', 'boss', 1)",
+		fmt.Sprintf("INSERT INTO later(item_kind, item_id, until_at, set_at) VALUES('task', '1', %d, 1)", time.Now().Unix()+2),
+	} {
+		if _, err := d.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 150; i++ { // up to 7.5 s: nothing commits after the insert
+		var n int
+		d.db.QueryRow("SELECT COUNT(*) FROM stream_log WHERE type = 'later_returned'").Scan(&n)
+		if n == 1 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the deferral's time passed and nothing came back")
 }

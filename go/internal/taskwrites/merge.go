@@ -118,14 +118,6 @@ func mergeRowOf(tx *sql.Tx, tid int64) (*mergeRow, error) {
 	return r, err
 }
 
-// openerAndReporter is _opener_and_reporter: the opener named in a refusal, then the reporter when it is someone else.
-func openerAndReporter(opener, reporter string) string {
-	if reporter == opener {
-		return opener + ")"
-	}
-	return opener + "), its reporter (" + reporter + ")"
-}
-
 // mergeChecks is _merge_checks: the refusal, if any, and the rows to fold, read in the merge's own transaction.
 func mergeChecks(tx *sql.Tx, keep int64, others []int64) (*mergeRow, []*mergeRow, error) {
 	keepRow, err := mergeRowOf(tx, keep)

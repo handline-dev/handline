@@ -12,14 +12,14 @@ function Gauge({ name, info, children }: { name: string; info?: ReactNode; child
   if (!info) return <span className="inline-flex flex-none items-center gap-1 text-ink-2 [&_.meter]:mx-0">{children}</span>;
   return (
     <MenuButton
-      className={`${STRIP_ITEM} flex-none gap-1 text-hint text-ink-2 [&_.meter]:mx-0`}
+      className={`${STRIP_ITEM} flex-none gap-1 text-xs text-ink-2 [&_.meter]:mx-0`}
       label={`${name} details`}
       aria-label={`${name} details`}
       name={name}
       align="start"
       trigger={children}
     >
-      <div className="min-w-48 px-2 pb-1.5 pt-0.5 text-hint text-ink-2">{info}</div>
+      <div className="min-w-48 px-2 pb-1.5 pt-0.5 text-xs text-ink-2">{info}</div>
     </MenuButton>
   );
 }

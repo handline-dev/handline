@@ -13,7 +13,9 @@
     "test": "../../tools/heavy-slot.sh vitest run",
     "typecheck": "tsc -p .",
     "lint": "eslint .",
-    "perf": "node scripts/perf/run.ts"
+    "perf": "node scripts/perf/run.ts",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -41,6 +43,7 @@
   "devDependencies": {
     "@handline/config": "workspace:*",
     "@handline/fake-daemon": "workspace:*",
+    "@storybook/react-vite": "10.6.5",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -48,6 +51,7 @@
     "@xterm/headless": "^6.0.0",
     "babel-plugin-react-compiler": "1.0.0",
     "happy-dom": "^18",
+    "storybook": "10.6.5",
     "tailwindcss": "^4.3.3",
     "vite": "^7",
     "vitest": "^3"

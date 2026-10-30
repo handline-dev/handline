@@ -1,12 +1,8 @@
 package session
 
 import (
-	"bytes"
-	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -77,26 +73,6 @@ type timedOut struct{ d time.Duration }
 
 func (t timedOut) Error() string { return "timed out after " + t.d.String() }
 
-func runPS(timeout time.Duration, argv ...string) (Ran, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
-	if ctx.Err() == context.DeadlineExceeded {
-		return Ran{}, timedOut{timeout}
-	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		return Ran{out.String(), errb.String(), exit.ExitCode()}, nil
-	}
-	if err != nil {
-		return Ran{}, err
-	}
-	return Ran{Stdout: out.String(), Stderr: errb.String()}, nil
-}
-
 // Observer reads the process table and the terminal host.
 type Observer struct {
 	Term Terminal
@@ -110,11 +86,6 @@ type Observer struct {
 
 	mu      sync.Mutex
 	failing bool
-}
-
-// NewObserver is an Observer on the real machine.
-func NewObserver(t Terminal, report func(string), accountNamedBy func(string) string) *Observer {
-	return &Observer{Term: t, Report: report, Run: runPS, Sleep: time.Sleep, UID: os.Getuid(), AccountNamedBy: accountNamedBy}
 }
 
 // trail is why the last reading came back nil: which call, how it failed, the first line of its stderr. Never an environment value:
@@ -207,12 +178,6 @@ type proc struct {
 	command string
 }
 
-// ProcessTable is the process table, nil when it could not be read.
-func (o *Observer) ProcessTable() []proc {
-	rows, _ := o.processTable(&trail{})
-	return rows
-}
-
 func (o *Observer) psCommand(tr *trail, pid int, flags string) (string, bool) {
 	r, ok := o.ps(tr, 10*time.Second, "ps", flags, "-o", "command=", "-p", strconv.Itoa(pid))
 	if !ok {
@@ -281,16 +246,6 @@ func (o *Observer) envOrReason(tr *trail, pid int) (env string, ok, notOurs bool
 type Process struct {
 	PID     int
 	Command string
-}
-
-// Table is the process table as exported rows; ok is false when it could not be read.
-func (o *Observer) Table() ([]Process, bool) {
-	rows, ok := o.processTable(&trail{})
-	out := make([]Process, len(rows))
-	for i, r := range rows {
-		out[i] = Process{r.pid, r.command}
-	}
-	return out, ok
 }
 
 // ProcessEnv is pid's own environment, past its argv: never argv itself, which a caller controls and can put an env-looking token

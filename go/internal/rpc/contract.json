@@ -126,6 +126,9 @@
  "device.pair": {
   "role": "founder"
  },
+ "device.push_token": {
+  "role": "founder"
+ },
  "device.redeem": {
   "role": "anonymous"
  },
@@ -306,9 +309,6 @@
   "role": "member"
  },
  "stats.get": {
-  "role": "member"
- },
- "stats.headroom": {
   "role": "member"
  },
  "stats.outlook": {

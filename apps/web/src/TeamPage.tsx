@@ -110,7 +110,7 @@ function TeamTree({ nodes, doing, edges }: { nodes: TeamNode[]; doing: Doing; ed
   const rows = (list: TeamNode[], depth: number): { n: TeamNode; depth: number }[] =>
     list.flatMap((n) => [{ n, depth }, ...(folded.has(n.agent.name) ? [] : rows(n.children, depth + 1))]);
   return (
-    <div className="team-board flex flex-col rounded-card bg-surface" role="tree" aria-label="Team">
+    <div className="team-board flex flex-col rounded-md bg-surface" role="tree" aria-label="Team">
       {rows(nodes, 0).map(({ n, depth }) => {
         const a = n.agent;
         const d = doing(a.name);
@@ -144,15 +144,15 @@ function TeamTree({ nodes, doing, edges }: { nodes: TeamNode[]; doing: Doing; ed
                 </span>
               </span>
               <span
-                className="team-task min-w-0 truncate text-label text-ink-2"
+                className="team-task min-w-0 truncate text-sm text-ink-2"
                 title={d?.task ? `${taskRef(d.task.id)} ${d.task.title}` : undefined}
               >
                 {d?.task ? `${taskRef(d.task.id)} ${d.task.title}` : ''}
               </span>
-              <span className="team-model min-w-0 truncate text-label text-ink-2">
+              <span className="team-model min-w-0 truncate text-sm text-ink-2">
                 {d?.model ? `${d.model}${d.effort ? ` · ${d.effort}` : ''}` : ''}
               </span>
-              <span className="team-account min-w-0 truncate text-label text-ink-2">{d?.account ?? ''}</span>
+              <span className="team-account min-w-0 truncate text-sm text-ink-2">{d?.account ?? ''}</span>
             </div>
             <Reveal show={open === a.name}>
               <div className="px-3 pb-2" style={{ paddingLeft: `${depth * 16 + 12 + 20}px` }}>
@@ -204,7 +204,7 @@ function AgentDetail({ name, edges }: { name: string; edges: Edges }) {
 function TeamChart({ nodes, doing, edges }: { nodes: TeamNode[]; doing: Doing; edges: Edges }) {
   const [picked, setPicked] = useState<string | null>(null);
   return (
-    <div className="team-chart flex flex-col gap-3 overflow-x-auto rounded-card bg-surface p-4" aria-label="Team chart">
+    <div className="team-chart flex flex-col gap-3 overflow-x-auto rounded-md bg-surface p-4" aria-label="Team chart">
       {nodes.map((n) => (
         <ChartNode key={n.agent.name} node={n} doing={doing} pick={setPicked} />
       ))}
@@ -224,7 +224,7 @@ function ChartNode({ node, doing, pick }: { node: TeamNode; doing: Doing; pick: 
     <div className="flex items-center gap-4">
       <button
         type="button"
-        className="team-box flex min-w-0 max-w-56 flex-none cursor-pointer items-center gap-1.5 rounded-card border border-line bg-panel px-2.5 py-1.5 text-left tint"
+        className="team-box flex min-w-0 max-w-56 flex-none cursor-pointer items-center gap-1.5 rounded-md border border-line bg-panel px-2.5 py-1.5 text-left tint"
         data-agent={a.name}
         onClick={() => pick(a.name)}
       >

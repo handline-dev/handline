@@ -66,17 +66,6 @@ func (h *Hub) publish(ev *Event) {
 	}
 }
 
-// EmitTranscript sends a transcript event (a committed row, as transcript.events shows it) to the subscribers of the transcript topic
-// that want its agent. Events are live only and carry cursor 0: a client that missed any reads transcript.events from its last seq.
-func (h *Hub) EmitTranscript(agent string, ev map[string]any) {
-	data, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
-	at, _ := ev["at"].(string)
-	h.publish(&Event{Topic: transcriptTopic, Type: "transcript.event", At: at, Agent: &agent, Data: data})
-}
-
 // Emit sends a devices event to every subscriber. Events are live only and carry cursor 0: the stream's cursors
 // are the log's, and a client resumes the devices topic from devices.list.
 func (h *Hub) Emit(typ string, data, actor map[string]any, title string) {

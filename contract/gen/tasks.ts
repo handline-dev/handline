@@ -1,6 +1,6 @@
 // Generated from contract/spec/ by contract/generate.py; do not edit.
 /* eslint-disable */
-import type { Accepted, Actor, AgentName, AttachmentId, Duration, ImagePart, Later, LaterItem, ReadCursor, RequestId, RequestName, RequestRef, Role, Status, TextPart, Timestamp, Topic } from './core.ts';
+import type { Accepted, Actor, AgentName, AttachmentId, Duration, ImagePart, LaterItem, ReadCursor, RequestId, RequestName, RequestRef, Role, Status, TextPart, Timestamp, Topic } from './core.ts';
 
 /** The task's clock. */
 export type TaskClock = {
@@ -80,8 +80,6 @@ export type Task = {
   watch?: TaskWatch | null;
   /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
   status?: Status;
-  /** Only while the founder has the task deferred (later.set): when it returns. Absent otherwise. A client leaves the task out of For you and shows the Waiting for a time glyph by it. */
-  later?: Later;
 };
 
 /** Why a task waits (Task.waiting). */

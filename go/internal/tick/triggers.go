@@ -134,15 +134,6 @@ func StayOrMove(workWaiting bool, resetInS *float64, stayWithin float64) (bool, 
 	return true, "work is waiting and its account resets too late to wait for"
 }
 
-// StretchS is how long an account lasts before its wall with one more agent on it, at that agent's cost.
-func StretchS(headroomPct, fillPerS, agentPerS float64) float64 {
-	rate := math.Max(0, fillPerS) + agentPerS
-	if rate > 0 {
-		return headroomPct / rate
-	}
-	return math.Inf(1)
-}
-
 // NextReset is when a window rolls over, used as wake_at for a parked agent: shortly from now when the reset is unknown or past.
 func NextReset(reset, now int64) int64 {
 	if reset > now {

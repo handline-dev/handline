@@ -10,8 +10,8 @@ function Row(props: { id: string; label: string; value: string; small?: boolean 
   const c = usePalette();
   return (
     <View testID={`conn-${props.id}`} style={{ gap: 2 }}>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.label}</Text>
-      <Text selectable style={{ color: c.ink, fontSize: props.small ? font.size.label : undefined }}>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{props.label}</Text>
+      <Text selectable style={{ color: c.ink, fontSize: props.small ? font.size.sm : undefined }}>
         {props.value}
       </Text>
     </View>

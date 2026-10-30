@@ -3,68 +3,46 @@ export const breakpoints = { phone: 640, pc: 1024 } as const;
 export type Breakpoint = 'phone' | 'tablet' | 'pc';
 export const breakpointOf = (width: number): Breakpoint => (width < breakpoints.phone ? 'phone' : width < breakpoints.pc ? 'tablet' : 'pc');
 
-/** Six type steps. The PC body is 15 px with room around it; the phone's body is 14 px for touch. */
-export const typeSteps = ['hint', 'label', 'body', 'title', 'page', 'display'] as const;
+/** Five type steps, one scale for the PC and the phone. Weights: 400, 500 for names and buttons, 600 for titles. */
+export const typeSteps = ['xs', 'sm', 'md', 'lg', 'xl'] as const;
 export type TypeStep = (typeof typeSteps)[number];
-export const typeScale: Record<'pc' | 'phone', Record<TypeStep, { size: number; line: number }>> = {
-  pc: {
-    hint: { size: 11, line: 14 },
-    label: { size: 13, line: 18 },
-    body: { size: 15, line: 22 },
-    title: { size: 17, line: 24 },
-    page: { size: 20, line: 28 },
-    display: { size: 28, line: 34 },
-  },
-  phone: {
-    hint: { size: 11, line: 14 },
-    label: { size: 12, line: 16 },
-    body: { size: 14, line: 20 },
-    title: { size: 16, line: 22 },
-    page: { size: 20, line: 26 },
-    display: { size: 24, line: 30 },
-  },
+export const typeScale: Record<TypeStep, { size: number; line: number }> = {
+  xs: { size: 11, line: 14 },
+  sm: { size: 12.5, line: 18 },
+  md: { size: 14, line: 22 },
+  lg: { size: 16, line: 24 },
+  xl: { size: 20, line: 28 },
 };
 
-/** PC: Inter first; phone: the system face. */
+/** One family: Pretendard for Korean, then the system face; ids and commands in mono. */
 export const font = {
-  sansPc: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  sans: 'system-ui, sans-serif',
+  sans: "-apple-system, 'Pretendard', 'Apple SD Gothic Neo', Inter, 'Segoe UI', system-ui, sans-serif",
   mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
-  size: Object.fromEntries(typeSteps.map((s) => [s, typeScale.phone[s].size])) as Record<TypeStep, number>,
+  size: Object.fromEntries(typeSteps.map((s) => [s, typeScale[s].size])) as Record<TypeStep, number>,
 } as const;
 
 /** Space on a 4 px grid. */
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
-/** chips, buttons and rows (ctl), cards and popups, dialogs, toggles and dots. */
-export const radius = { chip: 6, ctl: 10, card: 14, dialog: 20, pill: 999 } as const;
+/** The gutter every list and detail uses: text starts 20 px in from the side and 16 px down from the top. */
+export const gutter = { x: 20, y: 16 } as const;
 
-/** Three elevations: a lifted chip, a popup, a dialog. The colour comes from the scheme (`shadowAlpha`). */
-export const shadow = {
-  1: { y: 1, blur: 3 },
-  2: { y: 8, blur: 24 },
-  3: { y: 16, blur: 48 },
-} as const;
+/** Three control heights: a small button or chip, a button or tab, an input or a row. */
+export const height = { s: 24, m: 28, l: 36 } as const;
 
-/** Motion: three durations (ms) and one easing. */
-export const motion = { fast: 120, base: 200, slow: 320, ease: 'cubic-bezier(0.2, 0, 0, 1)' } as const;
+/** Three corner radii: buttons, chips, rows and tabs (s); menus, popups and toasts (m); the chat box and dialogs (l). Round things (dots, switches) use 999. */
+export const radius = { s: 6, m: 10, l: 16 } as const;
+
+/** Motion: hover and press (fast), opening and closing (slow), in ms, and one easing. Reduced motion stops the turning and pulsing glyphs. */
+export const motion = { fast: 120, slow: 200, ease: 'cubic-bezier(0.2, 0, 0, 1)' } as const;
 
 /** Heights (CSS px) of the rows a list draws. A skeleton row and the real row both take them, so nothing shifts when data arrives. */
-export const rowHeight = { line: 18, agent: 44, message: 56, task: 48, inbox: 56, account: 72, field: 36 } as const;
+export const rowHeight = { line: 18, agent: 44, message: 56, task: 48, inbox: 56, account: 72, field: height.l } as const;
 
-/** Sizes of the PC chrome (CSS px). */
+/** Sizes of the PC layout (CSS px). */
 export const chrome = {
-  'h-row': 36,
-  'h-row-2': 52,
   'h-tabs': 40,
   'h-top': 44,
-  'h-bar': 28,
-  'h-btn': 32,
-  'h-btn-sm': 28,
-  'h-btn-lg': 36,
-  'h-input': 36,
-  'h-field': 40,
-  'trow-h': 36,
   'w-side': 240,
   'w-form': 640,
   'w-page': 960,

@@ -9,8 +9,8 @@ a method or a --var (unless its method is named by --allow-missing, repeatable, 
 line; a fixture named in --allow-needvar-file, one per line, may lack its --var, but a name there that passed or does
 not exist is an error, so the list cannot rot; a fixture named in --skip-file, one per line, still runs but its failure is not counted, and a
 name there that passed or does not exist is an error), 2 on a usage error, 3 when nothing else is wrong but a role had no socket (--allow-skip says that is meant; it covers
-nothing else). The same fixtures run against the Python daemon, the Go
-one and the web UI's fake daemon: nothing here knows which it is talking to.
+nothing else). The same fixtures run against the Go daemon
+and the web UI's fake daemon: nothing here knows which it is talking to.
 """
 from __future__ import annotations
 
@@ -342,13 +342,6 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                     time.sleep(step["sleep_s"])
                 if "raw" in step:
                     conn.send_line(step["raw"])
-                    rid = None
-                elif "legacy" in step:
-                    conn.send_line(json.dumps(substitute(step["legacy"], saved)))
-                    reply = conn.read_line(step.get("within_s", TIMEOUT_S))
-                    if reply is None:
-                        raise Mismatch("the connection closed without a reply")
-                    matches(substitute(step["reply"], saved), reply, saved, "reply")
                     rid = None
                 elif "await" in step:
                     rid = step["await"]
