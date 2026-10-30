@@ -150,28 +150,7 @@ export function RequestItem(props: {
           </Text>
         </View>
         <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>{card.title}</Text>
-        {spare ? (
-          <SpareTasks n={spare} />
-        ) : facts ? (
-          <Text
-            testID={command ? 'request-command' : undefined}
-            selectable={command}
-            style={
-              command
-                ? {
-                    color: c.ink,
-                    fontFamily: 'Menlo',
-                    fontSize: font.size.sm,
-                    backgroundColor: c.line,
-                    borderRadius: radius.m,
-                    padding: space.sm,
-                  }
-                : { color: c.ink }
-            }
-          >
-            {facts}
-          </Text>
-        ) : null}
+        {spare ? <SpareTasks n={spare} /> : facts ? <Facts text={facts} command={command} /> : null}
         {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       </ScrollView>
       <View
@@ -285,6 +264,21 @@ export function RequestItem(props: {
         />
       ) : null}
     </KeyboardAvoidingView>
+  );
+}
+
+/** The item's facts; a permission's command is shown in a grey mono box. */
+function Facts(props: { text: string; command: boolean }) {
+  const c = usePalette();
+  const box = { fontFamily: 'Menlo', fontSize: font.size.sm, backgroundColor: c.line, borderRadius: radius.m, padding: space.sm } as const;
+  return (
+    <Text
+      testID={props.command ? 'request-command' : undefined}
+      selectable={props.command}
+      style={{ color: c.ink, ...(props.command ? box : {}) }}
+    >
+      {props.text}
+    </Text>
   );
 }
 
