@@ -118,7 +118,7 @@ describe('the working indicator', () => {
   it('a Bash call is named by the words its command starts with', async () => {
     const s = setup();
     s.daemon.chat.setWorking(ARCH, true);
-    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'hl task new --assign x "T1684 do it"' });
+    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'hl task new --assign x "do it"' });
     location.hash = `#/agents/${ARCH}`;
     box = document.body.appendChild(document.createElement('div'));
     root = createRoot(box);
