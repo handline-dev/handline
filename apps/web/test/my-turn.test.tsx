@@ -45,7 +45,13 @@ describe('my turn', () => {
     const fx = s.daemon.sessions.get(ARCH)!.fx;
     keep = () => void (fx.view = undefined);
     fx.view = {
-      needs_you: { kind: 'dialog', since: new Date(Date.now() - 5 * 60_000).toISOString(), text: 'Trust this folder?', source: 'hook' },
+      needs_you: {
+        kind: 'dialog',
+        since: new Date(Date.now() - 5 * 60_000).toISOString(),
+        title: 'Waiting at a dialog',
+        text: 'Trust this folder?',
+        source: 'hook',
+      },
     };
     location.hash = '#/requests';
     box = document.body.appendChild(document.createElement('div'));

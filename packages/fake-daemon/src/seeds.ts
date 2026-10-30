@@ -143,7 +143,7 @@ export const SEEDS: Record<string, Seed> = {
   'agent-usage': (d) => {
     const s = d.sessions.get(ARCH)!;
     const since = new Date(Date.now() - 3 * 60_000).toISOString();
-    s.fx.view = { ...s.fx.view, needs_you: { kind: 'usage', since, text: null, source: 'hook' } };
+    s.fx.view = { ...s.fx.view, needs_you: { kind: 'usage', since, title: 'Usage limit: choose what to do', text: null, source: 'hook' } };
   },
 
   /** The account beta stalled on a billing error: its row shows STALLED and a founder can Wake it. */

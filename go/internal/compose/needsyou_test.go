@@ -5,12 +5,16 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -35,11 +39,11 @@ func TestNeedsYouComesFromTheWaitFileAndTheSessionFileAndStopsWhenTheTurnMovedOn
 	}
 	write(map[string]any{"tool": "Bash", "command": "rm -rf build", "since": 1700, "after_event_id": 5})
 	n := needs("worker")
-	if n == nil || n.Kind != "permission" || n.Source != "hook" || n.Text != "Bash: rm -rf build" || n.Since != 1700 {
+	if n == nil || n.Kind != "permission" || n.Source != "hook" || n.Title != "Waiting for your OK" || n.Text != "Bash: rm -rf build" || n.Since != 1700 {
 		t.Fatalf("%+v", n)
 	}
 	write(map[string]any{"tool": "AskUserQuestion", "command": "which one", "since": 1700})
-	if n := needs("worker"); n == nil || n.Kind != "question" {
+	if n := needs("worker"); n == nil || n.Kind != "question" || n.Title != "Asked you a question" {
 		t.Fatalf("a question put to the person: %+v", n)
 	}
 	// The agent reported after the prompt (event 9 > 5): it was answered, and nobody is needed.
@@ -258,21 +262,27 @@ func TestADialogStallAndAnUnhealedAgentAreOneCardEachAndGoWhenTheirCauseDoes(t *
 			t.Fatal(err)
 		}
 	}
-	set("STALLED", "worker's terminal is showing a "+lifecycle.DialogStall+" only a person answers")
-	if n := needs("worker"); n == nil || n.Kind != "dialog" || n.Source != "daemon" || n.Since != 1700 {
-		t.Fatalf("a dialog stall is a dialog card: %+v", n)
+	set("STALLED", "worker's terminal is showing a "+lifecycle.DialogStall+" only a person answers - nothing was typed into it. It asks to pick a theme.")
+	if n := needs("worker"); n == nil || n.Kind != "dialog" || n.Source != "daemon" || n.Since != 1700 || n.Title != "Stuck at a start-up dialog" ||
+		n.Text != "Nothing was typed into it: only a person can answer it. It asks to pick a theme." {
+		t.Fatalf("a start-up dialog stall is a dialog card, its text without the agent's name: %+v", n)
 	}
 	set("IDLE", "the dialog is answered; the stall is lifted")
 	if needs("worker") != nil {
 		t.Fatal("the card goes when the dialog closes")
 	}
+	set("STALLED", supervisor.DialogStall+": the login dialog came back after 3 tries")
+	if n := needs("worker"); n == nil || n.Kind != "dialog" || n.Source != "daemon" || n.Title != "Stuck at a dialog" || n.Text != "the login dialog came back after 3 tries" {
+		t.Fatalf("a dialog ocp cannot get past is a dialog card too: %+v", n)
+	}
+	set("IDLE", "")
 	// The healer's ladder at its last rung, then the trouble ending.
 	for k, v := range map[string]int64{"heal:worker": 4, "heal_at:worker": 1800} {
 		if err := db.SetCursor(d, k, v); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if n := needs("worker"); n == nil || n.Kind != "stuck" || n.Since != 1800 {
+	if n := needs("worker"); n == nil || n.Kind != "stuck" || n.Since != 1800 || n.Title != "Stuck after restarts" || strings.HasPrefix(n.Text, "stuck") {
 		t.Fatalf("stuck past every step: %+v", n)
 	}
 	if err := db.SetCursor(d, "heal_quiet:worker", 1900); err != nil {
@@ -280,5 +290,15 @@ func TestADialogStallAndAnUnhealedAgentAreOneCardEachAndGoWhenTheirCauseDoes(t *
 	}
 	if needs("worker") != nil {
 		t.Fatal("the card goes when the trouble does")
+	}
+}
+
+// Every kind a session file can say has a title of at most 40 characters.
+func TestEveryKindASessionSaysHasAShortTitle(t *testing.T) {
+	for _, waiting := range []string{"permission", "question", "usage limit", "a dialog"} {
+		kind := peerinbox.Session{Status: "waiting", WaitingFor: waiting}.NeedsKind()
+		if title := titles[kind]; title == "" || utf8.RuneCountInString(title) > 40 {
+			t.Errorf("%s (%s): %q", waiting, kind, title)
+		}
 	}
 }

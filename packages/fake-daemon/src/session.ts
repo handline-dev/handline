@@ -6,6 +6,8 @@ import { defaultSettings } from '#src/settings.ts';
 
 export const ROWS = 24,
   COLS = 80;
+/** A card's title by its kind, as the daemon gives one from a hook or the session file. */
+const NEEDS_TITLE = { permission: 'Waiting for your OK', question: 'Asked you a question', dialog: 'Waiting at a dialog' } as const;
 export const DAEMON_HOLDER: InputHolder = { kind: 'daemon', name: 'daemon', since: null };
 export const row = (text: string): Row => ({ text });
 
@@ -117,6 +119,7 @@ export function view(s: Session): AgentView {
       ? {
           kind: s.prompt.kind === 'permission' || s.prompt.kind === 'question' ? s.prompt.kind : 'dialog',
           since: s.prompt.since,
+          title: NEEDS_TITLE[s.prompt.kind === 'permission' || s.prompt.kind === 'question' ? s.prompt.kind : 'dialog'],
           text: s.prompt.reason ?? s.prompt.command ?? null,
           source: 'hook',
         }

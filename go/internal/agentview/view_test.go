@@ -137,7 +137,7 @@ func TestAnAgentThatNeedsAPersonIsWaitingWithNeedsYouAndOneThatDoesNotHasNull(t 
 	r.env.NeedsYou = func(a string) *NeedsYou {
 		switch a {
 		case "needy":
-			return &NeedsYou{Kind: "permission", Source: "hook", Text: "Bash: ls", Since: 4000}
+			return &NeedsYou{Kind: "permission", Source: "hook", Title: "Waiting for your OK", Text: "Bash: ls", Since: 4000}
 		case "noline":
 			return &NeedsYou{Kind: "dialog", Source: "session", Since: 4100}
 		}
@@ -149,7 +149,7 @@ func TestAnAgentThatNeedsAPersonIsWaitingWithNeedsYouAndOneThatDoesNotHasNull(t 
 	v := r.stored(t, "needy")
 	n, _ := v["needs_you"].(map[string]any)
 	if v["state"] != "waiting" || v["has_dialog"] != true || v["state_detail"] != "Bash: ls" || n["kind"] != "permission" || n["source"] != "hook" ||
-		n["text"] != "Bash: ls" || n["since"] != "1970-01-01T01:06:40Z" {
+		n["text"] != "Bash: ls" || n["since"] != "1970-01-01T01:06:40Z" || n["title"] != "Waiting for your OK" {
 		t.Errorf("needy: %v", v)
 	}
 	if n := r.stored(t, "noline")["needs_you"].(map[string]any); n["text"] != nil || n["kind"] != "dialog" {

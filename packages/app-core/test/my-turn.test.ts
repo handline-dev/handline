@@ -65,8 +65,14 @@ test('a permission item offers Allow then Deny; read items are not cards', () =>
 });
 
 test('a dialog needs_you has only Open terminal, and a permission one is not doubled by its item', () => {
-  const dialog = agent({ name: 'd', needs_you: { kind: 'dialog', since: '2026-10-15T00:00:00Z', text: 'x', source: 'hook' } });
-  const asks = agent({ name: 'a', needs_you: { kind: 'permission', since: '2026-10-15T00:00:00Z', text: null, source: 'hook' } });
+  const dialog = agent({
+    name: 'd',
+    needs_you: { kind: 'dialog', since: '2026-10-15T00:00:00Z', title: 'Waiting at a dialog', text: 'x', source: 'hook' },
+  });
+  const asks = agent({
+    name: 'a',
+    needs_you: { kind: 'permission', since: '2026-10-15T00:00:00Z', title: 'Waiting for your OK', text: null, source: 'hook' },
+  });
   const cards = myTurn({ items: [item({ kind: 'prompt', prompt: perm as InboxItem['prompt'] })], agents: [dialog, asks], tasks: [] });
   assert.equal(cards.filter((c) => c.agent === 'a').length, 1);
   assert.deepEqual(
@@ -198,7 +204,12 @@ test('an open task given to the person is a card; one an unread item already sta
 test('the agents of My turn are the ones its cards name', () => {
   const cards = myTurn({
     items: [],
-    agents: [agent({ name: 'b', needs_you: { kind: 'dialog', since: '2026-10-15T00:00:00Z', text: null } as AgentView['needs_you'] })],
+    agents: [
+      agent({
+        name: 'b',
+        needs_you: { kind: 'dialog', since: '2026-10-15T00:00:00Z', title: 'Waiting at a dialog', text: null } as AgentView['needs_you'],
+      }),
+    ],
     tasks: [task({ id: 5, to: 'human', from: 'c' })],
   });
   assert.deepEqual([...turnAgents(cards)], ['b']);

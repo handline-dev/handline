@@ -226,9 +226,11 @@ export type NeedsYou = {
   /** permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other (a start-up dialog the daemon will not answer included), and any the daemon does not know: unknown is a person. stuck: the daemon retried, restarted and relaunched the agent and it is still stuck: one card, gone when the trouble is. The same event is never two cards, and a load hold is never stuck. */
   kind: "permission" | "question" | "usage" | "dialog" | "stuck";
   since: Timestamp;
-  /** One line, from the hook or the session file; never read from the screen. */
+  /** The card's title: plain, one line, at most 40 characters, chosen from the kind and where it came from. daemon: 'Stuck at a start-up dialog' (a start-up dialog it will not answer), 'Stuck at a dialog' (a dialog it cannot get past), 'Stuck after restarts' (stuck). hook, session: 'Waiting for your OK' (permission), 'Asked you a question' (question), 'Usage limit: choose what to do' (usage), 'Waiting at a dialog' (dialog). */
+  title: string;
+  /** The card's description, a full sentence under the title, from the hook, the session file or the daemon's record; never read from the screen. It does not name the agent: the card is in that agent's chat. */
   text: string | null;
-  /** hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog stall, an agent it could not heal); never a task. */
+  /** hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog it will not answer, a dialog it cannot get past, an agent it could not heal); never a task. */
   source: "hook" | "session" | "daemon";
 };
 
