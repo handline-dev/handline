@@ -171,7 +171,7 @@
   {
    "name": "agent.get.needs_you_is_set_while_a_decision_waits",
    "spec": "agent.get",
-   "about": "An agent that waits on a decision only a person can make has needs_you with a kind, since, a text and a source, and is waiting with attention alert. Needs --var view_alert_agent.",
+   "about": "An agent that waits on a decision only a person can make has needs_you with a kind, since, a title, a text and a source, and is waiting with attention alert. Needs --var view_alert_agent.",
    "as": "founder",
    "steps": [
     {
@@ -213,6 +213,9 @@
        "since": {
         "$type": "timestamp"
        },
+       "title": {
+        "$regex": "^[^\\n]{1,40}$"
+       },
        "text": {
         "$oneOf": [
          {
@@ -226,6 +229,7 @@
        "source": {
         "$oneOf": [
          "hook",
+         "notification",
          "session"
         ]
        }
