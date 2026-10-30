@@ -33,6 +33,7 @@ export * from '#src/task-graph.ts';
 export * from '#src/task-columns.ts';
 export * from '#src/images.ts';
 export * from '#src/my-turn.ts';
+export * from '#src/requests-text.ts';
 export * from '#src/later.ts';
 export * from '#src/spare-notice.ts';
 export * from '#src/annotation.ts';

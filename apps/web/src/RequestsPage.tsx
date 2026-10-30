@@ -5,11 +5,13 @@ import { useEffect, useState } from 'react';
 import {
   APPROVED,
   VERBS,
+  REQUEST_GROUPS,
   WORKTREE_WORDS,
   ago,
   changeAsked,
   laterKeyOf,
   noteIsLong,
+  requestGroup,
   taskRef,
   type Card,
   type CardAction,
@@ -66,12 +68,6 @@ function useKey(f: (key: string) => boolean) {
     return () => window.removeEventListener('keydown', on);
   });
 }
-
-type Group = 'Allow' | 'Decide' | 'Review' | 'Do by hand';
-const GROUPS: Group[] = ['Allow', 'Decide', 'Review', 'Do by hand'];
-/** What the person must do: allow a request, decide a choice, review a result, or do something by hand. */
-const groupOf = (c: Card): Group =>
-  c.review ? 'Review' : c.kind === 'approval' ? 'Allow' : c.kind === 'decision' ? 'Decide' : 'Do by hand';
 
 /** Outside the component: the compiler reads an assignment to `location` in a handler as a mutation of a value it owns. */
 const goHash = (to: string) => void (location.hash = to);
@@ -206,7 +202,7 @@ function CardDetail({
       <BlocksLine task={card.task} />
       {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       <Answer
-        kind={groupOf(card)}
+        kind={requestGroup(card)}
         code={card.kind === 'approval'}
         ask={
           card.detail ? (
@@ -320,7 +316,7 @@ export function RequestsPage() {
     ) : null;
   // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
   // The list reads in its groups, so j and k walk the cards in that order.
-  const ordered = GROUPS.flatMap((g) => cards.filter((c) => groupOf(c) === g));
+  const ordered = REQUEST_GROUPS.flatMap((g) => cards.filter((c) => requestGroup(c) === g));
   const sel = cards.find((c) => c.key === pick) ?? putOff.find((l) => l.card.key === pick)?.card ?? (wide ? ordered[0] : undefined);
   const selLater = putOff.find((l) => l.card.key === sel?.key)?.at ?? null;
   useKeepPlace([...ordered, ...putOff.map((l) => l.card)], pick, setPick, wide);
@@ -355,8 +351,8 @@ export function RequestsPage() {
       {loading ? (
         <p className="muted">Loading…</p>
       ) : cards.length ? (
-        GROUPS.map((g) => {
-          const list = cards.filter((c) => groupOf(c) === g);
+        REQUEST_GROUPS.map((g) => {
+          const list = cards.filter((c) => requestGroup(c) === g);
           return list.length ? (
             <section key={g} aria-label={g}>
               <SectionHead count={list.length}>{g}</SectionHead>

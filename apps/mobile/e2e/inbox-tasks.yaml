@@ -1,15 +1,16 @@
-# After pair-and-page.yaml (the phone is paired): the Inbox and Tasks tabs against `pnpm fake-listener`.  maestro test e2e/inbox-tasks.yaml
+# After pair-and-page.yaml (the phone is paired): the Requests and Tasks tabs against `pnpm fake-listener`.  maestro test e2e/inbox-tasks.yaml
 appId: dev.handline.mobile
 ---
 - tapOn:
     id: nav-requests
-- assertVisible: Mark all read
 - assertVisible:
-    id: inbox-open-.*
+    id: request-group-.*
 - tapOn:
-    id: inbox-open-.*
+    id: 'request-(item|task|agent|machine):.*'
 - assertVisible:
-    id: inbox-reply-.*
+    id: request-answers
+- tapOn:
+    id: request-back
 - tapOn:
     id: nav-tasks
 - assertVisible: Tasks
