@@ -519,7 +519,7 @@ describe('the sidebar', () => {
     expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    expect(menuItems()).toEqual(['Pin to top', 'Settings…', 'Delete agent…']);
+    expect(menuItems()).toEqual(['Pin to top', 'Settings…', 'Open in', 'Delete agent…']);
   });
 
   it('keeps the selected row short (no model, account or detail block there)', async () => {

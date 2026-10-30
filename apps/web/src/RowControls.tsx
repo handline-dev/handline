@@ -6,7 +6,6 @@ import { useSelector } from '@handline/app-react';
 import { useServed } from '#src/AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from '#src/ui/index.ts';
 import { OpenInItems } from '#src/OpenInItems.tsx';
-import { shell } from '#src/shell.ts';
 import { goSettings } from '#src/route.ts';
 
 const VERB_ICON: Partial<Record<VerbId, IconName>> = {
@@ -40,7 +39,7 @@ export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (a
   );
 }
 
-/** The items of the agent's menu: Open in (the folder, on the desktop) and the session verbs its state allows and the daemon serves. */
+/** The items of the agent's menu: Open in (the apps on the desktop, and the copies of the path and the worktree name) and the session verbs its state allows and the daemon serves. */
 export function AgentMenu({
   agent: a,
   pinned,
@@ -61,7 +60,6 @@ export function AgentMenu({
   const canRetire = useSelector((s) => s.served).has('agent.retire');
   const busy = !!useVerbMark(agent);
   const markRead = useMarkAllRead(agent);
-  const open = shell('openPath');
   if (!d) return null;
   const verbs = verbsOf(a, d).filter((v) => MENU_VERBS.includes(v.id) && served(v));
   return (
@@ -73,17 +71,21 @@ export function AgentMenu({
         Settings…
       </MenuItem>
       <MenuSeparator />
-      {open ? (
-        <>
-          <MenuSub>
-            <MenuSubTrigger icon="open">Open in</MenuSubTrigger>
-            <MenuSubContent>
-              <OpenInItems agent={agent} cwd={d.cwd} withCopy={false} />
-            </MenuSubContent>
-          </MenuSub>
-          <MenuSeparator />
-        </>
-      ) : null}
+      <MenuSeparator />
+      <MenuSub>
+        <MenuSubTrigger icon="open">Open in</MenuSubTrigger>
+        <MenuSubContent>
+          <OpenInItems agent={agent} cwd={d.cwd} />
+          {d.worktree ? (
+            <MenuItem
+              icon="reference"
+              onSelect={() => void navigator.clipboard?.writeText(d.worktree!.path.split('/').pop() ?? d.worktree!.path)}
+            >
+              Copy worktree name
+            </MenuItem>
+          ) : null}
+        </MenuSubContent>
+      </MenuSub>
       {verbs.length || a.founder_unread ? <MenuSeparator /> : null}
       {a.founder_unread ? (
         <MenuItem icon="done" onSelect={() => void markRead()}>
