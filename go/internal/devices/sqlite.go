@@ -79,3 +79,8 @@ func (s SQLStore) SetPush(id string, p Push) (bool, error) {
 	n, err := r.RowsAffected()
 	return n > 0, err
 }
+
+func (s SQLStore) DropPush(id, token string) error {
+	_, err := s.DB.Exec("UPDATE devices SET push_platform = NULL, push_token = NULL, push_sandbox = NULL WHERE id = ? AND push_token = ?", id, token)
+	return err
+}

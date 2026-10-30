@@ -96,3 +96,33 @@ func TestAPushTokenFromADeviceNotPairedIsNotFound(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// A token Apple or Google no longer takes is dropped, but only while it is still the device's: one the device gave since stays.
+func TestDroppingAPushTokenSparesANewerOne(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for name, s := range map[string]Store{"sql": SQLStore{DB: db}, "mem": NewMemStore()} {
+		t.Run(name, func(t *testing.T) {
+			m := New(s)
+			code, _, _, _ := m.Pair(DefaultTTL)
+			token, d, err := m.Redeem(code, "phone", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			pushOf := func() *Push {
+				got, _, _ := s.ByTokenHash(hashOf(token))
+				return got.Push
+			}
+			m.SetPush(d.ID, Push{Platform: "apns", Token: "new", Sandbox: true})
+			if err := s.DropPush(d.ID, "old"); err != nil || pushOf() == nil {
+				t.Fatalf("a stale token's drop took the newer one: %v %+v", err, pushOf())
+			}
+			if err := s.DropPush(d.ID, "new"); err != nil || pushOf() != nil {
+				t.Fatalf("the token is still kept: %v %+v", err, pushOf())
+			}
+		})
+	}
+}
