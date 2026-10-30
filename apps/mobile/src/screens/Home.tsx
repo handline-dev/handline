@@ -23,14 +23,15 @@ import { ConnectionBar } from '#src/screens/ConnectionBar.tsx';
 
 /** Where the done card floats on an agent's page, which has no tab bar: above the composer. */
 const DONE_ABOVE_COMPOSER = 96;
-const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
+const TABS = ['agents', 'requests', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
-const NAV_ICON: Record<Tab, IconName> = { agents: 'agent', inbox: 'inbox', tasks: 'tasks', usage: 'stats' };
+const NAV_ICON: Record<Tab, IconName> = { agents: 'agent', requests: 'inbox', tasks: 'tasks', usage: 'stats' };
 
 type Page = 'new' | 'settings' | 'team' | 'requests' | 'notices' | null;
 
 /** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
-export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
+/** `startOn` fixes the tab the app opens on; without it, Requests when anything waits and Agents when nothing does. */
+export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending; startOn?: Tab }) {
   const history = useMemo(() => {
     const h = new History();
     const p = props.store.page;
@@ -93,13 +94,22 @@ function useAgentEntry(store: Store) {
   });
 }
 
-function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pending; history: History }) {
+function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pending; startOn?: Tab; history: History }) {
   const c = usePalette();
   const swipe = useBack(props.history);
   useAgentEntry(props.store);
   const open = useSelector((s) => s.page?.agent ?? null);
-  const turn = useMyTurn().cards.length;
-  const [tab, setTab] = useHistoryValue<Tab>('home.tab', 'agents');
+  const mine = useMyTurn();
+  const turn = mine.cards.length;
+  const [tab, setTab] = useHistoryValue<Tab>('home.tab', props.startOn ?? 'agents');
+  // The app opens on Requests when anything waits on the person, on Agents when nothing does: decided once, when the first read is in,
+  // unless an agent's page was left open or a tab was already picked.
+  const decided = useRef(!!props.startOn);
+  useEffect(() => {
+    if (decided.current || mine.loading) return;
+    decided.current = true;
+    if (turn > 0 && !open && tab === 'agents') setTab('requests');
+  });
   const [task, setTask] = useHistoryValue<number | null>('home.task', null);
   const [account, setAccount] = useHistoryValue<string | null>('home.account', null);
   const [page, setPage] = useHistoryValue<Page>('home.page', props.pending?.operation ? 'new' : null);
@@ -116,7 +126,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
     <View style={{ flex: 1 }} {...swipe}>
       <ConnectionBar store={props.store} />
       {!open && !page && <Bell store={props.store} onOpen={() => setPage('notices')} />}
-      <Toasts store={props.store} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
+      <Toasts store={props.store} />
       <View style={{ flex: 1 }}>
         {open ? (
           <AgentPage />
@@ -130,7 +140,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
           <SettingsPage onClose={() => setPage(null)} onUnpair={props.onUnpair} />
         ) : page === 'new' ? (
           <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
-        ) : tab === 'inbox' ? (
+        ) : tab === 'requests' ? (
           <Inbox onTask={(id) => (setTab('tasks'), setTask(id))} />
         ) : tab === 'tasks' ? (
           <Tasks selected={task} onSelect={setTask} />
@@ -150,6 +160,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
             <Pressable
               key={t}
               testID={`nav-${t}`}
+              accessibilityLabel={t === 'requests' && turn > 0 ? `Requests, ${turn} waiting` : undefined}
               accessibilityRole="tab"
               accessibilityState={{ selected: tab === t }}
               onPress={() => setTab(t)}
@@ -161,13 +172,36 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
                 borderTopColor: tab === t ? c.ink : 'transparent',
               }}
             >
-              <Icon name={NAV_ICON[t]} decorative size={20} color={tab === t ? c.ink : c.muted} />
+              <View>
+                <Icon name={NAV_ICON[t]} decorative size={20} color={tab === t ? c.ink : c.muted} />
+                {t === 'requests' && turn > 0 ? (
+                  <View
+                    testID="requests-badge"
+                    accessible
+                    accessibilityLabel={`${turn} waiting`}
+                    style={{
+                      position: 'absolute',
+                      top: -6,
+                      right: -12,
+                      minWidth: 16,
+                      height: 16,
+                      paddingHorizontal: 4,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: c.wait,
+                    }}
+                  >
+                    <Text style={{ color: c.bg, fontSize: font.size.xs, fontWeight: '700' }}>{turn}</Text>
+                  </View>
+                ) : null}
+              </View>
               <Text
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.sm }}
               >
-                {t === 'agents' ? 'Agents' : t === 'inbox' ? `My turn${turn ? ` (${turn})` : ''}` : t === 'tasks' ? 'Tasks' : 'Usage'}
+                {t === 'agents' ? 'Agents' : t === 'requests' ? 'Requests' : t === 'tasks' ? 'Tasks' : 'Usage'}
               </Text>
             </Pressable>
           ))}

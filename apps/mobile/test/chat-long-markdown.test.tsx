@@ -4,14 +4,25 @@ import { describe, expect, it } from 'vitest';
 import { ARCH, $, mount, press, until } from '#test/harness.tsx';
 
 const LONG = (n: number) =>
-  [`**T${n} 정리**`, '', '- #388 옛 답변 항목 제거: main과 충돌해서 고치는 중입니다', '- #355 필수 체크 이름을 새것으로 바꿔주세요', '', '1. 먼저 폰에서 직접 화면을 보시고 OK 해주셔야 합니다'].join('\n');
+  [
+    `**T${n} 정리**`,
+    '',
+    '- #388 옛 답변 항목 제거: main과 충돌해서 고치는 중입니다',
+    '- #355 필수 체크 이름을 새것으로 바꿔주세요',
+    '',
+    '1. 먼저 폰에서 직접 화면을 보시고 OK 해주셔야 합니다',
+  ].join('\n');
 
 describe('long Markdown messages in the chat', () => {
   it('draw every block of two messages in bubbles capped in points', async () => {
-    await mount((s) => {
-      s.daemon.chat.seed(ARCH, { body: LONG(1), from: ARCH, to: 'human' });
-      s.daemon.chat.seed(ARCH, { body: LONG(2), from: ARCH, to: 'human' });
-    }, undefined, 'founder');
+    await mount(
+      (s) => {
+        s.daemon.chat.seed(ARCH, { body: LONG(1), from: ARCH, to: 'human' });
+        s.daemon.chat.seed(ARCH, { body: LONG(2), from: ARCH, to: 'human' });
+      },
+      undefined,
+      'founder',
+    );
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => document.querySelectorAll('[data-testid^="body-"]').length >= 2, 'both messages');

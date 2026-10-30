@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
-import { $, fill, mount, press, text, until, value , verb } from '#test/harness.tsx';
+import { $, fill, mount, press, text, until, value, verb } from '#test/harness.tsx';
 
 const MINE = 1700; // asked by the founder, a draft
 const verbs = (s: ReturnType<typeof setup>) => void (s.daemon.tasks.verbs = true);

@@ -1,4 +1,4 @@
-// The My turn tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web My turn page: a read item leaves
+// The Requests tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web My turn page: a read item leaves
 // the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
@@ -268,7 +268,7 @@ export function Inbox(props: { onTask: (id: number) => void }) {
   return (
     <View style={{ flex: 1 }}>
       <PageHeader
-        title="My turn"
+        title="Requests"
         actions={
           <>
             <Text testID="unread-count" style={{ color: c.muted, fontSize: font.size.md }}>

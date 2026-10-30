@@ -82,8 +82,11 @@ describe('the phone notices', () => {
     expect($('notice-fresh')).toBeNull();
     m.store.stop();
   });
-  it('shows the weekly-loss notice with its first three tasks and a Start button; the X closes it', async () => {
+  it('shows the weekly-loss notice in the notice list, not over the tabs, with its first three tasks and a Start button; the X closes it', async () => {
     const m = await mount((s) => ((s.daemon.tasks.verbs = true), applySeeds(s.daemon, 'spare-notice')));
+    await until(() => $('bell'), 'the bell');
+    expect($('notice-spare')).toBeNull();
+    await press($('bell'));
     await until(() => $('notice-spare'), 'the notice');
     expect(text($('notice-spare'))).toContain("18% of theta's weekly use will be lost at 02:10.");
     expect(text($('notice-spare'))).toContain('Tidy the gap list');

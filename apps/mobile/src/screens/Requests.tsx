@@ -1,4 +1,4 @@
-// The Requests page, as the web's: every request the founder made, newest first, with its status, who holds it and what is open under it. A tap opens its task.
+// The Your asks page (the tasks by state; "Requests" is what waits on the person): every request the founder made, newest first, with its status, who holds it and what is open under it. A tap opens its task.
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { ago } from '@handline/app-core';
@@ -49,7 +49,7 @@ export function RequestsPage(props: { onClose: () => void; onTask: (id: number) 
   const shown = rows.filter((r) => filter === 'all' || r.status === filter);
   return (
     <View style={{ flex: 1 }}>
-      <PageHeader title="Requests" back={{ label: 'Agents', onPress: props.onClose, testID: 'requests-back' }} />
+      <PageHeader title="Your asks" back={{ label: 'Agents', onPress: props.onClose, testID: 'requests-back' }} />
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -65,8 +65,8 @@ export function RequestsPage(props: { onClose: () => void; onTask: (id: number) 
         served={served}
         isEmpty={!shown.length}
         skeleton="tasks"
-        label="requests"
-        empty={rows.length ? 'Nothing with this status' : 'No requests yet'}
+        label="your asks"
+        empty={rows.length ? 'Nothing with this status' : 'You have asked for nothing yet'}
       >
         <ScrollView style={{ marginTop: space.md }}>
           {shown.map((r) => (

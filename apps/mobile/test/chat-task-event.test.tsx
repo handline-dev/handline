@@ -14,7 +14,8 @@ describe('a task change in the chat', () => {
     );
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    const find = () => [...document.body.querySelectorAll<HTMLElement>('[data-testid^="task-event-"]')].find((e) => e.textContent?.includes('auditor PASS'));
+    const find = () =>
+      [...document.body.querySelectorAll<HTMLElement>('[data-testid^="task-event-"]')].find((e) => e.textContent?.includes('auditor PASS'));
     await until(find, 'the card');
     expect(find()!.textContent).toContain('T1684');
     expect(find()!.textContent).toContain('auditor PASS');

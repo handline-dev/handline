@@ -38,7 +38,7 @@ export function Bell(props: { store: Store; onOpen: () => void }) {
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
 
 /** The results of what was just done, under the title bar: a tap closes them. Each runs out by itself. */
-export function Toasts(props: { store: Store; onTask: (id: number) => void }) {
+export function Toasts(props: { store: Store }) {
   useSelector((s) => s.version); // drawn again on every change; what is on screen depends on the clock, so it is read here and not cached
   const toasts = props.store.notices.toasts().filter((n) => !isTaskDone(n)); // a finished task is the floating card's, or only the list's
   const next = props.store.notices.nextExpiry();
@@ -48,12 +48,8 @@ export function Toasts(props: { store: Store; onTask: (id: number) => void }) {
     const t = setTimeout(() => draw((n) => n + 1), Math.max(next - Date.now(), 0) + 1);
     return () => clearTimeout(t);
   }, [next]);
-  const spare = useSpareNotices();
   return (
     <View testID="toasts">
-      {spare.map((n) => (
-        <SpareCard key={n.task} n={n} onTask={props.onTask} />
-      ))}
       {toasts.map((n) => (
         <Banner key={n.id} text={lineOf(n)} error={n.level === 'fail'} onPress={() => props.store.notices.close(n.id)} />
       ))}

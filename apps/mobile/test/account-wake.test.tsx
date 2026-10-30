@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
 import { $, mount, press, text, until } from '#test/harness.tsx';
 
-const stall = (s: ReturnType<typeof setup>) => void s.daemon.accounts.stall('beta', { reason: 'login expired', error: 'authentication_failed' });
+const stall = (s: ReturnType<typeof setup>) =>
+  void s.daemon.accounts.stall('beta', { reason: 'login expired', error: 'authentication_failed' });
 const stalled = (m: Awaited<ReturnType<typeof mount>>) => m.daemon.accounts.list().accounts.find((a) => a.name === 'beta')!.stalled;
 
 async function open(prepare = stall, role: 'founder' | 'member' = 'founder') {

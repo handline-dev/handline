@@ -23,9 +23,12 @@ describe('typing in the phone terminal', () => {
   }, 20000);
 
   it('asks at once when another device holds control; Take control replaces it and the keys then work', async () => {
-    const m = await mount((x) => {
-      x.daemon.sessions.get(ARCH)!.holder = { kind: 'device', name: 'pc-app', since: new Date().toISOString() };
-    }, { bytes: true });
+    const m = await mount(
+      (x) => {
+        x.daemon.sessions.get(ARCH)!.holder = { kind: 'device', name: 'pc-app', since: new Date().toISOString() };
+      },
+      { bytes: true },
+    );
     const s = await open(m);
     await until(() => $('terminal-held'), 'the prompt');
     expect($('terminal-held')!.textContent).toMatch(/Another device has control/);
@@ -51,9 +54,12 @@ describe('typing in the phone terminal', () => {
   }, 20000);
 
   it('Fit to this device also takes control', async () => {
-    const m = await mount((x) => {
-      x.daemon.sessions.get(ARCH)!.holder = { kind: 'device', name: 'pc-app', since: new Date().toISOString() };
-    }, { bytes: true });
+    const m = await mount(
+      (x) => {
+        x.daemon.sessions.get(ARCH)!.holder = { kind: 'device', name: 'pc-app', since: new Date().toISOString() };
+      },
+      { bytes: true },
+    );
     const s = await open(m);
     await until(() => $('terminal-fit'), 'the prompt');
     await press($('terminal-fit'));
