@@ -1,7 +1,7 @@
 // The ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button): Pin to top, Settings…, Open in, Mark as read and Stop this turn. No Start or Resume: the daemon wakes, parks, restarts and moves agents by itself, so the person is not shown those.
 import { asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { useAgentDetail, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
+import { useAgentDetail, useVerbMark, useVerbRun, useMarkAllRead } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import { useServed } from '#src/AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from '#src/ui/index.ts';
@@ -60,20 +60,9 @@ export function AgentMenu({
   const served = useServed();
   const canRetire = useSelector((s) => s.served).has('agent.retire');
   const busy = !!useVerbMark(agent);
-  const client = useSelector((s) => s.client);
-  const seen = useWrite('chat.seen', agent);
+  const markRead = useMarkAllRead(agent);
   const open = shell('openPath');
   if (!d) return null;
-  // The newest message the agent wrote to the person: everything up to it leaves the unseen count. Pages back until one is found.
-  const markRead = async () => {
-    for (let before: number | undefined; ;) {
-      const page = await client.call('chat.messages', { agent, scope: 'mine', limit: 50, before });
-      const up_to = page.messages.find((m) => m.from === agent && m.id > 0)?.id;
-      if (up_to) return void seen.mutate({ agent, up_to });
-      before = Math.min(...page.messages.map((m) => m.id));
-      if (!page.more || !page.messages.length) return;
-    }
-  };
   const verbs = verbsOf(a, d).filter((v) => MENU_VERBS.includes(v.id) && served(v));
   return (
     <>
