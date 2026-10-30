@@ -1,7 +1,7 @@
 // The Requests page (#/requests): everything that waits on the person, grouped by what they must do (Allow, Decide, Review, Do by hand), as a list
 // beside the open item. A row only opens the item; the answer is given in the detail, which ends with its answers and nothing after them.
 import { ChevronRight, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
 import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
 import { Fold } from '#src/Fold.tsx';
@@ -28,7 +28,14 @@ const REQUEST_KEYS: KeyRows = [
 ];
 
 /** The key that gives each answer, as the `A D C Enter` rows above say. */
-const KEY_OF: Partial<Record<CardAction['type'], string>> = { allow: 'A', approve: 'A', deny: 'D', ask_change: 'C', change: 'C', open: '↵' };
+const KEY_OF: Partial<Record<CardAction['type'], string>> = {
+  allow: 'A',
+  approve: 'A',
+  deny: 'D',
+  ask_change: 'C',
+  change: 'C',
+  open: '↵',
+};
 
 /** Runs `f` on a plain key press anywhere on the page except while a field has the focus. */
 function useKey(f: (key: string) => boolean) {
@@ -112,7 +119,16 @@ const WORKTREE_SAID = {
 };
 
 /** The open item: its header, the ask, then the answers and nothing after them. The source chip is the one way to open the item itself. */
-function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => void }) {
+function CardDetail({
+  card,
+  onSaid,
+  hold,
+}: {
+  card: Card;
+  onSaid: (line: string) => void;
+  /** Takes the card off the list and sends the answer after a few seconds unless Undo comes first. */
+  hold: (key: string, line: string, send: () => Promise<unknown>) => void;
+}) {
   const now = useNow();
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
@@ -131,14 +147,19 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
       case 'change':
         return setChange(true);
       case 'reply':
-        return answer.mutate({ id: a.id, text: a.text });
+        return hold(card.key, 'Answer sent', () => answer.mutateAsync({ id: a.id, text: a.text }));
       case 'allow':
       case 'deny':
-        return prompt.mutate({ agent: a.agent, prompt: a.prompt, choice: a.choice });
+        return hold(card.key, a.type === 'allow' ? 'Allowed' : 'Denied', () =>
+          prompt.mutateAsync({ agent: a.agent, prompt: a.prompt, choice: a.choice }),
+        );
       case 'done':
-        return void (done.mutate({ task: a.item.task!, evidence: 'decided in Requests', reason: true }), read.mutate({ ids: [a.item.id] }));
+        return hold(card.key, 'Done', async () => {
+          await done.mutateAsync({ task: a.item.task!, evidence: 'decided in Requests', reason: true });
+          read.mutate({ ids: [a.item.id] });
+        });
       case 'done_task':
-        return done.mutate({ task: a.task, evidence: 'Done', reason: true });
+        return hold(card.key, 'Done', () => done.mutateAsync({ task: a.task, evidence: 'Done', reason: true }));
       case 'worktree':
         if (a.answer === 'force' && !sure) return setSure(true);
         setSure(false);
@@ -148,7 +169,10 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
           () => undefined,
         );
       case 'approve':
-        return void (done.mutate({ task: a.item.task!, evidence: APPROVED, reason: true }), read.mutate({ ids: [a.item.id] }));
+        return hold(card.key, 'Approved', async () => {
+          await done.mutateAsync({ task: a.item.task!, evidence: APPROVED, reason: true });
+          read.mutate({ ids: [a.item.id] });
+        });
       case 'ask_change':
         return setAsking(true);
       case 'open':
@@ -156,7 +180,7 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
       case 'terminal':
         return goTerminal(a.agent);
       case 'read':
-        return read.mutate({ ids: [a.id] });
+        return hold(card.key, 'Marked read', () => read.mutateAsync({ ids: [a.id] }));
     }
   };
   // The buttons are the answers; a written answer is the field beside them, never a bare Reply. The rarer verbs are in the menu.
@@ -255,7 +279,8 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
           onSubmit={(e) => {
             e.preventDefault();
             if (!text.trim()) return;
-            answer.mutate({ id: answerId.id, text: change ? changeAsked(text) : text.trim() });
+            const reply = change ? changeAsked(text) : text.trim();
+            hold(card.key, 'Answer sent', () => answer.mutateAsync({ id: answerId.id, text: reply }));
             setChange(false);
             setText('');
           }}
@@ -277,8 +302,51 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
   );
 }
 
+const HOLD_MS = 5000;
+
+/**
+ * Answers that wait HOLD_MS before they are sent, so Undo is real: a held card is off the list at once, and a held answer is sent when the
+ * window closes or the page goes away. A refused answer puts its card back.
+ */
+function useHeldAnswers() {
+  const [away, setAway] = useState<string[]>([]);
+  const [last, setLast] = useState<{ key: string; line: string } | null>(null);
+  const waiting = useRef(new Map<string, { send: () => Promise<unknown>; timer: ReturnType<typeof setTimeout> }>());
+  const back = (key: string) => setAway((a) => a.filter((k) => k !== key));
+  const fire = (key: string) => {
+    const w = waiting.current.get(key);
+    if (!w) return;
+    clearTimeout(w.timer);
+    waiting.current.delete(key);
+    w.send().catch(() => back(key));
+  };
+  const hold = (key: string, line: string, send: () => Promise<unknown>) => {
+    setAway((a) => [...a, key]);
+    setLast({ key, line });
+    waiting.current.set(key, { send, timer: setTimeout(() => (fire(key), setLast((l) => (l?.key === key ? null : l))), HOLD_MS) });
+  };
+  const undo = (key: string) => {
+    const w = waiting.current.get(key);
+    if (w) clearTimeout(w.timer);
+    waiting.current.delete(key);
+    back(key);
+    setLast(null);
+  };
+  useEffect(() => {
+    const flush = () => [...waiting.current.keys()].forEach(fire);
+    addEventListener('pagehide', flush);
+    return () => (removeEventListener('pagehide', flush), flush());
+    // `fire` reads only refs and a setter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return { away, last, hold, undo };
+}
+
 export function RequestsPage() {
-  const { cards, loading } = useMyTurn();
+  const all = useMyTurn();
+  const held = useHeldAnswers();
+  const cards = all.cards.filter((c) => !held.away.includes(c.key));
+  const { loading } = all;
   const agents = useAgents();
   const wide = useWide(1100);
   const now = useNow();
@@ -290,11 +358,25 @@ export function RequestsPage() {
     const t = setTimeout(() => setSaid(''), 6000);
     return () => clearTimeout(t);
   }, [said]);
-  const toast = said ? (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
-      <Toast>{said}</Toast>
-    </div>
-  ) : null;
+  const toast =
+    held.last || said ? (
+      <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
+        <Toast>
+          {held.last ? (
+            <>
+              {held.last.line}{' '}
+              <span className="pointer-events-auto">
+                <Button variant="ghost" size="sm" icon="undo" label="Undo" onClick={() => held.undo(held.last!.key)}>
+                  Undo
+                </Button>
+              </span>
+            </>
+          ) : (
+            said
+          )}
+        </Toast>
+      </div>
+    ) : null;
   // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
   // The list reads in its groups, so j and k walk the cards in that order.
   const ordered = GROUPS.flatMap((g) => cards.filter((c) => groupOf(c) === g));
@@ -315,7 +397,7 @@ export function RequestsPage() {
     return (
       <ScrollPage col aria-label="Request">
         <PageHead back={{ label: 'Requests', to: () => setPick(null) }} />
-        <CardDetail card={sel} onSaid={setSaid} />
+        <CardDetail card={sel} onSaid={setSaid} hold={held.hold} />
         {toast}
       </ScrollPage>
     );
@@ -372,7 +454,7 @@ export function RequestsPage() {
       <div className="min-h-0 min-w-0 flex-1 overflow-auto border-l border-line">
         {sel ? (
           <div className="mx-auto max-w-[var(--w-col)]">
-            <CardDetail card={sel} onSaid={setSaid} />
+            <CardDetail card={sel} onSaid={setSaid} hold={held.hold} />
           </div>
         ) : null}
       </div>

@@ -73,7 +73,8 @@ describe('my turn', () => {
     return s;
   }
   const label = (b: Element) => b.getAttribute('title') ?? b.getAttribute('aria-label') ?? b.textContent ?? '';
-  const button = (c: Element, name: string) => [...c.querySelectorAll('button')].find((b) => label(b) === name);
+  // A button's label may end in its key hint ("ApproveA").
+  const button = (c: Element, name: string) => [...c.querySelectorAll('button')].find((b) => new RegExp(`^${name}[A-Z]?$`).test(label(b)));
   const click = (el: Element | undefined) => act(async () => void (el as HTMLElement).click());
   const type = (el: Element, v: string) =>
     act(async () => {
@@ -118,8 +119,25 @@ describe('my turn', () => {
     const c = reviewCard(9101)!;
     expect(button(c, 'Done')).toBeUndefined();
     await click(button(c, 'Approve'));
+    // The answer is held for a few seconds so Undo is real; closing the page sends it at once.
+    await act(async () => void window.dispatchEvent(new Event('pagehide')));
     await until(() => s.daemon.tasks.find(9101).state === 'done', 'the task done');
     expect(s.daemon.tasks.find(9101).evidence).toBe('Approved');
+  });
+
+  it('an answer leaves the list at once and Undo brings it back unsent', async () => {
+    const s = setup();
+    review(s, 9103);
+    await open(s);
+    await pick(ofTask(9103), 'the review row');
+    await until(() => reviewCard(9103), 'the review card');
+    await click(button(reviewCard(9103)!, 'Approve'));
+    expect(reviewCard(9103)).toBeUndefined();
+    await click([...document.querySelectorAll('button')].find((b) => label(b) === 'Undo'));
+    await until(() => reviewCard(9103), 'the card back');
+    await act(async () => void window.dispatchEvent(new Event('pagehide')));
+    await wait(50);
+    expect(s.daemon.tasks.find(9103).state).not.toBe('done');
   });
 
   it("a worktree-removal card has Keep it, Save a copy and Remove anyway; each closes the task with the daemon's words", async () => {
@@ -261,6 +279,7 @@ describe('my turn', () => {
     expect(button(c, 'Reply')).toBeUndefined(); // no bare Reply: the answer is written in its field
     await type(c.querySelector('input')!, 'Yes, relay it.');
     await click(button(c, 'Send answer'));
+    await act(async () => void window.dispatchEvent(new Event('pagehide')));
     await until(() => s.daemon.inbox.get(3).read, 'the daemon');
   });
 
