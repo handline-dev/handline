@@ -25,6 +25,7 @@ import {
   teamActivityOf,
   turnSummary,
   turnMinutes,
+  turnElapsed,
 } from '#src/index.ts';
 
 const A = 'handline.architect';
@@ -382,6 +383,13 @@ test('turn minutes round down and say under a minute', () => {
   assert.equal(turnMinutes('2026-01-01T00:00:00Z', now), '12m');
   assert.equal(turnMinutes('2026-01-01T00:12:00Z', now), '<1m');
   assert.equal(turnMinutes(null, now), '<1m');
+});
+
+test('turn elapsed counts seconds', () => {
+  const now = Date.parse('2026-01-01T00:01:12Z');
+  assert.equal(turnElapsed('2026-01-01T00:00:00Z', now), '1m 12s');
+  assert.equal(turnElapsed('2026-01-01T00:01:00Z', now), '12s');
+  assert.equal(turnElapsed(null, now), '0s');
 });
 
 const card = (id: number, event: string, task: number, at: string, who: string | null = 'handline.pc', change: string | null = null) => ({

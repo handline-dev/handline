@@ -45,7 +45,8 @@ describe('the working indicator', () => {
     expect(box.querySelector('.working')).toBeNull();
     s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'rebase the pane branch' });
     s.daemon.chat.setWorking(ARCH, true, 'Finding large disk users');
-    await until(() => box.querySelector('.working')?.getAttribute('title')?.includes('now: Finding large disk users'), 'the indicator');
+    await until(() => box.querySelector('.working')?.getAttribute('title')?.includes('Finding large disk users · '), 'the indicator');
+    expect(box.textContent).toContain('Stop');
     s.daemon.chat.setWorking(ARCH, false);
     await until(() => box.querySelector('.working') === null, 'the indicator gone');
   });
@@ -62,11 +63,11 @@ describe('the working indicator', () => {
       root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
     });
     await until(() => box.querySelector('textarea.compose'), 'the chat');
-    await until(() => box.querySelector('.working')?.textContent?.includes('2 commands · now: Read a.ts'), 'the live line');
+    await until(() => box.querySelector('.working')?.textContent?.includes('Reading a.ts · '), 'the live line');
     expect(box.querySelector('[data-testid="turn-steps"]')).toBeNull();
     await act(async () => box.querySelector<HTMLButtonElement>('.working')!.click());
     expect(box.querySelectorAll('[data-testid="turn-steps"] [data-kind="tool"]').length).toBe(2);
     s.daemon.chat.setWorking(ARCH, false);
-    await until(() => box.querySelector('.ran')?.textContent === 'Ran 2 commands', 'the folded line');
+    await until(() => box.querySelector('.ran')?.textContent?.startsWith('Ran 2 commands'), 'the folded line');
   });
 });

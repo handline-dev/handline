@@ -2,8 +2,9 @@
 // tool lines; when the turn is over it stays as "Ran N commands" in the same place.
 import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import type { ChatMessage, TranscriptItem, Working } from '@handline/client';
-import { turnMinutes, turnSummary } from '@handline/app-core';
+import type { AgentDetail, ChatMessage, TranscriptItem, Working } from '@handline/client';
+import { VERBS, doingWords, taskRef, turnElapsed, turnSummary } from '@handline/app-core';
+import { useVerbRun } from '@handline/app-data';
 import { Item } from '#src/ChatMessages.tsx';
 import { Icon } from '#src/ui/index.ts';
 
@@ -26,37 +27,60 @@ function Dots() {
 
 const commands = (n: number) => `${n} command${n === 1 ? '' : 's'}`;
 
-export function LiveLine({ working, messages, items }: { working: Working; messages: ChatMessage[]; items: TranscriptItem[] }) {
+export function LiveLine({
+  agent,
+  detail,
+  working,
+  messages,
+  items,
+}: {
+  agent: string;
+  detail: AgentDetail;
+  working: Working;
+  messages: ChatMessage[];
+  items: TranscriptItem[];
+}) {
+  const interrupt = useVerbRun(agent);
   const [open, setOpen] = useState(false);
   const [, tick] = useState(0);
   const running = working.turn_running;
   useEffect(() => {
     if (!running) return;
-    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    const t = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, [running]);
   const turn = turnSummary(messages, items, running);
   if (!running && !turn.count) return <div className="working-slot h-5 flex-none" />; // the row stays so the messages above never move
   const now = turn.last ?? working.line;
-  const text = running
-    ? ['Working', turnMinutes(working.since), turn.count ? commands(turn.count) : null, now ? `now: ${now}` : null]
-        .filter(Boolean)
-        .join(' · ')
-    : `Ran ${commands(turn.count)}`;
+  const what = now ? doingWords(now) : 'Working';
+  // The task is named only when the agent holds one; it is never read out of a command's text.
+  const held = detail.task ? taskRef(detail.task.id) : null;
+  const text = running ? [what, turnElapsed(working.since)].join(' · ') : [`Ran ${commands(turn.count)}`, held].filter(Boolean).join(' · ');
   return (
     <div className="working-slot flex min-h-5 flex-none flex-col items-start self-start">
-      <button
-        type="button"
-        className={`line ${running ? 'working' : 'ran'} flex h-5 max-w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs ${running ? 'text-working' : 'text-ink-2'}`}
-        role="status"
-        aria-expanded={open}
-        title={text}
-        onClick={() => setOpen(!open)}
-      >
-        {running ? <Dots /> : null}
-        <span className="truncate">{text}</span>
-        {turn.count ? <Icon name={open ? 'less' : 'more'} size={14} aria-hidden /> : null}
-      </button>
+      <div className="flex h-5 max-w-full items-center gap-2">
+        <button
+          type="button"
+          className={`line ${running ? 'working' : 'ran'} flex h-5 max-w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs ${running ? 'text-working' : 'text-ink-2'}`}
+          role="status"
+          aria-expanded={open}
+          title={text}
+          onClick={() => setOpen(!open)}
+        >
+          {running ? <Dots /> : null}
+          <span className="truncate">{text}</span>
+          {turn.count ? <Icon name={open ? 'less' : 'more'} size={14} aria-hidden /> : null}
+        </button>
+        {running ? (
+          <button
+            type="button"
+            className="flex-none cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 underline hover:text-ink"
+            onClick={() => interrupt(VERBS.interrupt)}
+          >
+            Stop
+          </button>
+        ) : null}
+      </div>
       {open ? (
         <div className="turn-steps flex w-full flex-col gap-1 py-1" data-testid="turn-steps">
           {turn.steps.map((i) => (
