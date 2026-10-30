@@ -10,6 +10,8 @@ import { Button } from '#src/ui/index.ts';
 /** Which command block of which message a card is, and its last run. */
 export interface BlockRef {
   message: number;
+  /** 'r' on an agent's own reply (a transcript item), whose block key is `r<id>:<n>`. */
+  prefix?: string;
   index: number;
   run?: CommandRun;
 }
@@ -76,7 +78,7 @@ export function CommandCard({ text, agent, block }: { text: string; agent?: stri
     setAsking(false);
     if (!agent || !block) return;
     try {
-      show((await openShell({ agent, command: text, block: `${block.message}:${block.index}` })).terminal);
+      show((await openShell({ agent, command: text, block: `${block.prefix ?? ''}${block.message}:${block.index}` })).terminal);
     } catch {
       // useWrite has reported it
     }
