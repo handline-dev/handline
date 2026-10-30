@@ -6,7 +6,7 @@ import { useSelector } from '@handline/app-react';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
-import { Banner, Button, PageHeader } from '#src/screens/parts.tsx';
+import { Banner, PageHeader } from '#src/screens/parts.tsx';
 import { isTaskDone } from '#src/screens/DoneCard.tsx';
 
 /** The bell and, beside it, how many notices are unread; it opens the list. */
