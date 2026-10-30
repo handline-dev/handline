@@ -115,6 +115,7 @@ describe('Delete agent', () => {
     await click([...pop.querySelectorAll('button')].find((b) => text(b) === 'Delete, keep the worktree')!);
     await until(() => !row(TB), 'the row gone', 600);
     expect(s.daemon.sessions.has(TB)).toBe(false);
+    await until(() => document.body.textContent?.includes(`${TB} deleted; its worktree stays`), 'the line after the delete');
   });
 
   it('asks once more before it loses the files', async () => {

@@ -2,10 +2,11 @@
 // Each is a decided write: the row shows the verb's gerund until the agents topic changes it. The ones in the bridge's CONFIRM ask first,
 // in a sheet under the row, and the sheet checks the row again on Confirm: a row that changed sends nothing.
 import { useState } from 'react';
-import { askOf, heldWords, VERBS, verbsOf, type HeldWorktree, type Verb, type WorktreeAnswer } from '@handline/app-core';
+import { askOf, deleteSaid, heldWords, VERBS, verbsOf, type HeldWorktree, type Verb, type WorktreeAnswer } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { useSelector } from '@handline/app-react';
+import { useSelector, useStore } from '@handline/app-react';
 import { useAccounts, useAgentDetail, useAgents, classify, sentence, useRetireAgent, useVerbRun } from '@handline/app-data';
+import { Button as DsButton } from '#src/ds/Button.tsx';
 import { Button, Select, Sheet, SheetActions } from '#src/ui/index.ts';
 import { useEscape } from '#src/useEscape.ts';
 
@@ -104,6 +105,7 @@ const POP_ANSWERS: { answer: WorktreeAnswer; label: string }[] = [
  * A worktree that holds work turns it into the three answers for that work, and the delete is sent again with the one picked. */
 export function DeleteSheet({ a, onClose }: { a: AgentView; onClose: () => void }) {
   const retire = useRetireAgent(a.name);
+  const store = useStore();
   const [refused, setRefused] = useState<string | null>(null);
   const [held, setHeld] = useState<HeldWorktree[]>([]);
   const [sure, setSure] = useState(false);
@@ -114,7 +116,10 @@ export function DeleteSheet({ a, onClose }: { a: AgentView; onClose: () => void 
     setRefused(null);
     retire(
       {
-        onSuccess: onClose,
+        onSuccess: () => {
+          store.notices.push('ok', worktree ? deleteSaid(worktree, a.name) : `${a.name} deleted`);
+          onClose();
+        },
         onError: (e) => {
           setBusy(false);
           const f = classify(e);
@@ -131,32 +136,31 @@ export function DeleteSheet({ a, onClose }: { a: AgentView; onClose: () => void 
       <Sheet role="alertdialog" aria-label={`${a.name} has work in its worktree`} danger>
         <strong>{a.name} has work in its worktree</strong>
         <span className="muted">{`${a.name} has ${heldWords(held)}. Nothing is deleted until you pick.`}</span>
-        {sure ? <span role="alert">Delete for good? Uncommitted files are lost.</span> : alert}
-        <SheetActions>
+        {sure ? (
+          <span role="alert" className="text-bad">
+            Delete for good? Uncommitted files are lost.
+          </span>
+        ) : (
+          alert
+        )}
+        <SheetActions className="!ml-0 w-full !flex-col [&>*]:w-full">
           {sure ? (
             <>
-              <Button
-                variant="solid"
-                label="Delete"
-                className="max-sm:min-h-12 max-sm:flex-1"
-                disabled={busy}
-                onClick={() => go('force')}
-              />
-              <Button variant="outline" label="Cancel" autoFocus className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setSure(false)} />
+              <DsButton kind="danger" label="Delete" disabled={busy} onClick={() => go('force')} />
+              <DsButton label="Cancel" autoFocus onClick={() => setSure(false)} />
             </>
           ) : (
             <>
               {POP_ANSWERS.map((o, i) => (
-                <Button
+                <DsButton
                   key={o.answer}
-                  variant={i === 0 ? 'solid' : 'outline'}
+                  kind={i === 0 ? 'primary' : o.answer === 'force' ? 'danger' : 'secondary'}
                   label={o.label}
-                  className="max-sm:min-h-12 max-sm:flex-1"
                   disabled={busy}
                   onClick={() => (o.answer === 'force' ? setSure(true) : go(o.answer))}
                 />
               ))}
-              <Button variant="outline" label="Cancel" autoFocus className="max-sm:min-h-12 max-sm:flex-1" onClick={onClose} />
+              <DsButton label="Cancel" autoFocus onClick={onClose} />
             </>
           )}
         </SheetActions>
