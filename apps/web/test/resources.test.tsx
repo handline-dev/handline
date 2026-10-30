@@ -44,7 +44,8 @@ describe('system resources', () => {
     await until(() => box.querySelector('.resource-details'), 'the popover');
     const line = (l: string) => box.querySelector<HTMLElement>(`.resource-details [data-resource="${l}"]`);
     expect(['Load', 'Memory', 'Disk', 'Heavy slots'].map((l) => !!line(l))).toEqual([true, true, true, true]);
-    expect(text(line('Load'))).toContain('Limit 150%');
+    expect(text(line('Load'))).toContain('Limit 150% of the machine');
+    expect(text(line('Heavy slots'))).toContain('1 of 2');
     expect(line('Disk')!.querySelector('button')).toBeNull(); // the daemon keeps no disk limit: nothing to change
     expect(box.querySelector('.limit-editor')).toBeNull(); // editors open on a click
   });
@@ -62,7 +63,7 @@ describe('system resources', () => {
     await until(() => box.querySelector('.resource-details'), 'the popover');
     const limit = () => s.daemon.admin.settings().values.load_per_core_pct;
     await act(async () => void box.querySelector<HTMLElement>('[data-resource="Load"] button')!.click());
-    expect(text(box.querySelector('.limit-editor'))).toContain('Agents wait above 150%');
+    expect(text(box.querySelector('.limit-editor'))).toContain('above 150% of the whole machine');
     expect(text(box.querySelector('.limit-editor'))).toContain('0 turns the limit off');
     await act(async () => void box.querySelector<HTMLElement>('[aria-label="Raise"]')!.click());
     await until(() => limit() === 200, 'the saved limit');

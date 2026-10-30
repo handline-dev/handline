@@ -174,11 +174,6 @@ export function Compose(props: {
             pane,
           )
         : null}
-      {note ? (
-        <p role="status" className="mx-3 flex items-center gap-2 px-1 pb-1 text-sm text-bad">
-          <Icon name="warn" size={14} aria-hidden /> {note}
-        </p>
-      ) : null}
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
@@ -273,6 +268,11 @@ export function Compose(props: {
           />
         </div>
       </ComposeRow>
+      {note ? (
+        <p role="status" className="mx-3 flex items-center gap-2 px-1 pt-1 text-sm text-bad">
+          <Icon name="warn" size={14} aria-hidden /> {note}
+        </p>
+      ) : null}
     </div>
   );
 }
