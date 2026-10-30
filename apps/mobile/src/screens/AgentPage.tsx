@@ -5,6 +5,7 @@ import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, 
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { font, space } from '@handline/tokens';
+import { CommandHome } from '#src/screens/CommandCard.tsx';
 import { TerminalPane } from '#src/screens/TerminalPane.tsx';
 import { usePalette } from '#src/theme.ts';
 import { useHistoryValue } from '#src/history.tsx';
@@ -193,7 +194,9 @@ function Body(props: {
         <>
           {!(structured && current === 'terminal') && current !== 'chat' && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
           {current === 'chat' ? (
-            <Chat detail={detail} searching={searching} />
+            <CommandHome.Provider value={{ agent: detail.name, cwd: detail.cwd }}>
+              <Chat detail={detail} searching={searching} />
+            </CommandHome.Provider>
           ) : structured ? (
             <TranscriptTab detail={detail} />
           ) : (

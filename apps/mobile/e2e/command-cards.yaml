@@ -1,0 +1,56 @@
+# After pair-and-page.yaml, on a fresh `pnpm fake-listener --commands`: three command cards in handline.architect's chat. Copy turns into a check with
+# "Copied" beside it, Run asks first and runs through the daemon, the line under the card says how it went, a risky command says why.
+# maestro test e2e/command-cards.yaml
+appId: dev.handline.mobile
+---
+- runFlow:
+    when: { visible: { id: back } }
+    commands: [{ tapOn: { id: back } }]
+- tapOn:
+    id: agent-handline.architect
+- assertVisible:
+    id: command-0
+- takeScreenshot: shots/command-1-cards
+- scrollUntilVisible:
+    element:
+      id: command-copy-0
+    direction: UP
+    timeout: 8000
+- tapOn:
+    id: command-copy-0
+- takeScreenshot: shots/command-2-copied
+- scrollUntilVisible:
+    element:
+      id: command-run-0
+    direction: UP
+    timeout: 8000
+- tapOn:
+    id: command-run-0
+- assertVisible: ".*It runs there as you.*"
+- takeScreenshot: shots/command-3-confirm
+- tapOn:
+    id: command-go-0
+- takeScreenshot: shots/command-4-running
+- scrollUntilVisible:
+    element:
+      id: command-run-1
+    direction: UP
+    timeout: 8000
+- tapOn:
+    id: command-run-1
+- tapOn:
+    id: command-go-1
+- assertVisible: ".*Done · exit 0.*"
+- takeScreenshot: shots/command-5-done
+- scrollUntilVisible:
+    element:
+      id: command-run-2
+    direction: UP
+    timeout: 8000
+- tapOn:
+    id: command-run-2
+- assertVisible:
+    id: command-risk-2
+- takeScreenshot: shots/command-6-risky
+- tapOn:
+    id: command-cancel-2

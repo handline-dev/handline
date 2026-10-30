@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture [a.png,b.jpg]] [--held-load] [--queue] [--held-by <device>] [--review] [--done N] [--readers]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture [a.png,b.jpg]] [--commands] [--held-load] [--queue] [--held-by <device>] [--review] [--done N] [--readers]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -101,6 +101,12 @@ if (process.argv.includes('--picture')) {
     'founder',
     daemon.uploads.message,
   );
+}
+if (process.argv.includes('--commands')) {
+  // Command cards in handline.architect's chat: one message with three blocks, one that keeps running, one that ends at once, one that is risky.
+  // The fake runs nothing itself.
+  const body = 'Run these:\n```sh\npnpm test --filter @handline/web\n```\n```sh\ntrue\n```\n```sh\nrm -rf dist\n```';
+  daemon.chat.send({ agent: 'handline.architect', body, request_id: 'e2e-commands' }, 'founder', daemon.uploads.message);
 }
 if (process.argv.includes('--readers')) {
   // A founder comment on task 1684 that three agents were told about: one read it, one holds it for the next pickup, one has it unread.
