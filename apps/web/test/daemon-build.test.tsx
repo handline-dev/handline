@@ -66,7 +66,7 @@ describe('the daemon build notice', () => {
     await act(async () => void ($('.topbar .daemon-build button') as HTMLElement).click());
     await until(() => $('.topbar .daemon-build')!.textContent!.includes('Not restarted: exe prints another sha'), 'the reason');
   });
-  it('shows the daemon\'s whole refusal, wrapped and not cut', async () => {
+  it("shows the daemon's whole refusal, wrapped and not cut", async () => {
     const why = 'the daemon did not upgrade: daemon.upgrade is for a founder or above; this caller is anonymous';
     await mount({ sha: 'abc123def456', canRestart: true, restart: async () => ({ ok: false, code: 'cannot_restart', message: why }) });
     await until(() => $('.topbar .daemon-build button'), 'the button');

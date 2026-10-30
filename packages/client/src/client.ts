@@ -7,7 +7,6 @@ import {
   type Methods,
   type Notifications,
   type Prompt,
-  type RequestId,
   type Row,
   type TerminalSnapshot,
   type Topic,
@@ -17,25 +16,9 @@ import { RpcError } from '#src/errors.ts';
 import { BytesChannel } from '#src/bytes-channel.ts';
 import { toBase64 } from '#src/byte-terminal-view.ts';
 import { TerminalView } from '#src/terminal-view.ts';
+import type { CallParams, ClientOptions, ConnectionState, HelloResult } from '#src/client-options.ts';
 
-/** A call's params; the client fills in request_id on writes. */
-export type CallParams<M extends MethodName> = Omit<Methods[M]['params'], 'request_id'> & { request_id?: RequestId };
-
-export type HelloResult = Methods['hello']['result'];
-
-export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed';
-
-export interface ClientOptions {
-  connect: () => Promise<Transport>;
-  client: string; // who is calling; the daemon names this actor on what it does
-  token?: string; // the device token from pairing; the network listener admits no one without it
-  key?: () => string | null; // the founder key, read at each hello: the person's own app proves itself on the Unix socket with it
-  founder?: boolean; // a hello not answered as the founder (no key yet) drops the connection to be retried, not kept at a lower role
-  reconnect?: { minMs: number; maxMs: number } | false;
-  newRequestId?: () => string;
-  /** Methods answered by something other than the daemon connection (the desktop shell, for calls this caller may not make itself); each throws what a failed call throws. */
-  relay?: { [M in MethodName]?: (params: CallParams<M>) => Promise<Methods[M]['result']> };
-}
+export type { CallParams, ClientOptions, ConnectionState, HelloResult } from '#src/client-options.ts';
 
 type Handler<T> = (value: T) => void;
 interface Pending {
@@ -136,7 +119,12 @@ export class DaemonClient {
   }
 
   private async handshake(t: Transport): Promise<void> {
-    const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token, key: this.opts.key?.() ?? undefined });
+    const hello = await this.callNow('hello', {
+      client: this.opts.client,
+      protocol: PROTOCOL,
+      token: this.opts.token,
+      key: this.opts.key?.() ?? undefined,
+    });
     if (hello.min_client > PROTOCOL || hello.protocol < PROTOCOL) {
       t.onclose = null;
       t.close();
@@ -148,7 +136,8 @@ export class DaemonClient {
         { reason: 'run `hl service install` to reload the service' },
       );
     }
-    if (this.opts.founder && hello.role !== 'founder') throw new RpcError('transport', `the daemon took this app as ${hello.role}: no founder key accepted`);
+    if (this.opts.founder && hello.role !== 'founder')
+      throw new RpcError('transport', `the daemon took this app as ${hello.role}: no founder key accepted`);
     this.hello = hello;
     // Pending writes go first with their old ids and request_ids: a daemon that already did one
     // answers from its stored reply instead of repeating it.
@@ -159,7 +148,9 @@ export class DaemonClient {
   private async establish(): Promise<void> {
     // A reconnect resumes at the newest event, not the last seen: the screens read again, and what follows is the changes since.
     const back = this.wasOpen;
-    const r = this.topics.size && (await this.callNow('subscribe', { topics: [...this.topics], ...(back ? { resume: 'latest' as const } : { since: this.cursor }) }));
+    const r =
+      this.topics.size &&
+      (await this.callNow('subscribe', { topics: [...this.topics], ...(back ? { resume: 'latest' as const } : { since: this.cursor }) }));
     const from = this.cursor;
     if (back && r) this.cursor = r.cursor;
     if (back) for (const fn of this.resumeHandlers) fn({ from });
