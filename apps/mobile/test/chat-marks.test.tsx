@@ -30,7 +30,10 @@ describe('marking a picked picture in Chat', () => {
     const m = await mount();
     await openChat();
     await press($('attach-image'));
-    await until(() => $(`image-mark-${chipKey()}`)?.getAttribute('aria-disabled') !== 'true' && $(`image-mark-${chipKey()}`), 'the thumbnail');
+    await until(
+      () => $(`image-mark-${chipKey()}`)?.getAttribute('aria-disabled') !== 'true' && $(`image-mark-${chipKey()}`),
+      'the thumbnail',
+    );
     await press($(`image-mark-${chipKey()}`));
     await until(() => $m('mark-done'), 'the marker');
     expect($m('mark-undo')?.getAttribute('aria-disabled')).toBe('true');
@@ -46,7 +49,10 @@ describe('marking a picked picture in Chat', () => {
     const m = await mount();
     await openChat();
     await press($('attach-image'));
-    await until(() => $(`image-mark-${chipKey()}`)?.getAttribute('aria-disabled') !== 'true' && $(`image-mark-${chipKey()}`), 'the thumbnail');
+    await until(
+      () => $(`image-mark-${chipKey()}`)?.getAttribute('aria-disabled') !== 'true' && $(`image-mark-${chipKey()}`),
+      'the thumbnail',
+    );
     await press($(`image-mark-${chipKey()}`));
     await press($m('mark-cancel'));
     await until(() => !$m('mark-cancel'), 'the marker closing');

@@ -82,9 +82,18 @@ describe('the phone notices', () => {
     expect($('notice-fresh')).toBeNull();
     m.store.stop();
   });
-  it('shows the weekly-loss notice with its first three tasks and a Start button; the X closes it', async () => {
+  it('shows the weekly-loss offer as a card in Requests, not over the tabs or in the notice list, with its first three tasks and a Start button; the X closes it', async () => {
     const m = await mount((s) => ((s.daemon.tasks.verbs = true), applySeeds(s.daemon, 'spare-notice')));
-    await until(() => $('notice-spare'), 'the notice');
+    await until(() => $('bell'), 'the bell');
+    await press($('nav-requests'));
+    await until(() => $('notice-spare'), 'the offer card');
+    expect($('turn-task-7100')).toBeNull();
+    await press($('bell'));
+    await until(() => $('notices-page'), 'the notice list');
+    expect($('notice-spare')).toBeNull();
+    await press($('notices-close'));
+    await press($('nav-requests'));
+    await until(() => $('notice-spare'), 'the offer card again');
     expect(text($('notice-spare'))).toContain("18% of theta's weekly use will be lost at 02:10.");
     expect(text($('notice-spare'))).toContain('Tidy the gap list');
     expect(text($('notice-spare'))).not.toContain('T7104');

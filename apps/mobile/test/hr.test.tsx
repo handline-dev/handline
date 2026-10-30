@@ -55,7 +55,7 @@ async function mount(prepare: (s: ReturnType<typeof setup>) => void = () => {}, 
     root!.render(
       <DaemonProvider store={store}>
         <DataProvider daemonId="test">
-          <Home store={store} onUnpair={() => {}} />
+          <Home store={store} onUnpair={() => {}} startOn="agents" />
         </DataProvider>
       </DaemonProvider>,
     );

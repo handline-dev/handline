@@ -40,7 +40,10 @@ test('drafts, releases without a number or without an apk are skipped', () => {
 
 test('stable reads the latest full release, a single object', async () => {
   const urls: string[] = [];
-  const f = ((url: string) => (urls.push(url), Promise.resolve({ ok: true, json: () => Promise.resolve(rel('v0.2.0', 7, false)) }))) as unknown as typeof fetch;
+  const f = ((url: string) => (
+    urls.push(url),
+    Promise.resolve({ ok: true, json: () => Promise.resolve(rel('v0.2.0', 7, false)) })
+  )) as unknown as typeof fetch;
   assert.equal((await checkForUpdate('stable', 5, f))?.versionCode, 7);
   assert.match(urls[0]!, /releases\/latest$/);
 });

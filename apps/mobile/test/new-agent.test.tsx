@@ -352,6 +352,12 @@ function Reload(props: { store: Store; pending: Pending | (() => Pending); expos
   const [n, setN] = useState(0);
   props.expose?.(() => setN((x) => x + 1));
   return (
-    <Home key={n} store={props.store} onUnpair={() => {}} pending={typeof props.pending === 'function' ? props.pending() : props.pending} />
+    <Home
+      key={n}
+      store={props.store}
+      onUnpair={() => {}}
+      startOn="agents"
+      pending={typeof props.pending === 'function' ? props.pending() : props.pending}
+    />
   );
 }

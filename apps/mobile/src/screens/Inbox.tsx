@@ -1,4 +1,4 @@
-// The My turn tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web My turn page: a read item leaves
+// The Requests tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web My turn page: a read item leaves
 // the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
@@ -15,6 +15,7 @@ import { PromptCard } from '#src/screens/PromptCard.tsx';
 import { ReviewCard } from '#src/screens/ReviewCard.tsx';
 import { CARD_WORDS, WorktreeAnswers } from '#src/screens/WorktreeAnswers.tsx';
 import { DiskCard } from '#src/screens/DiskCard.tsx';
+import { SpareCard, useSpareNotices } from '#src/screens/SpareCard.tsx';
 
 const KIND: Record<string, string> = {
   decision: 'Decision',
@@ -34,6 +35,12 @@ const KIND_ICON: Record<string, IconName> = {
   block: 'block',
   prompt: 'prompt',
 };
+/** How many things wait on the person: what the Requests list shows, and the one number the tab's badge and the page's header both say. */
+export function useWaiting(): number {
+  const turn = useMyTurn().cards;
+  return turn.filter((t) => t.kind === 'task' || t.kind === 'machine').length + useUnread().length;
+}
+
 /** A decision is the person's task: the card ends it with task.done. */
 const decidable = (i: InboxItem) => i.kind === 'decision' && i.task != null;
 const waits = (i: InboxItem, readPending: boolean) => !i.read && !readPending;
@@ -236,10 +243,12 @@ export function Inbox(props: { onTask: (id: number) => void }) {
   const c = usePalette();
   const turn = useMyTurn().cards;
   const tasks = turn.filter((t) => t.kind === 'task');
+  const spare = new Map(useSpareNotices().map((n) => [n.task, n])); // a weekly-loss offer is a task of the person's: it is drawn as its own card
   const machine = turn.filter((t) => t.kind === 'machine');
   const query = useInbox();
   const { served } = useServes('inbox.list');
   const unread = useUnread();
+  const waiting = useWaiting();
   const [ui, setUi] = useState<Record<number, Ui>>({});
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const markAll = useWrite('inbox.mark_read');
@@ -268,11 +277,11 @@ export function Inbox(props: { onTask: (id: number) => void }) {
   return (
     <View style={{ flex: 1 }}>
       <PageHeader
-        title="My turn"
+        title="Requests"
         actions={
           <>
             <Text testID="unread-count" style={{ color: c.muted, fontSize: font.size.md }}>
-              {unread.length}
+              {waiting}
             </Text>
             <Button
               testID="mark-all-read"
@@ -304,36 +313,40 @@ export function Inbox(props: { onTask: (id: number) => void }) {
               {machine.map((m) => (
                 <DiskCard key={m.key} detail={m.detail} since={m.since} />
               ))}
-              {tasks.map((t) => (
-                <View
-                  key={t.key}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: space.sm,
-                    padding: space.lg,
-                    borderTopWidth: 1,
-                    borderTopColor: c.line,
-                  }}
-                >
-                  <Pressable
-                    testID={`turn-task-${t.task}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open T${t.task}`}
-                    onPress={() => props.onTask(t.task!)}
-                    style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}
+              {tasks.map((t) =>
+                spare.has(t.task!) ? (
+                  <SpareCard key={t.key} n={spare.get(t.task!)!} onTask={props.onTask} />
+                ) : (
+                  <View
+                    key={t.key}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: space.sm,
+                      padding: space.lg,
+                      borderTopWidth: 1,
+                      borderTopColor: c.line,
+                    }}
                   >
-                    <Text style={{ color: c.muted, fontSize: font.size.xs }}>Task{t.from ? ` · from ${t.from}` : ''}</Text>
-                    <Text style={{ color: c.ink, fontWeight: '600' }}>{`T${t.task} ${t.title}`}</Text>
-                  </Pressable>
-                  <Button
-                    testID={`turn-task-done-${t.task}`}
-                    label="Done"
-                    disabled={!!offDone}
-                    onPress={() => done.mutate({ task: t.task!, evidence: 'Done', reason: true })}
-                  />
-                </View>
-              ))}
+                    <Pressable
+                      testID={`turn-task-${t.task}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open T${t.task}`}
+                      onPress={() => props.onTask(t.task!)}
+                      style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}
+                    >
+                      <Text style={{ color: c.muted, fontSize: font.size.xs }}>Task{t.from ? ` · from ${t.from}` : ''}</Text>
+                      <Text style={{ color: c.ink, fontWeight: '600' }}>{`T${t.task} ${t.title}`}</Text>
+                    </Pressable>
+                    <Button
+                      testID={`turn-task-done-${t.task}`}
+                      label="Done"
+                      disabled={!!offDone}
+                      onPress={() => done.mutate({ task: t.task!, evidence: 'Done', reason: true })}
+                    />
+                  </View>
+                ),
+              )}
             </>
           }
           keyExtractor={(e) => e.key}

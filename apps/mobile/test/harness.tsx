@@ -74,7 +74,7 @@ export async function mount(
   prepare: (s: ReturnType<typeof setup>) => void = () => {},
   daemon?: FakeDaemonOptions,
   client?: string,
-  as: { role?: NonNullable<Parameters<typeof setup>[0]>['role']; screen?: (store: Store) => ReactNode } = {},
+  as: { role?: NonNullable<Parameters<typeof setup>[0]>['role']; screen?: (store: Store) => ReactNode; opens?: 'auto' } = {},
 ) {
   const s = setup({ daemon, client, role: as.role });
   prepare(s);
@@ -84,7 +84,9 @@ export async function mount(
   await act(async () => {
     root!.render(
       <DaemonProvider store={store}>
-        <DataProvider daemonId="test">{as.screen ? as.screen(store) : <Home store={store} onUnpair={() => {}} />}</DataProvider>
+        <DataProvider daemonId="test">
+          {as.screen ? as.screen(store) : <Home store={store} onUnpair={() => {}} startOn={as.opens === 'auto' ? undefined : 'agents'} />}
+        </DataProvider>
       </DaemonProvider>,
     );
   });

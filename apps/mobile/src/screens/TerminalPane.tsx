@@ -166,15 +166,27 @@ export function TerminalPane(props: { agent: string; view: TerminalView; session
         }}
         onKeyPress={(e) => {
           const key = e.nativeEvent.key;
-          if (key === 'Backspace' && !typed.current) type('\x7f'); // with text in the field, the change says it
+          if (key === 'Backspace' && !typed.current)
+            type('\x7f'); // with text in the field, the change says it
           else if (key === 'Enter') type('\r');
         }}
         style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
       />
       {!other && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, backgroundColor: c.panel }} contentContainerStyle={{ flexGrow: 1, gap: space.xs, padding: space.xs }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0, backgroundColor: c.panel }}
+          contentContainerStyle={{ flexGrow: 1, gap: space.xs, padding: space.xs }}
+        >
           {KEYS.map((k) => (
-            <Button key={k.id} testID={`terminal-key-${k.id}`} label={k.label} onPress={() => type(k.data)} style={{ flexGrow: 1, paddingHorizontal: space.xs }} />
+            <Button
+              key={k.id}
+              testID={`terminal-key-${k.id}`}
+              label={k.label}
+              onPress={() => type(k.data)}
+              style={{ flexGrow: 1, paddingHorizontal: space.xs }}
+            />
           ))}
         </ScrollView>
       )}

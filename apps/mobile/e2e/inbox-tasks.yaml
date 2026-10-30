@@ -2,7 +2,7 @@
 appId: dev.handline.mobile
 ---
 - tapOn:
-    id: nav-inbox
+    id: nav-requests
 - assertVisible: Mark all read
 - assertVisible:
     id: inbox-open-.*

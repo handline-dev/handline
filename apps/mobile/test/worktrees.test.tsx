@@ -91,7 +91,7 @@ describe('the decision for a worktree that holds work', () => {
 
   it('has Keep it filled first, Save, and Remove anyway as the danger one; the body shows the facts, not how to close by number', async () => {
     const m = await mount(seed(9401));
-    await press($('nav-inbox'));
+    await press($('nav-requests'));
     await until(() => $('inbox-open-6'), 'the card');
     await press($('inbox-open-6'));
     await until(() => $('inbox-worktree-6-keep'), 'the buttons');
@@ -109,7 +109,7 @@ describe('the decision for a worktree that holds work', () => {
 
   it('asks once more before Remove anyway, and says what was done after it', async () => {
     const m = await mount(seed(9402));
-    await press($('nav-inbox'));
+    await press($('nav-requests'));
     await until(() => $('inbox-open-6'), 'the card');
     await press($('inbox-open-6'));
     await until(() => $('inbox-worktree-6-force'), 'the buttons');
@@ -128,7 +128,7 @@ describe('the decision for a worktree that holds work', () => {
 
   it('says nothing was done when the daemon refuses, and the card stays', async () => {
     const m = await mount((s) => (seed(9403)(s), s.daemon.knobs.refuse('task.done', 'state', 'not a worktree git knows')));
-    await press($('nav-inbox'));
+    await press($('nav-requests'));
     await until(() => $('inbox-open-6'), 'the card');
     await press($('inbox-open-6'));
     await until(() => $('inbox-worktree-6-keep'), 'the buttons');
@@ -150,7 +150,7 @@ describe('the disk card', () => {
         role: 'founder',
       },
     );
-    await press($('nav-inbox'));
+    await press($('nav-requests'));
     await until(() => $('disk-open'), 'the card');
     await press($('disk-open'));
     expect(text($('disk-card'))).toContain('Free space is 3 GB.');

@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { FakeDaemon } from '@handline/fake-daemon/daemon';
 import { serveWs } from '@handline/fake-daemon/serve';
+import { applySeeds } from '@handline/fake-daemon/seeds';
 
 const arg = (n: string, d: string) => {
   const i = process.argv.indexOf(`--${n}`);
@@ -40,6 +41,7 @@ execFileSync(
 );
 const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
+applySeeds(daemon, process.env.HANDLINE_FAKE_SEEDS ?? ''); // HANDLINE_FAKE_SEEDS=all or a list, as serve.ts reads it
 daemon.tasks.verbs = true; // done, reopen, queue... (the daemon's plan D3), so the phone's task verbs can be tried
 if (process.argv.includes('--founder-phone')) daemon.deviceRole = 'founder'; // so the HR verbs can be tried: a real phone is a member
 if (process.argv.includes('--stalled'))

@@ -80,7 +80,7 @@ describe('the inbox tab', () => {
   it('shows its skeleton while slow, then the waiting items, and a decision done leaves the list and ends its task at the daemon', async () => {
     let release = () => {};
     const m = await mount((s) => (withDecisionTask(s), (release = s.daemon.knobs.hold('inbox.list'))));
-    await tab('inbox');
+    await tab('requests');
     await until(() => $('skeleton-inbox'), 'the skeleton');
     release();
     await until(() => item(DECISION), 'the decision');
@@ -102,7 +102,7 @@ describe('the inbox tab', () => {
       s.daemon.tasks.memo({ task: 9301, text: `Margin widened.\n![after](attachment:${pic.id})` }, 'add', ARCH);
       void s.daemon.inbox.add({ kind: 'decision', agent: ARCH, title: 'Review: margin', body: 'Is this right?', task: 9301 });
     });
-    await tab('inbox');
+    await tab('requests');
     await until(() => $('inbox-6'), 'the card');
     await press($('inbox-open-6'));
     await until(() => $('review-card'), 'the review card');
@@ -119,7 +119,7 @@ describe('the inbox tab', () => {
       const r = s.daemon.inbox['items'].find((i) => i.id === RESULT)!;
       Object.assign(r, { agent: ARCH, fix: 'open_terminal' });
     });
-    await tab('inbox');
+    await tab('requests');
     await until(() => item(RESULT), 'the items');
     expect($(`inbox-terminal-${RESULT}`)).toBeNull();
     await press($(`inbox-open-${RESULT}`));
@@ -130,7 +130,7 @@ describe('the inbox tab', () => {
 
   it('marks a result read from its card, and Mark all read then the last decision empty the list into the empty sentence', async () => {
     const m = await mount(withDecisionTask);
-    await tab('inbox');
+    await tab('requests');
     await until(() => item(RESULT), 'the items');
     await press($(`inbox-open-${RESULT}`));
     await press($(`inbox-read-${RESULT}`));
@@ -153,7 +153,7 @@ describe('the inbox tab', () => {
       s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T1 done by a', created: new Date().toISOString() });
       s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T2 done by b', created: new Date().toISOString() });
     });
-    await tab('inbox');
+    await tab('requests');
     await until(() => $('inbox-group-digest'), 'the digest row');
     expect(text($('inbox-group-digest'))).toContain('task-board: 2 messages');
     expect(text()).not.toContain('T1 done by a'); // shut, they are not listed one by one
@@ -165,7 +165,7 @@ describe('the inbox tab', () => {
 
   it('puts a refused Done back and says why', async () => {
     const m = await mount(withDecisionTask);
-    await tab('inbox');
+    await tab('requests');
     await until(() => item(DECISION), 'the items');
     m.daemon.knobs.refuse('task.done', 'state', 'Already decided by the founder.');
     await press($(`inbox-open-${DECISION}`));
@@ -178,7 +178,7 @@ describe('the inbox tab', () => {
 
   it('keeps a typed reply through a refusal, and clears it once the daemon accepts', async () => {
     const m = await mount();
-    await tab('inbox');
+    await tab('requests');
     await until(() => item(RESULT), 'the items');
     m.daemon.knobs.refuse('inbox.reply', 'state', 'That thread is closed.');
     await press($(`inbox-open-${RESULT}`));
@@ -202,7 +202,7 @@ describe('the inbox tab', () => {
 
   it('puts the unread items back and says why when Mark all read is refused', async () => {
     const m = await mount();
-    await tab('inbox');
+    await tab('requests');
     await until(() => item(RESULT), 'the items');
     const before = $('unread-count')!.textContent;
     m.daemon.knobs.latency(300);
@@ -217,7 +217,7 @@ describe('the inbox tab', () => {
 
   it('shows the daemon’s sentence when the read is refused', async () => {
     const m = await mount((s) => s.daemon.knobs.refuse('inbox.list', 'state', 'the inbox is resting'));
-    await tab('inbox');
+    await tab('requests');
     await until(() => $('error'), 'the error block');
     expect(text()).toContain('the inbox is resting');
     m.store.stop();

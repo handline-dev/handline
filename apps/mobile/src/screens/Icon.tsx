@@ -16,7 +16,12 @@ export function Icon(props: { name: IconName; color: string; size?: number; labe
   const text = ICON_SPEC[props.name][1];
   const size = props.size ?? 16;
   const glyph = <Glyph size={size} color={props.color} strokeWidth={2} />;
-  if (props.decorative) return <View testID={props.testID} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{glyph}</View>;
+  if (props.decorative)
+    return (
+      <View testID={props.testID} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        {glyph}
+      </View>
+    );
   return (
     <View testID={props.testID} accessible accessibilityRole="image" accessibilityLabel={props.label ?? text}>
       {glyph}
