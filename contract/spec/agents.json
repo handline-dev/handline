@@ -128,7 +128,8 @@
        {
         "type": "null"
        }
-      ]
+      ],
+      "description": "The task the agent holds in doing; null when it holds none, or only a queued, blocked or ended one."
      },
      "cache_until": {
       "oneOf": [

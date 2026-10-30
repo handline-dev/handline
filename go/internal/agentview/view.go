@@ -367,7 +367,8 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 	}
 	var task any
 	if tid, ok := must2(db.CurrentTask(e.Q, agent)); ok {
-		if t := must(db.GetTask(e.Q, tid)); t != nil {
+		// Only a task it holds in doing: current_task is set at delivery and cleared after done, so it can name a queued or ended one.
+		if t := must(db.GetTask(e.Q, tid)); t != nil && must(db.TaskState(e.Q, t)) == "doing" {
 			task = map[string]any{"id": t.ID, "title": t.Title}
 		}
 	}

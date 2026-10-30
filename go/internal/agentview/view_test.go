@@ -208,6 +208,37 @@ func TestDoingIsTheRunningTurnsToolCallAndNullAtRest(t *testing.T) {
 	}
 }
 
+// task is the task the agent holds in doing: current_task names it from delivery until after done, so a queued, blocked or ended
+// one is null.
+func TestTaskIsOnlyTheTaskTheAgentHoldsInDoing(t *testing.T) {
+	r := newRig(t, "queued", "doing", "blocked", "ended")
+	for _, sql := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at, done_evidence) VALUES" +
+			"(1, 'q', 'queued', 'm', 1, NULL, NULL), (2, 'd', 'doing', 'm', 1, 1, NULL), (3, 'b', 'blocked', 'm', 1, 1, NULL)," +
+			"(4, 'e', 'ended', 'm', 1, 1, 'PASS'), (5, 'other', 'm', 'm', 1, NULL, NULL)",
+		"INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(3, 5, 1)",
+	} {
+		if _, err := r.env.Q.Exec(sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, a := range []string{"queued", "doing", "blocked", "ended"} {
+		r.state(t, a, states.Idle, "")
+		if _, err := r.env.Q.Exec("UPDATE agent_state SET current_task = ? WHERE agent = ?", i+1, a); err != nil {
+			t.Fatal(err)
+		}
+		r.env.RefreshOne(a)
+	}
+	if got, _ := r.stored(t, "doing")["task"].(map[string]any); got["id"] != float64(2) || got["title"] != "d" {
+		t.Errorf("doing: task %v, want T2 d", r.stored(t, "doing")["task"])
+	}
+	for _, a := range []string{"queued", "blocked", "ended"} {
+		if got := r.stored(t, a)["task"]; got != nil {
+			t.Errorf("%s: task %v, want null", a, got)
+		}
+	}
+}
+
 // An agent at rest is on its account only while its prompt cache lives; a running one always is.
 func TestAnAgentAtRestPastItsCacheIsOnNoAccount(t *testing.T) {
 	r := newRig(t, "a")
