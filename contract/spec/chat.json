@@ -1062,7 +1062,7 @@
    },
    "Attachment": {
     "type": "object",
-    "description": "An image the person attached to a message. The file lives on the daemon's machine; a client draws it with attachment.get.",
+    "description": "A file the person attached to a message: an image or any other file. The file lives on the daemon's machine; a client draws an image with attachment.get.",
     "properties": {
      "id": {
       "$ref": "#/components/schemas/AttachmentId"
@@ -1074,12 +1074,9 @@
      },
      "mime": {
       "type": "string",
-      "enum": [
-       "image/png",
-       "image/jpeg",
-       "image/gif",
-       "image/webp"
-      ]
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$",
+      "maxLength": 100,
+      "description": "The type the file was put with. For a PNG, JPEG, GIF or WebP it is the type its first bytes say; for any other file it is the type the client gave, kept as sent."
      },
      "bytes": {
       "type": "integer"
@@ -1293,7 +1290,7 @@
      },
      "exit": {
       "type": "integer",
-      "description": "The command's exit status; only when state is done or failed."
+      "description": "The command's exit status; only when state is done or failed. A command ended by a signal reads 128 plus the signal, as a shell says it."
      },
      "seconds": {
       "type": "integer",
@@ -2186,7 +2183,7 @@
   },
   {
    "name": "attachment.put",
-   "summary": "Upload an image for a message, in chunks; the last chunk returns the Attachment to name in chat.send.",
+   "summary": "Upload a file for a message, in chunks; the last chunk returns the Attachment to name in chat.send.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2202,12 +2199,9 @@
      "required": true,
      "schema": {
       "type": "string",
-      "enum": [
-       "image/png",
-       "image/jpeg",
-       "image/gif",
-       "image/webp"
-      ]
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$",
+      "maxLength": 100,
+      "description": "The file's type, as a MIME type (`application/octet-stream` when the client does not know). PNG, JPEG, GIF and WebP are checked against the first bytes; any other type is kept as sent."
      }
     },
     {
@@ -2302,7 +2296,7 @@
     "role",
     "limit"
    ],
-   "description": "See x-attachments. A chunk whose offset is not `received` is bad_request, field offset, and the reply's data says what the daemon holds, so a client that lost a reply resumes from there; the same request_id and params replays as for every write and writes nothing. When received reaches bytes the daemon checks the type by the first bytes and answers with `attachment`; a size over 10 MiB, an unsent total over its limit or too many open uploads is refused, gate limit, and the partial upload is dropped. An upload id that is unknown or expired is not_found."
+   "description": "See x-attachments. A chunk whose offset is not `received` is bad_request, field offset, and the reply's data says what the daemon holds, so a client that lost a reply resumes from there; the same request_id and params replays as for every write and writes nothing. When received reaches bytes the daemon checks an image type (PNG, JPEG, GIF, WebP) by the first bytes, takes any other file as sent, and answers with `attachment`; a size over 10 MiB, an unsent total over its limit or too many open uploads is refused, gate limit, and the partial upload is dropped. An upload id that is unknown or expired is not_found."
   },
   {
    "name": "attachment.get",
@@ -2341,13 +2335,9 @@
      "properties": {
       "mime": {
        "type": "string",
-       "enum": [
-        "image/png",
-        "image/jpeg",
-        "image/gif",
-        "image/webp",
-        "text/markdown"
-       ]
+       "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$",
+       "maxLength": 100,
+       "description": "The file's type, or the thumbnail's when thumb."
       },
       "bytes": {
        "type": "integer",

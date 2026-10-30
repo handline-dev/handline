@@ -10,16 +10,16 @@ import (
 	"github.com/handline/handline/go/internal/worktreeprune"
 )
 
-// WorktreeSizes measures the orphan worktrees (worktreeprune.Orphans) at most every worktreeprune.SizeEvery seconds, off the tick since a
-// walk takes a while, and keeps each one's bytes in meta (worktreeprune.SizePrefix) for worktrees.list and the disk item. It never
-// deletes a worktree.
+// WorktreeSizes measures every worktree, an agent's or an orphan (worktreeprune.Orphans), at most every worktreeprune.SizeEvery seconds,
+// off the tick since a walk takes a while, and keeps each one's bytes in meta (worktreeprune.SizePrefix) for worktrees.list and the
+// disk item. It never deletes a worktree.
 type WorktreeSizes struct {
 	Home string
 	Log  func(string)
 	// Size is the bytes under a path; nil is worktreeprune.Size.
 	Size func(path string) (int64, error)
-	// Orphans are the worktrees to measure; nil is OrphanPaths of Home.
-	Orphans func(q db.Q) ([]string, error)
+	// Worktrees are the worktrees to measure; nil is WorktreePaths of Home.
+	Worktrees func(q db.Q) ([]string, error)
 
 	measured int64
 	mu       sync.Mutex
@@ -41,11 +41,11 @@ func (w *WorktreeSizes) Check(q db.Q, now int64) error {
 	if running || (w.measured != 0 && now-w.measured < worktreeprune.SizeEvery) {
 		return nil
 	}
-	list := w.Orphans
+	list := w.Worktrees
 	if list == nil {
-		list = func(q db.Q) ([]string, error) { return OrphanPaths(q, w.Home) }
+		list = func(q db.Q) ([]string, error) { return WorktreePaths(q, w.Home) }
 	}
-	orphans, err := list(q)
+	paths, err := list(q)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (w *WorktreeSizes) Check(q db.Q, now int64) error {
 	}
 	go func() {
 		sizes := map[string]int64{}
-		for _, p := range orphans {
+		for _, p := range paths {
 			if n, err := size(p); err == nil {
 				sizes[p] = n
 			} else {
@@ -73,13 +73,16 @@ func (w *WorktreeSizes) Check(q db.Q, now int64) error {
 	return nil
 }
 
-// OrphanPaths are the real paths of the orphan worktrees of every repository an agent works in.
-func OrphanPaths(q db.Q, home string) ([]string, error) {
+// WorktreePaths are the real paths of every worktree an agent records and of the orphans of every repository an agent works in.
+func WorktreePaths(q db.Q, home string) ([]string, error) {
 	agents, err := worktreeprune.AgentWorktrees(q, "")
 	if err != nil {
 		return nil, err
 	}
-	var out []string
+	out := make([]string, 0, len(agents))
+	for p := range agents {
+		out = append(out, p)
+	}
 	for _, repo := range worktreeprune.Repos(home) {
 		for _, wt := range worktreeprune.Orphans(repo, agents) {
 			out = append(out, worktreeprune.Real(wt.Path))
@@ -88,7 +91,7 @@ func OrphanPaths(q db.Q, home string) ([]string, error) {
 	return out, nil
 }
 
-// keepSizes replaces the kept sizes with sizes: a worktree no longer an orphan, or gone, loses its row.
+// keepSizes replaces the kept sizes with sizes: a worktree gone or no longer listed, loses its row.
 func keepSizes(q db.Q, sizes map[string]int64) error {
 	names, err := db.MetaNames(q, worktreeprune.SizePrefix)
 	if err != nil {
@@ -109,11 +112,30 @@ func keepSizes(q db.Q, sizes map[string]int64) error {
 	return nil
 }
 
-// OrphanSizes are the orphan worktrees as the last walk measured them: how many, and the bytes they take together.
+// OrphanSizes are the orphan worktrees as the last walk measured them: how many, and the bytes they take together. A worktree an agent
+// records is measured too, and is not counted.
 func OrphanSizes(q db.Q) (count, bytes int64, err error) {
-	err = q.QueryRow("SELECT count(*), COALESCE(sum(CAST(value AS INTEGER)), 0) FROM meta WHERE substr(name, 1, ?) = ?",
-		len(worktreeprune.SizePrefix), worktreeprune.SizePrefix).Scan(&count, &bytes)
-	return count, bytes, err
+	agents, err := worktreeprune.AgentWorktrees(q, "")
+	if err != nil {
+		return 0, 0, err
+	}
+	rows, err := q.Query("SELECT name, CAST(value AS INTEGER) FROM meta WHERE substr(name, 1, ?) = ?",
+		len(worktreeprune.SizePrefix), worktreeprune.SizePrefix)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var n int64
+		if err := rows.Scan(&name, &n); err != nil {
+			return 0, 0, err
+		}
+		if !agents[strings.TrimPrefix(name, worktreeprune.SizePrefix)] {
+			count, bytes = count+1, bytes+n
+		}
+	}
+	return count, bytes, rows.Err()
 }
 
 // OrphanText is the orphans in plain words, for after the disk item's text.

@@ -169,6 +169,8 @@ test('the page switches the mode and pairs another device only from the window a
     follow: () => ({ sha: 'abc1234', state: 'available', next: 'def5678' }),
     check: async () => void seen.push('check'),
     setMode: (m) => void seen.push(m),
+    network: () => false,
+    setNetwork: () => void seen.push('network'),
     pair: async (i) => {
       if (i.code === 'bad') throw new Error('the gateway at x cannot be paired with: nothing answered');
       seen.push(i);
@@ -279,6 +281,8 @@ test('the page asks for the app build and restarts the daemon only from the wind
     follow: () => null,
     check: async () => undefined,
     setMode: () => undefined,
+    network: () => false,
+    setNetwork: () => undefined,
     pair: async () => undefined,
   });
   const win = { senderFrame: { url: `${ORIGIN}/`, parent: null } };
@@ -287,4 +291,31 @@ test('the page asks for the app build and restarts the daemon only from the wind
   assert.equal(c.build(frame).ok, false);
   assert.deepEqual(await c.restartDaemon(win), { ok: false, code: 'cannot_restart', message: 'the daemon did not upgrade: refused' });
   assert.equal((await c.restartDaemon(frame)).ok, false);
+});
+
+test('the network setting is read and changed only from the window, with a boolean, and not on an app paired with another device', () => {
+  const saved: boolean[] = [];
+  const deps = (remote: string | null) => ({
+    mode: () => ({ mode: 'own' as const, remote }),
+    build: () => ({ sha: null, canRestart: false }),
+    restartDaemon: async () => undefined,
+    phone: async () => undefined,
+    follow: () => null,
+    check: async () => undefined,
+    setMode: () => undefined,
+    network: () => false,
+    setNetwork: (on: boolean) => void saved.push(on),
+    pair: async () => undefined,
+  });
+  const own = new Connection(ORIGIN, deps(null));
+  const evil: Sender = { senderFrame: { url: 'https://evil.example/', parent: null } };
+  assert.deepEqual(own.network(top), { ok: true, on: false, can: true });
+  assert.equal(own.network(evil).ok, false);
+  assert.deepEqual(own.setNetwork(top, true), { ok: true });
+  for (const arg of ['true', 1, null, undefined, {}]) assert.equal(own.setNetwork(top, arg).ok, false);
+  assert.equal(own.setNetwork(evil, true).ok, false);
+  const remote = new Connection(ORIGIN, deps('mac.ts.net:7443'));
+  assert.deepEqual(remote.network(top), { ok: true, on: false, can: false });
+  assert.equal(remote.setNetwork(top, true).ok, false);
+  assert.deepEqual(saved, [true]);
 });

@@ -131,9 +131,9 @@
    ]
   },
   {
-   "name": "attachment.put.svg_is_bad_request",
+   "name": "attachment.put.a_mime_that_is_no_type_is_bad_request",
    "spec": "attachment.put",
-   "about": "Only PNG, JPEG, GIF and WebP: another mime is bad_request naming mime; nothing is stored.",
+   "about": "A mime that is not a type/subtype is bad_request naming mime; nothing is stored.",
    "as": "founder",
    "steps": [
     {
@@ -156,7 +156,7 @@
       "method": "attachment.put",
       "params": {
        "name": "a.png",
-       "mime": "image/svg+xml",
+       "mime": "not a type",
        "bytes": 70,
        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
        "request_id": "conf-at-3"
@@ -1386,6 +1386,261 @@
           "path": {
            "$regex": "^/.*\\.png$"
           }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.put.any_file_is_kept_as_sent",
+   "spec": "attachment.put",
+   "about": "A PDF and a text file are accepted whatever their type, answered with their Attachments, and attachment.get returns the same bytes (a thumb request serves the whole file). An image mime still has to match the first bytes.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "spec.pdf",
+       "mime": "application/pdf",
+       "bytes": 45,
+       "data": "JVBERi0xLjQKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK",
+       "request_id": "conf-af-1"
+      }
+     },
+     "result": {
+      "received": 45,
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "pdf"
+       },
+       "name": "spec.pdf",
+       "mime": "application/pdf",
+       "bytes": 45
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "attachment.put",
+      "params": {
+       "name": "notes.txt",
+       "mime": "text/plain",
+       "bytes": 20,
+       "data": "bm90ZXMgZm9yIHRoZSBhZ2VudAo=",
+       "request_id": "conf-af-2"
+      }
+     },
+     "result": {
+      "received": 20,
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "txt"
+       },
+       "name": "notes.txt",
+       "mime": "text/plain",
+       "bytes": 20
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "attachment.get",
+      "params": {
+       "id": "{{pdf}}"
+      }
+     },
+     "result": {
+      "mime": "application/pdf",
+      "bytes": 45,
+      "offset": 0,
+      "data": "JVBERi0xLjQKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK",
+      "done": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "attachment.get",
+      "params": {
+       "id": "{{txt}}",
+       "thumb": true
+      }
+     },
+     "result": {
+      "mime": "text/plain",
+      "offset": 0,
+      "data": "bm90ZXMgZm9yIHRoZSBhZ2VudAo=",
+      "done": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "attachment.put",
+      "params": {
+       "name": "fake.png",
+       "mime": "image/png",
+       "bytes": 20,
+       "data": "bm90ZXMgZm9yIHRoZSBhZ2VudAo=",
+       "request_id": "conf-af-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "data"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_pdf_and_a_text_file_go_with_a_message",
+   "spec": "chat.send",
+   "about": "A PDF and a text file listed with a message are sent with it: ChatMessage.attachments lists both, in order, with the types they were put with.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "spec.pdf",
+       "mime": "application/pdf",
+       "bytes": 45,
+       "data": "JVBERi0xLjQKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK",
+       "request_id": "conf-af-4"
+      }
+     },
+     "result": {
+      "received": 45,
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "pdf"
+       },
+       "name": "spec.pdf",
+       "mime": "application/pdf",
+       "bytes": 45
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "attachment.put",
+      "params": {
+       "name": "notes.txt",
+       "mime": "text/plain",
+       "bytes": 20,
+       "data": "bm90ZXMgZm9yIHRoZSBhZ2VudAo=",
+       "request_id": "conf-af-5"
+      }
+     },
+     "result": {
+      "received": 20,
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "txt"
+       },
+       "name": "notes.txt",
+       "mime": "text/plain",
+       "bytes": 20
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "the spec and my notes",
+       "attachments": [
+        "{{pdf}}",
+        "{{txt}}"
+       ],
+       "request_id": "conf-af-6"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$save": "rid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "id": "{{rid}}",
+        "attachments": [
+         {
+          "id": "{{pdf}}",
+          "name": "spec.pdf",
+          "mime": "application/pdf",
+          "bytes": 45
+         },
+         {
+          "id": "{{txt}}",
+          "name": "notes.txt",
+          "mime": "text/plain",
+          "bytes": 20
          }
         ]
        }

@@ -18,7 +18,13 @@ const runLine = (r: CommandRun, now: number) => {
   const s = Math.max(0, Math.round((now - Date.parse(r.started_at)) / 1000));
   if (r.state === 'running') return `Running · ${s}s`;
   if (r.state === 'stopped') return 'Stopped';
-  return `${r.state === 'done' ? 'Done' : 'Failed'} · exit ${r.exit ?? 0} · ${r.seconds ?? 0}s`;
+  return [
+    r.state === 'done' ? 'Done' : 'Failed',
+    r.exit === undefined ? null : `exit ${r.exit}`,
+    r.seconds === undefined ? null : `${r.seconds}s`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 };
 
 /** The computer the daemon runs on, as the page knows it: this one when the page is served from it. */

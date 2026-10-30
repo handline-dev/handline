@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--queue] [--held-by <device>] [--review] [--done N] [--readers]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture [a.png,b.jpg]] [--held-load] [--queue] [--held-by <device>] [--review] [--done N] [--readers]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -88,9 +88,16 @@ if (process.argv.includes('--queue')) {
 if (process.argv.includes('--picture')) {
   // The phone cannot attach, so a message with one image is put in handline.architect's chat, as the tests do.
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-  const id = daemon.uploads.put({ name: 'dot.png', mime: 'image/png', bytes: 70, data: png }).attachment!.id;
+  // `--picture a.png,b.jpg` puts those files in the one message instead, to look at a real photo.
+  const named = process.argv[process.argv.indexOf('--picture') + 1];
+  const files = named && !named.startsWith('--') ? named.split(',') : [];
+  const put = (name: string, mime: string, data: string) =>
+    daemon.uploads.put({ name, mime, bytes: Buffer.from(data, 'base64').length, data }).attachment!.id;
+  const ids = files.length
+    ? files.map((f) => put(path.basename(f), /\.jpe?g$/i.test(f) ? 'image/jpeg' : 'image/png', fs.readFileSync(f).toString('base64')))
+    : [put('dot.png', 'image/png', png)];
   daemon.chat.send(
-    { agent: 'handline.architect', body: 'Here is a picture', request_id: 'e2e-picture', attachments: [id] },
+    { agent: 'handline.architect', body: 'Here is a picture', request_id: 'e2e-picture', attachments: ids },
     'founder',
     daemon.uploads.message,
   );

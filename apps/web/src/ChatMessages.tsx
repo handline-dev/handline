@@ -78,13 +78,13 @@ function Stamp({ left, time, always, hovered }: { left?: boolean; time: ReactNod
   );
 }
 
-/** Under an agent's message, shown on hover: copy, quote, and how long ago. Nothing is drawn at rest, but the room stays so the list does not jump. */
 /** The command blocks in the text parts before part `n`: a block's number counts through the whole message. */
 const shellBlocks = (m: ChatMessage, n: number) =>
   (m.parts ?? [])
     .slice(0, n)
     .reduce((c, p) => c + ('text' in p ? parseBlocks(p.text).filter((b) => b.kind === 'code' && isShell(b.lang)).length : 0), 0);
 
+/** Under an agent's message, shown on hover: copy, quote, and how long ago. Nothing is drawn at rest, but the room stays so the list does not jump. */
 function HoverBar({ m, onPick }: { m: ChatMessage; onPick?: (m: ChatMessage) => void }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {

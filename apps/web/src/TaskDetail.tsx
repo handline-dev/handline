@@ -1,6 +1,7 @@
 // One task: title, status and a History button, the Time line, why it waits, assignee, priority and time box as chips, the brief (folded), what it
 // waits on and what hangs under it, one Activity list, and along the bottom Done, Assign, Comment, Cancel and More. A verb that does not apply is
 // hidden; one the daemon does not serve yet is shown disabled.
+import { TaskNotes } from '#src/PhotoNotes.tsx';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-core';
 import { useHello, useMe, useStore } from '@handline/app-react';
@@ -197,128 +198,130 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   ];
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
-    <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
-      <header className="tdetail-head flex flex-wrap items-baseline gap-2">
-        {barNamed ? null : (
-          <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
-            <Id>{taskRef(t.id)}</Id> <TitleEdit t={t} />
-          </h2>
-        )}
-        {status.length ? (
-          <MenuButton
-            label="Status"
-            variant="outline"
-            size="sm"
-            align="start"
-            trigger={<StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />}
-          >
-            {status.map((v) => (
-              <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
-                {v.label}
-              </MenuItem>
-            ))}
-          </MenuButton>
-        ) : (
-          <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
-        )}
-        <HistoryButton id={t.id} />
-      </header>
-      <p className="m-0 mt-1 text-xs text-ink-3">
-        Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
-        {t.done ? ` · closed ${dateTime(t.done)}` : ''}
-        {t.parent ? (
+    <TaskNotes task={t.id}>
+      <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
+        <header className="tdetail-head flex flex-wrap items-baseline gap-2">
+          {barNamed ? null : (
+            <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
+              <Id>{taskRef(t.id)}</Id> <TitleEdit t={t} />
+            </h2>
+          )}
+          {status.length ? (
+            <MenuButton
+              label="Status"
+              variant="outline"
+              size="sm"
+              align="start"
+              trigger={<StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />}
+            >
+              {status.map((v) => (
+                <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+                  {v.label}
+                </MenuItem>
+              ))}
+            </MenuButton>
+          ) : (
+            <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
+          )}
+          <HistoryButton id={t.id} />
+        </header>
+        <p className="m-0 mt-1 text-xs text-ink-3">
+          Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
+          {t.done ? ` · closed ${dateTime(t.done)}` : ''}
+          {t.parent ? (
+            <>
+              {' '}
+              · under{' '}
+              <a href={`#/tasks/${t.parent}`} className="mono">
+                {taskRef(t.parent)}
+              </a>
+            </>
+          ) : null}
+        </p>
+        <TimeLine id={t.id} />
+        <TaskWatch t={t} />
+        {why && NOT_PICKED.test(why) ? (
+          <p className="twhy m-0 mt-2 flex items-center gap-1.5 text-xs text-ink-3" role="status">
+            <Icon name="queued" size={14} aria-hidden />
+            Not picked up yet
+          </p>
+        ) : why ? (
+          <p className="twhy m-0 mt-3 flex items-start gap-1.5 text-wait" role="status">
+            <Hand width={15} height={15} strokeWidth={1.75} className="mt-[3px] shrink-0" aria-hidden />
+            <span>
+              <RichText text={why} />
+            </span>
+          </p>
+        ) : null}
+        <div className="mt-3">
+          <TaskChips t={t} now={now} me={me} />
+        </div>
+        <Brief t={t} can={edit.can.ok && open} />
+
+        {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
+        {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
+
+        {t.evidence ? (
           <>
-            {' '}
-            · under{' '}
-            <a href={`#/tasks/${t.parent}`} className="mono">
-              {taskRef(t.parent)}
-            </a>
+            <h3 className={H3}>Evidence</h3>
+            <p className="tbody-text mono m-0 whitespace-pre-wrap">
+              <RichText text={t.evidence} />
+            </p>
           </>
         ) : null}
-      </p>
-      <TimeLine id={t.id} />
-      <TaskWatch t={t} />
-      {why && NOT_PICKED.test(why) ? (
-        <p className="twhy m-0 mt-2 flex items-center gap-1.5 text-xs text-ink-3" role="status">
-          <Icon name="queued" size={14} aria-hidden />
-          Not picked up yet
-        </p>
-      ) : why ? (
-        <p className="twhy m-0 mt-3 flex items-start gap-1.5 text-wait" role="status">
-          <Hand width={15} height={15} strokeWidth={1.75} className="mt-[3px] shrink-0" aria-hidden />
-          <span>
-            <RichText text={why} />
-          </span>
-        </p>
-      ) : null}
-      <div className="mt-3">
-        <TaskChips t={t} now={now} me={me} />
-      </div>
-      <Brief t={t} can={edit.can.ok && open} />
 
-      {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
-      {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
+        <Activity t={t} box={commentBox} />
 
-      {t.evidence ? (
-        <>
-          <h3 className={H3}>Evidence</h3>
-          <p className="tbody-text mono m-0 whitespace-pre-wrap">
-            <RichText text={t.evidence} />
-          </p>
-        </>
-      ) : null}
+        {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
+        <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-inherit px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-1.5">
+          <AskSheets t={t} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
-      <Activity t={t} box={commentBox} />
-
-      {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
-      <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-inherit px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-1.5">
-        <AskSheets t={t} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
-
-        <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
-          {main ? (
-            <DsButton
-              kind="primary"
-              label={main.label}
-              title={main.can.why ?? `${main.label} (${main.key})`}
-              disabled={!main.can.ok || main.busy}
-              className="max-sm:min-h-[44px]"
-              onClick={main.run}
-            >
-              {main.busy ? '…' : main.label}
-            </DsButton>
-          ) : null}
-          {open ? (
-            <span className="relative inline-flex">
+          <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
+            {main ? (
               <DsButton
-                label="Assign"
-                title={edit.can.why ?? 'Assign (o)'}
-                disabled={!edit.can.ok}
+                kind="primary"
+                label={main.label}
+                title={main.can.why ?? `${main.label} (${main.key})`}
+                disabled={!main.can.ok || main.busy}
                 className="max-sm:min-h-[44px]"
-                onClick={() => setAsk(ask === 'assign' ? null : 'assign')}
+                onClick={main.run}
+              >
+                {main.busy ? '…' : main.label}
+              </DsButton>
+            ) : null}
+            {open ? (
+              <span className="relative inline-flex">
+                <DsButton
+                  label="Assign"
+                  title={edit.can.why ?? 'Assign (o)'}
+                  disabled={!edit.can.ok}
+                  className="max-sm:min-h-[44px]"
+                  onClick={() => setAsk(ask === 'assign' ? null : 'assign')}
+                />
+                <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} up />
+              </span>
+            ) : null}
+            <DsButton label="Comment" title="Comment (a)" className="max-sm:min-h-[44px]" onClick={verbs.a} />
+            {open ? (
+              <DsButton
+                label="Cancel task"
+                title={can.cancel.why ?? 'Cancel task (c)'}
+                disabled={!can.cancel.ok}
+                className="max-sm:min-h-[44px]"
+                onClick={verbs.c}
               />
-              <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} up />
-            </span>
-          ) : null}
-          <DsButton label="Comment" title="Comment (a)" className="max-sm:min-h-[44px]" onClick={verbs.a} />
-          {open ? (
-            <DsButton
-              label="Cancel task"
-              title={can.cancel.why ?? 'Cancel task (c)'}
-              disabled={!can.cancel.ok}
-              className="max-sm:min-h-[44px]"
-              onClick={verbs.c}
-            />
-          ) : null}
-          <MenuButton label="More" trigger="More ▾" variant="outline" className="max-sm:min-h-[44px]">
-            {more.map((v) => (
-              <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
-                {v.label}
-              </MenuItem>
-            ))}
-          </MenuButton>
+            ) : null}
+            <MenuButton label="More" trigger="More ▾" variant="outline" className="max-sm:min-h-[44px]">
+              {more.map((v) => (
+                <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+                  {v.label}
+                </MenuItem>
+              ))}
+            </MenuButton>
+          </div>
         </div>
       </div>
-    </div>
+    </TaskNotes>
   );
 }
 
