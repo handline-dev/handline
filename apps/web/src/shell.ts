@@ -25,6 +25,8 @@ type Call =
   | 'linkCli'
   | 'pairRemote'
   | 'phone'
+  | 'network'
+  | 'setNetwork'
   | 'preview'
   | 'capturePreview'
   | 'deviceShot'
@@ -85,6 +87,18 @@ export function useShellMode() {
       return r.ok ? r : null;
     },
     !!shell('mode'),
+  );
+}
+
+/** The desktop app's "Allow devices on this network" answer: whether it is on, and whether this app can change it; nothing in a plain browser. */
+export function useShellNetwork() {
+  return useLoaded(
+    ['shell', 'network'],
+    async () => {
+      const r = await shell('network')!.network!();
+      return r.ok ? r : null;
+    },
+    !!shell('network'),
   );
 }
 

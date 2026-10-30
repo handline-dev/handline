@@ -126,7 +126,7 @@ function handleSettings(origin: string, client: DaemonClient, remote: Remote | n
   ipcMain.handle(CHANNELS.settingsSet, (e, arg) => s.set(e, arg));
 }
 
-function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null, f?: Follower): void {
+function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null, network: boolean, f?: Follower): void {
   const c = new Connection(origin, {
     build: () => ({ sha: runningBuild, canRestart: !remote }),
     restartDaemon: () => own.restartDaemon(),
@@ -136,12 +136,16 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
     setMode: (m) => own.switchMode(m),
     pair: (i) => own.pair(i),
     phone: () => own.phone(),
+    network: () => network,
+    setNetwork: (on) => own.setNetwork(on),
   });
   ipcMain.handle(CHANNELS.mode, (e) => c.mode(e));
   ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
   ipcMain.handle(CHANNELS.follow, (e) => c.follow(e));
   ipcMain.handle(CHANNELS.checkUpdate, (e) => c.checkUpdate(e));
   ipcMain.handle(CHANNELS.phone, (e) => c.phone(e));
+  ipcMain.handle(CHANNELS.network, (e) => c.network(e));
+  ipcMain.handle(CHANNELS.setNetwork, (e, arg) => c.setNetwork(e, arg));
   ipcMain.handle(CHANNELS.pairRemote, (e, arg) => c.pairRemote(e, arg));
   serveCapture(ipcMain, origin, { sources: (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize }) });
 }
@@ -317,6 +321,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       gatewaySocket,
       gateway,
       advertise: gateway && onTailnet(gateway) ? await advertised(gateway) : null,
+      web: current.network ? dist : null,
       origin,
       settings,
       current,
@@ -335,7 +340,7 @@ if (!app.requestSingleInstanceLock({ background })) {
           restart: () => void f.restartNow(),
         })),
     });
-    handleConnection(origin, own, current.mode, remote, f);
+    handleConnection(origin, own, current.mode, remote, current.network === true, f);
     const cliDir = path.join(os.homedir(), '.local', 'bin');
     const cli = new Cli(origin, { state: () => cliState(carried?.hl ?? null, cliDir), link: () => linkCli(carried!.hl, cliDir) });
     ipcMain.handle(CHANNELS.cli, (e) => cli.state(e));
