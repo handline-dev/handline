@@ -112,11 +112,30 @@ func keepSizes(q db.Q, sizes map[string]int64) error {
 	return nil
 }
 
-// OrphanSizes are the orphan worktrees as the last walk measured them: how many, and the bytes they take together.
+// OrphanSizes are the orphan worktrees as the last walk measured them: how many, and the bytes they take together. A worktree an agent
+// records is measured too, and is not counted.
 func OrphanSizes(q db.Q) (count, bytes int64, err error) {
-	err = q.QueryRow("SELECT count(*), COALESCE(sum(CAST(value AS INTEGER)), 0) FROM meta WHERE substr(name, 1, ?) = ?",
-		len(worktreeprune.SizePrefix), worktreeprune.SizePrefix).Scan(&count, &bytes)
-	return count, bytes, err
+	agents, err := worktreeprune.AgentWorktrees(q, "")
+	if err != nil {
+		return 0, 0, err
+	}
+	rows, err := q.Query("SELECT name, CAST(value AS INTEGER) FROM meta WHERE substr(name, 1, ?) = ?",
+		len(worktreeprune.SizePrefix), worktreeprune.SizePrefix)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var n int64
+		if err := rows.Scan(&name, &n); err != nil {
+			return 0, 0, err
+		}
+		if !agents[strings.TrimPrefix(name, worktreeprune.SizePrefix)] {
+			count, bytes = count+1, bytes+n
+		}
+	}
+	return count, bytes, rows.Err()
 }
 
 // OrphanText is the orphans in plain words, for after the disk item's text.

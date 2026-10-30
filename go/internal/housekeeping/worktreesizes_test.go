@@ -97,3 +97,19 @@ func TestAgentsWorktreesAreMeasuredToo(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
+
+// A worktree an agent records has a size row too; the orphans' count and total leave it out.
+func TestOrphanSizesLeaveOutAnAgentsWorktree(t *testing.T) {
+	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	q.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES('alice', 'idle', 0, ?)", dir)
+	db.SetMeta(q, worktreeprune.SizePrefix+dir, "1000")
+	db.SetMeta(q, worktreeprune.SizePrefix+"/left", "40")
+	if count, bytes, err := OrphanSizes(q); err != nil || count != 1 || bytes != 40 {
+		t.Fatalf("%d orphans, %d bytes, %v", count, bytes, err)
+	}
+}
