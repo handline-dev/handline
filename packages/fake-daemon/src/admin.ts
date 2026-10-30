@@ -50,6 +50,8 @@ export class FakeAdmin {
   private now: () => Timestamp;
   private on: boolean;
   private values: Settings['values'] = structuredClone(DEFAULTS);
+  /** The MagicDNS name connection.get gives the listener; none unless a test or a demo sets it. */
+  tailscaleHost: string | null = null;
   private devices = [
     {
       id: 'd1',
@@ -170,7 +172,7 @@ export class FakeAdmin {
       served_by: this.noListener ? 'gateway' : 'daemon',
       listener: this.noListener
         ? null
-        : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: 'mac-studio.tail1.ts.net' },
+        : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: this.tailscaleHost },
       heavy_slots: { slots: 1, dir: '/home/fake/.handline/heavy-slots' },
       dev_mode: this.values.dev_mode === true,
     };

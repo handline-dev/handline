@@ -332,8 +332,11 @@ describe('settings', () => {
   });
 
   it('Computers: this computer is the first server, and Connect a device shows the invite as a QR and a link that works once', async () => {
-    await mount('#/settings');
+    const s = setup();
+    s.daemon.admin.tailscaleHost = 'mac-studio.tail1.ts.net';
+    await mount('#/settings', s);
     await until(() => $('[data-server="this"]'), 'the server row');
+    expect(text($('[data-server="this"]'))).toContain('mac-studio');
     expect(text($('[data-server="this"]'))).toContain('This computer');
     expect(text(document.body)).toContain('Servers run agents. Devices only connect.');
     await click(button('Connect a device')!);
