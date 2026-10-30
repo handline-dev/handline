@@ -498,6 +498,15 @@ export interface ChatMethods {
     /** True when this reply reaches the end. */
     done: boolean;
   } };
+  "attachment.remove": { params: {
+  id: AttachmentId;
+  /** Remove nothing: answer removed_from alone, for the confirm. */
+  dry_run?: boolean;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** How many chat messages, task texts and memos name it or carry it, each once; 0 when it was removed already. */
+    removed_from: number;
+  } };
   "inbox.list": { params: {
   unread?: boolean;
   kind?: string;
@@ -684,6 +693,7 @@ export const CHAT_METHODS: { [K in keyof ChatMethods]: { role: Role; callers: Ro
   "chat.seen": { role: "member", callers: null, write: true, since: 1 },
   "attachment.put": { role: "member", callers: null, write: true, since: 1 },
   "attachment.get": { role: "member", callers: null, write: false, since: 1 },
+  "attachment.remove": { role: "founder", callers: null, write: true, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.queue": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.get": { role: "agent", callers: null, write: false, since: 1 },

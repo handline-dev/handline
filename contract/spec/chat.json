@@ -2346,6 +2346,76 @@
    "description": "See x-attachments. An id that no longer exists (never put, or kept past its time) is not_found."
   },
   {
+   "name": "attachment.remove",
+   "summary": "The founder deletes an image or a memo's file everywhere it is named; dry_run counts the places first.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AttachmentId"
+     }
+    },
+    {
+     "name": "dry_run",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Remove nothing: answer removed_from alone, for the confirm."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "removed_from": {
+         "type": "integer",
+         "minimum": 0,
+         "description": "How many chat messages, task texts and memos name it or carry it, each once; 0 when it was removed already."
+        }
+       },
+       "required": [
+        "removed_from"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "role"
+   ],
+   "description": "See x-attachments. The file is deleted at once, wherever it is named: in a chat message, a task's brief, a memo or a note, or carried as a memo's file. Every read that names the id then answers as for an image no longer kept, ImagePart and MemoFile with gone: true, and with removed: true as well, so a client tells a deletion from an expiry; attachment.get is not_found. The texts that name it are not changed. The event attachment.removed goes on the chat and tasks topics. An id removed already is accepted with removed_from 0, so a retried tap is no error; one never put is not_found, what attachment. A dry run writes nothing and keeps no reply under the request_id. An agent or member caller is refused, gate role. Agents are not told: one that was given the path keeps its line, and reading it later fails."
+  },
+  {
    "name": "inbox.list",
    "summary": "Inbox items; an agent sees its own.",
    "paramStructure": "by-name",

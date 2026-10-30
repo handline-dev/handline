@@ -453,6 +453,8 @@ export type ImagePart = {
   gone?: boolean;
   /** Where the image is stored. Only for an agent caller, which reads it by path; a member or founder client never gets it. */
   path?: string;
+  /** true when the founder deleted the image (attachment.remove), always with gone: the client says it was deleted. */
+  removed?: boolean;
 };
 
 /** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
@@ -578,6 +580,11 @@ export type MachineNeed = {
     count: number;
     size_bytes: number;
   };
+};
+
+/** attachment.remove deleted this image or file: a client marks every ImagePart and MemoFile with this id gone and removed, without refetching. */
+export type AttachmentRemoved = {
+  id: AttachmentId;
 };
 
 export interface CoreMethods {

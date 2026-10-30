@@ -1090,6 +1090,10 @@
      "gone": {
       "type": "boolean",
       "description": "True when it is no longer kept: attachment.get then answers not_found."
+     },
+     "removed": {
+      "type": "boolean",
+      "description": "true when the founder deleted the file (attachment.remove), always with gone: the client says it was deleted."
      }
     },
     "required": [
