@@ -39,7 +39,7 @@ func (e *Env) retireMethod(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, rpc.Refused(fmt.Sprintf("%s has agents under it (%s): retire or move them first.", agent, strings.Join(deps, ", ")), "state", "")
 	}
 	choice, _ := params["worktree"].(string)
-	if v, has := params["worktree"]; has && choice != KeepWorktree && choice != SaveWorktree && choice != ForceWorktree {
+	if v, has := params["worktree"]; has && choice != worktreeprune.Keep && choice != worktreeprune.Save && choice != worktreeprune.Force {
 		return nil, rpc.BadRequestError(fmt.Sprintf("worktree is keep, save or force, not %v", v), "worktree", rpc.InvalidParams)
 	}
 	if choice == "" {

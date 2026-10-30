@@ -153,6 +153,13 @@ func WhyKept(wt Worktree, agents map[string]bool, here string) string {
 // Tag marks the founder's task that asks what to do with a retired member's worktree that holds work.
 const Tag = "worktree-removal"
 
+// The answers for a worktree that holds work, as agent.retire takes them (worktree) and the founder's Tag task offers them as buttons.
+const (
+	Keep  = "keep"  // it stays
+	Save  = "save"  // what is left goes to a rescue branch, then it is removed
+	Force = "force" // it is removed with whatever it holds; its branch stays
+)
+
 const (
 	notMerged   = " is not merged into main"
 	uncommitted = "uncommitted or untracked files"
