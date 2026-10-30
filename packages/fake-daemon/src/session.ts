@@ -193,6 +193,6 @@ function fakeResources(sessions: Map<string, Session>, at: Timestamp) {
     agents,
     agents_total: { cpu_pct: all.reduce((n, a) => n + a.cpu_pct, 0), rss_bytes: all.reduce((n, a) => n + a.rss_bytes, 0) },
     start_hold: null,
-    machine: { ...machine, load_per_core: 0.32, ram_free_pct: 37, disk_free_bytes: 120 * GB, disk_total_bytes: 500 * GB },
+    machine: { ...machine, load_per_core: 0.32, ram_free_pct: 37, disk_free_bytes: 120 * GB, disk_total_bytes: 500 * GB, heavy_running: 1 },
   };
 }

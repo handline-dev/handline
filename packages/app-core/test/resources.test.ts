@@ -19,6 +19,7 @@ const res = (m: Partial<Resources['machine']> = {}, agents: Resources['agents'] 
     ram_free_pct: 47,
     disk_free_bytes: 3.6 * GB,
     disk_total_bytes: 500 * GB,
+    heavy_running: 0,
     ...m,
   },
 });
