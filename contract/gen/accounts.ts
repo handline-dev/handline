@@ -214,7 +214,7 @@ export type Retro = {
   /** One row per agent that was doing a task of the subtree, most tokens first, ties by agent. */
   agents: {
     agent: string;
-    /** Time it spent doing tasks of the subtree; overlapping windows count once. */
+    /** Time it held tasks of the subtree in doing, waits on a blocker included. */
     doing_seconds: number;
     tokens: number;
     cost: number;
