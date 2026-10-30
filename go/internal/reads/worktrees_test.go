@@ -1,6 +1,8 @@
 package reads
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -165,5 +167,102 @@ func TestAWorktreeNoAgentRecordsIsListedAsAnOrphan(t *testing.T) {
 	}
 	if other := list(map[string]any{"repo": "elsewhere"}); len(other) != 0 {
 		t.Fatalf("another repo: %v", other)
+	}
+}
+
+// Every worktree, an agent's too, carries its base, commits not on it, changed files, measured size and the pull request of its branch;
+// a gh that cannot answer gives pr null, and the answer is kept a minute.
+func TestEveryWorktreeCarriesItsFactsAndItsPullRequest(t *testing.T) {
+	e := testEnv(t)
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	repo, mine := filepath.Join(root, "repo"), filepath.Join(root, "mine")
+	git := func(dir string, args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	os.MkdirAll(repo, 0o755)
+	git(repo, "init", "-q", "-b", "main")
+	git(repo, "remote", "add", "origin", "git@github.com:acme/app.git")
+	git(repo, "commit", "-q", "--allow-empty", "-m", "start")
+	git(repo, "worktree", "add", "-q", "-b", "story/x", mine)
+	git(mine, "commit", "-q", "--allow-empty", "-m", "one")
+	os.WriteFile(filepath.Join(mine, "new.txt"), []byte("x"), 0o644)
+	addAgent(t, e, "alice", "")
+	os.WriteFile(filepath.Join(e.Home, "agents", "alice", "agent.yaml"), []byte("repo: "+repo+"\n"), 0o644)
+	if _, err := e.DB.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES('alice', 'idle', 0, ?)", mine); err != nil {
+		t.Fatal(err)
+	}
+	e.DB.Exec("INSERT INTO meta(name, value, updated) VALUES(?, '2048', 0)", "worktree_size:"+mine)
+	asked := 0
+	var answer map[string]any
+	var fail error
+	e.BranchPR = func(_ context.Context, r, branch string) (map[string]any, error) {
+		asked++
+		if r != "acme/app" || branch != "story/x" {
+			t.Errorf("asked about %s %s", r, branch)
+		}
+		return answer, fail
+	}
+	mineRow := func() map[string]any {
+		t.Helper()
+		got, err := e.worktreesList(nil, map[string]any{"owner": "alice"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.(map[string]any)["worktrees"].([]any)[0].(map[string]any)
+	}
+	answer = map[string]any{"number": 7, "url": "https://github.com/acme/app/pull/7", "verdict": "checks_failing", "failing": 2}
+	w := mineRow()
+	if w["base"] != "main" || w["commits_ahead"] != 1 || w["files_changed"] != 1 || w["size_bytes"] != int64(2048) || w["orphan"] != nil {
+		t.Fatalf("facts: %v", w)
+	}
+	if pr, _ := w["pr"].(map[string]any); pr["verdict"] != "checks_failing" || pr["failing"] != 2 || pr["number"] != 7 {
+		t.Fatalf("pr: %v", w["pr"])
+	}
+	answer = nil
+	if mineRow()["pr"] == nil || asked != 1 {
+		t.Fatalf("a minute's answer is kept: asked %d", asked)
+	}
+	e.branchPRs = newBranchPRs()
+	fail = errors.New("gh: not logged in")
+	if w := mineRow(); w["pr"] != nil {
+		t.Fatalf("gh failing is pr null, never a guess: %v", w["pr"])
+	}
+}
+
+type check = struct{ Conclusion, State string }
+
+func TestAPullRequestsVerdictIsWhatHoldsIt(t *testing.T) {
+	failing := func(conclusions ...string) (out []check) {
+		for _, c := range conclusions {
+			out = append(out, check{Conclusion: c})
+		}
+		return out
+	}
+	for _, c := range []struct {
+		name string
+		pr   ghPull
+		want string
+	}{
+		{"merged", ghPull{State: "MERGED", IsDraft: true}, "merged"},
+		{"draft", ghPull{State: "OPEN", IsDraft: true}, "draft"},
+		{"checks fail before a review is asked", ghPull{State: "OPEN", ReviewDecision: "CHANGES_REQUESTED", Checks: failing("FAILURE")}, "checks_failing"},
+		{"changes", ghPull{State: "OPEN", ReviewDecision: "CHANGES_REQUESTED"}, "changes_requested"},
+		{"review required", ghPull{State: "OPEN", ReviewDecision: "REVIEW_REQUIRED"}, "waiting_review"},
+		{"approved", ghPull{State: "OPEN", ReviewDecision: "APPROVED"}, "ready"},
+		{"no review rule", ghPull{State: "OPEN"}, "ready"},
+	} {
+		if got := pullVerdict(c.pr)["verdict"]; got != c.want {
+			t.Errorf("%s: %v, want %s", c.name, got, c.want)
+		}
+	}
+	got := pullVerdict(ghPull{State: "OPEN", Checks: failing("FAILURE", "TIMED_OUT", "SUCCESS")})
+	if got["failing"] != 2 {
+		t.Fatalf("failing count: %v", got)
+	}
+	if _, has := pullVerdict(ghPull{State: "OPEN"})["failing"]; has {
+		t.Fatal("failing is only on checks_failing")
 	}
 }

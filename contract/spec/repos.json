@@ -25,6 +25,38 @@
      "deleted"
     ]
    },
+   "WorktreePR": {
+    "type": "object",
+    "properties": {
+     "number": {
+      "type": "integer"
+     },
+     "url": {
+      "type": "string"
+     },
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "ready",
+       "checks_failing",
+       "waiting_review",
+       "changes_requested",
+       "draft",
+       "merged"
+      ],
+      "description": "merged: it was merged. draft: it is a draft. checks_failing: a check failed (`failing` counts them). changes_requested: a reviewer asked for changes. waiting_review: a review is required and none approved. ready: nothing holds it."
+     },
+     "failing": {
+      "type": "integer",
+      "description": "Present only when verdict is checks_failing: how many checks failed."
+     }
+    },
+    "required": [
+     "number",
+     "url",
+     "verdict"
+    ]
+   },
    "Worktree": {
     "type": "object",
     "properties": {
@@ -78,15 +110,19 @@
      },
      "merged": {
       "type": "boolean",
-      "description": "Orphans only: whether its HEAD is merged into main."
+      "description": "Orphans only: whether its HEAD is merged into base."
+     },
+     "base": {
+      "type": "string",
+      "description": "The branch it merges into: its repo's default branch."
      },
      "files_changed": {
       "type": "integer",
-      "description": "Orphans only: its changed and untracked files, as git status counts them."
+      "description": "Its changed and untracked files, as git status counts them."
      },
      "commits_ahead": {
       "type": "integer",
-      "description": "Orphans only: its commits not on main."
+      "description": "Its commits not on base."
      },
      "size_bytes": {
       "oneOf": [
@@ -97,7 +133,18 @@
         "type": "null"
        }
       ],
-      "description": "Orphans only: the bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured."
+      "description": "The bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured."
+     },
+     "pr": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/WorktreePR"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pull request of its branch, read with the daemon's own gh login and kept about a minute; null when the branch has none open or merged, it is base itself, or gh could not answer (never a guess)."
      }
     },
     "required": [
@@ -108,7 +155,12 @@
      "parent",
      "children",
      "status",
-     "changed"
+     "changed",
+     "base",
+     "files_changed",
+     "commits_ahead",
+     "size_bytes",
+     "pr"
     ]
    }
   }
@@ -142,7 +194,7 @@
   },
   {
    "name": "worktrees.list",
-   "summary": "Worktrees with status and changed files.",
+   "summary": "Worktrees with status, changed files, what each holds beyond its base and its pull request.",
    "paramStructure": "by-name",
    "params": [
     {

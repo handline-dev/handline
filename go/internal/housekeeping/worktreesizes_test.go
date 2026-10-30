@@ -11,7 +11,7 @@ import (
 	"github.com/handline/handline/go/internal/worktreeprune"
 )
 
-// A walk's sizes are written by the next check, replacing the last walk's (a worktree no longer an orphan loses its row), and a walk
+// A walk's sizes are written by the next check, replacing the last walk's (a worktree no longer listed loses its row), and a walk
 // starts at most every SizeEvery.
 func TestOrphanSizesAreKeptFromTheLastWalk(t *testing.T) {
 	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
@@ -23,7 +23,7 @@ func TestOrphanSizesAreKeptFromTheLastWalk(t *testing.T) {
 	sizes := map[string]int64{}
 	db.SetMeta(q, worktreeprune.SizePrefix+"/gone", "7")
 	w := &WorktreeSizes{Log: func(string) {}, Size: func(p string) (int64, error) { return sizes[p], nil }}
-	w.Orphans = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
+	w.Worktrees = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
 	sizes["/a"] = 4096
 	if err := w.Check(q, 1000); err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestOrphanSizesAreKeptFromTheLastWalk(t *testing.T) {
 		t.Fatalf("size of /a: %q", v)
 	}
 	if _, ok, _ := db.Meta(q, worktreeprune.SizePrefix+"/gone"); ok {
-		t.Fatal("a worktree no longer an orphan keeps its size")
+		t.Fatal("a worktree no longer listed keeps its size")
 	}
 	if walks != 1 {
 		t.Fatalf("%d walks within the hour", walks)
@@ -57,7 +57,7 @@ func TestNoSecondWalkStartsWhileOneRuns(t *testing.T) {
 	defer q.Close()
 	walks, release := 0, make(chan struct{})
 	w := &WorktreeSizes{Log: func(string) {}, Size: func(string) (int64, error) { <-release; return 1, nil }}
-	w.Orphans = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
+	w.Worktrees = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
 	w.Check(q, 1000)
 	w.Check(q, 1000+worktreeprune.SizeEvery)
 	close(release)

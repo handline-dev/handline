@@ -20,7 +20,7 @@ Repos.
 
 ### `worktrees.list`
 
-Worktrees with status and changed files. The worktrees agents work in, then the orphans: worktrees of the same repos that no agent records (orphan true), each with what it holds that main does not and its size. `owner` lists no orphans, since they have none; `repo` narrows both, by the repo's name or path.
+Worktrees with status, changed files, what each holds beyond its base and its pull request. The worktrees agents work in, then the orphans: worktrees of the same repos that no agent records (orphan true), each with what it holds that main does not and its size. `owner` lists no orphans, since they have none; `repo` narrows both, by the repo's name or path.
 
 ### `worktree.diff`
 

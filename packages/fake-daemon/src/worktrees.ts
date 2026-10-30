@@ -34,6 +34,31 @@ const unified = (c: Worktree['changed'][number]): string => {
 
 const file = (path: string, status: string, added: number, deleted: number) => ({ path, status, added, deleted });
 
+/** What every worktree carries besides its changed files: base, files and commits, the size housekeeping measured, its pull request. */
+const facts = (
+  files: number,
+  more: Partial<Pick<Worktree, 'base' | 'commits_ahead' | 'size_bytes' | 'pr'>> = {},
+): Pick<Worktree, 'base' | 'files_changed' | 'commits_ahead' | 'size_bytes' | 'pr'> => ({
+  base: 'main',
+  files_changed: files,
+  commits_ahead: 0,
+  size_bytes: null,
+  pr: null,
+  ...more,
+});
+
+/** A worktree no agent records, with nothing in it yet. */
+const plain = (path: string, branch: string): Omit<Worktree, 'base' | 'files_changed' | 'commits_ahead' | 'size_bytes' | 'pr'> => ({
+  path,
+  repo: 'handline',
+  branch,
+  owner: null,
+  parent: null,
+  children: [],
+  status: 'todo',
+  changed: [],
+});
+
 /** One worktree per agent fixture, plus a spare with no owner and a docs one with a status outside the four a board knows. */
 const seed = (): Worktree[] => {
   const status: Record<string, string> = {
@@ -59,6 +84,7 @@ const seed = (): Worktree[] => {
     children: AGENTS.filter((c) => c.parent === a.name).map((c) => c.worktree),
     status: status[a.name] ?? 'todo',
     changed: changed[a.name] ?? [],
+    ...facts(changed[a.name]?.length ?? 0),
   }));
   rows.push(
     {
@@ -70,6 +96,7 @@ const seed = (): Worktree[] => {
       children: [],
       status: 'done',
       changed: [],
+      ...facts(0),
     },
     {
       path: '/work/docs-site.writer',
@@ -80,6 +107,25 @@ const seed = (): Worktree[] => {
       children: [],
       status: 'blocked',
       changed: [file('guide/start.md', 'M', 3, 3), file('guide/new.md', '?', 0, 0)],
+      ...facts(2, { base: 'master' }),
+    },
+    // Branches the worktrees.list facts fixtures read: clean, dirty, checks failing, a ready pull request.
+    {
+      ...plain('/work/facts-clean', 'facts/clean'),
+      ...facts(0),
+    },
+    {
+      ...plain('/work/facts-dirty', 'facts/dirty'),
+      changed: [file('src/a.ts', 'M', 4, 1), file('src/b.ts', '?', 0, 0)],
+      ...facts(2, { commits_ahead: 2, size_bytes: 52_428_800 }),
+    },
+    {
+      ...plain('/work/facts-failing', 'facts/failing'),
+      ...facts(0, { commits_ahead: 3, pr: { number: 901, url: 'https://github.com/handline-dev/handline/pull/901', verdict: 'checks_failing', failing: 2 } }),
+    },
+    {
+      ...plain('/work/facts-ready', 'facts/ready'),
+      ...facts(0, { commits_ahead: 1, pr: { number: 902, url: 'https://github.com/handline-dev/handline/pull/902', verdict: 'ready' } }),
     },
   );
   return rows;
