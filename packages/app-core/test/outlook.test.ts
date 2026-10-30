@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { guessLine } from '#src/outlook.ts';
+import { axisTicks, guessLine, lostAtLastReset, lostByAccount, weekResets } from '#src/outlook.ts';
 
 const p = (at: string, left_pct: number | null) => ({ at, left_pct });
 
@@ -19,4 +19,62 @@ describe('guessLine', () => {
     const future = [p('2026-10-26T11:30:00Z', 66)];
     assert.deepEqual(guessLine({ past: [], future }), future);
   });
+});
+
+const w = (at: string, week_left: number | null) => ({ at, five_left: null, week_left, line_left: null });
+const by = {
+  account: 'alpha',
+  past: [w('2026-10-26T10:00:00Z', 60), w('2026-10-26T11:00:00Z', 55)],
+  future: [w('2026-10-26T12:00:00Z', 50), w('2026-10-26T14:00:00Z', 40), w('2026-10-26T16:00:00Z', 30)],
+  resets: [
+    { at: '2026-10-25T00:00:00Z', window: '7d' as const, unused_pct: 18 },
+    { at: '2026-10-25T05:00:00Z', window: '5h' as const },
+    { at: '2026-10-26T15:00:00Z', window: '7d' as const },
+  ],
+};
+const o = { now: '2026-10-26T11:00:00Z', by_account: [by] };
+
+describe('weekResets', () => {
+  it('lists the weekly resets of every account, oldest first, and none for a daemon without by_account', () => {
+    assert.deepEqual(weekResets(o), [
+      { account: 'alpha', at: '2026-10-25T00:00:00Z' },
+      { account: 'alpha', at: '2026-10-26T15:00:00Z' },
+    ]);
+    assert.deepEqual(weekResets({}), []);
+  });
+});
+describe('lostByAccount', () => {
+  it("is each account's own guess just before its next weekly reset, and the last reset's account is the bar's", () => {
+    const beta = {
+      account: 'beta',
+      past: [],
+      future: [w('2026-10-26T13:00:00Z', 70), w('2026-10-26T19:00:00Z', 65)],
+      resets: [{ at: '2026-10-26T18:00:00Z', window: '7d' as const }],
+    };
+    const two = { now: o.now, by_account: [by, beta] };
+    assert.deepEqual(lostByAccount(two), [
+      { account: 'alpha', at: '2026-10-26T15:00:00Z', pct: 40 },
+      { account: 'beta', at: '2026-10-26T18:00:00Z', pct: 70 },
+    ]);
+    assert.deepEqual(lostAtLastReset(two), { account: 'beta', at: '2026-10-26T18:00:00Z', pct: 70 });
+  });
+  it('is nothing for an account whose guess stops before its reset, or a daemon without by_account', () => {
+    const short = { ...by, future: by.future.slice(0, 2) };
+    assert.deepEqual(lostByAccount({ now: o.now, by_account: [short] }), []);
+    assert.equal(lostAtLastReset({ now: o.now }), null);
+  });
+});
+describe('axisTicks', () => {
+  it('is a weekday per local midnight over days, and a clock every 6 hours over a day', () => {
+    const t0 = new Date(2026, 9, 26, 10).getTime();
+    const days = axisTicks(t0, t0 + 6 * 86_400_000);
+    assert.equal(days.length, 6);
+    assert.ok(days.every((t) => new Date(t.at).getHours() === 0));
+    const hours = axisTicks(t0, t0 + 24 * 3_600_000);
+    assert.deepEqual(
+      hours.map((t) => new Date(t.at).getHours()),
+      [12, 18, 0, 6],
+    );
+  });
+  it('is empty for an empty span', () => assert.deepEqual(axisTicks(5, 5), []));
 });

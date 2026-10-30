@@ -1,62 +1,51 @@
-// The Stats section of the Usage page (#/accounts, #/stats), under the account list: the window's four counts and who used how much, from stats.get. The previous window's figures stay on screen until the new ones arrive.
+// The Stats section of the Usage page (#/stats), under the account lines: who used how much, from stats.get. The previous window's figures stay on screen until the new ones arrive.
 import { useEffect, useState } from 'react';
-import { SPENT_HEAD, agentUse, dateTime, spentText } from '@handline/app-core';
+import { SPENT_HEAD, agentUse, spentText } from '@handline/app-core';
 import type { Stats } from '@handline/client';
 import { useServes, useStats } from '@handline/app-data';
-import { ChartCard, ChartTitle, Icon, SectionHead, Segmented, type IconName } from '#src/ui/index.ts';
+import { Segmented } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];
 const WORD: Record<Window, string> = { '24h': '24 h', '7d': '7 d' };
 
-const TILES: [string, keyof Pick<Stats, 'tasks_done' | 'moves' | 'handoffs' | 'blocks'>, IconName][] = [
-  ['tasks done', 'tasks_done', 'done'],
-  ['moves', 'moves', 'session'],
-  ['handoffs', 'handoffs', 'reply'],
-  ['blocks', 'blocks', 'blocked'],
-];
+const HEAD = ['Agent', 'Account'];
 
-const TILE = 'stat-tile flex flex-col gap-1 rounded-md bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
-
-/** Icon, count, name: the icon says what is counted, so the name can stay small. */
-function Tiles({ s }: { s: Stats }) {
-  return (
-    <div className="stat-tiles grid grid-cols-[repeat(4,1fr)] gap-3 max-sm:grid-cols-[1fr_1fr]">
-      {TILES.map(([label, key, icon]) => (
-        <div key={label} className={TILE} data-tile={label} data-warn={key === 'blocks' && s[key] > 0 ? '' : undefined}>
-          <Icon name={icon} size={20} label={label} />
-          <strong className="text-xl font-semibold tabular-nums">{s[key]}</strong>
-          <span className="muted">{label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
+/** Who spent the week, as a plain table: the spent text of each agent with a thin bar behind it. */
 function WhoUsedIt({ s }: { s: Stats }) {
   const rows = agentUse(s.use);
-  return (
-    <ChartCard aria-label="Who used it">
-      <ChartTitle>Who used it</ChartTitle>
-      <p className="muted text-sm">{SPENT_HEAD}</p>
-      {rows.length ? (
-        rows.map((r) => (
-          <div key={r.key} className="bar-row my-1 grid grid-cols-[minmax(70px,35%)_1fr_9.5rem] items-center gap-2" data-agent={r.agent}>
-            <span className="bar-name truncate">
-              {r.agent}
-              {r.account ? <span className="text-ink-3"> · {r.account}</span> : null}
-            </span>
-            <span className="bar h-2 overflow-hidden rounded-sm bg-raised">
-              <span className="bar-fill accent block h-full bg-ink-2" style={{ width: `${r.fill * 100}%` }} />
-            </span>
-            <span className="bar-value text-right font-mono text-sm">{spentText(r)}</span>
-          </div>
-        ))
-      ) : (
-        <p className="muted">Nothing recorded in this window.</p>
-      )}
-    </ChartCard>
+  return rows.length ? (
+    <table className="who-used w-full border-collapse text-sm" aria-label="Who used it">
+      <thead>
+        <tr className="muted text-left text-xs">
+          {HEAD.map((h) => (
+            <th key={h} className="py-1 pr-4 font-normal">
+              {h}
+            </th>
+          ))}
+          <th className="py-1 font-normal" colSpan={2}>
+            {SPENT_HEAD}
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key} data-agent={r.agent}>
+            <td className="py-1 pr-4">{r.agent}</td>
+            <td className="muted py-1 pr-4">{r.account}</td>
+            <td className="w-40 py-1 pr-3 font-mono whitespace-nowrap">{spentText(r)}</td>
+            <td className="py-1">
+              <span className="bar block h-1.5 overflow-hidden rounded-sm bg-raised">
+                <span className="bar-fill block h-full bg-ink-2" style={{ width: `${r.fill * 100}%` }} />
+              </span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  ) : (
+    <p className="muted">Nothing recorded in this window.</p>
   );
 }
 
@@ -75,21 +64,15 @@ export function StatsSection() {
   }, []);
   const s = q.data;
   return (
-    <section className="stats mt-6" aria-label="Stats">
+    <section className="stats" aria-label="Stats">
       <div className="stats-head mb-2 flex items-center [&_.ui-seg]:ml-auto">
-        <SectionHead className="!mb-0">Stats</SectionHead>
+        <h3 className="m-0 text-lg font-semibold">Who used it</h3>
         <Segmented label="Window" value={win} onChange={setWin} options={WINDOWS.map((w) => ({ value: w, label: WORD[w] }))} />
       </div>
       <View q={q} served={served} shape="stats" what="stats">
         {s ? (
           <>
-            <p className="muted" data-span>
-              {dateTime(s.since)} to {dateTime(s.until)}
-            </p>
-            <Tiles s={s} />
-            <div className="charts mt-3 flex flex-col gap-3">
-              <WhoUsedIt s={s} />
-            </div>
+            <WhoUsedIt s={s} />
           </>
         ) : null}
       </View>
