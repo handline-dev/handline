@@ -27,13 +27,13 @@ func ext(mime string) string {
 }
 
 // extOf is the ending a file is stored with: its type's for an image or Markdown, else the one its name ends in when that is letters and
-// digits and at most 8 long, else bin.
+// digits and at most 8 long and no image ending (a tool picks image handling by ending, and only an image's bytes are checked), else bin.
 func extOf(i Info) string {
 	if e := ext(i.Mime); e != "" {
 		return e
 	}
 	e := strings.ToLower(strings.TrimPrefix(filepath.Ext(i.Name), "."))
-	if e == "" || len(e) > 8 || strings.Trim(e, "abcdefghijklmnopqrstuvwxyz0123456789") != "" {
+	if e == "" || len(e) > 8 || e == "png" || e == "jpg" || e == "jpeg" || e == "gif" || e == "webp" || strings.Trim(e, "abcdefghijklmnopqrstuvwxyz0123456789") != "" {
 		return "bin"
 	}
 	return e

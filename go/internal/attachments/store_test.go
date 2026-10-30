@@ -459,7 +459,7 @@ func TestAnyFileIsKeptAsSentAndToldByTheSamePathLine(t *testing.T) {
 	pdf := []byte("%PDF-1.4 not an image")
 	for _, c := range []struct{ name, mime, ending string }{
 		{"spec.PDF", "application/pdf", ".pdf"}, {"notes", "text/plain", ".bin"}, {"run.sh;x", "application/x-sh", ".bin"},
-		{"a.verylongending", "application/zip", ".bin"}, {"fake.png", "image/svg+xml", ".png"},
+		{"a.verylongending", "application/zip", ".bin"}, {"fake.png", "image/svg+xml", ".bin"}, {"fake.JPEG", "application/pdf", ".bin"},
 	} {
 		in := putAll(t, s, q, c.name, c.mime, pdf, 7)
 		if in.Mime != c.mime || in.Width != 0 || !strings.HasSuffix(s.Path(*in), c.ending) {
@@ -481,4 +481,24 @@ func TestAnyFileIsKeptAsSentAndToldByTheSamePathLine(t *testing.T) {
 	// an image that says so is still checked
 	_, err := s.Put(q, PutIn{Name: "a.png", Mime: "image/png", Bytes: 5, Data: []byte("hello")})
 	wantErr(t, err, "bad_request", "data", "")
+}
+
+// A file that is not checked as an image is never stored with an image ending, never thumbed or sized, even when its bytes are a PNG.
+func TestAFileOfOtherTypeIsNeitherThumbedNorSizedEvenIfItsBytesAreAPicture(t *testing.T) {
+	s, _, q := testStore(t)
+	b := pngOf(3, 2)
+	in := putAll(t, s, q, "pic.dat", "application/octet-stream", b, 100)
+	if in.Width != 0 || in.Height != 0 {
+		t.Fatalf("sized: %+v", in)
+	}
+	g, err := s.Get(in.ID, true, 0)
+	if err != nil || g.Mime != "application/octet-stream" || g.Bytes != int64(len(b)) {
+		t.Fatalf("the thumb of a file is the file: %+v %v", g, err)
+	}
+	long := "application/" + strings.Repeat("x", 88)
+	if _, err := s.Put(q, PutIn{Name: "a", Mime: long, Bytes: 1, Data: []byte("x")}); err != nil {
+		t.Fatalf("100 characters: %v", err)
+	}
+	_, err = s.Put(q, PutIn{Name: "a", Mime: long + "x", Bytes: 1, Data: []byte("x")})
+	wantErr(t, err, "bad_request", "mime", "")
 }
