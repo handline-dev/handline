@@ -2,11 +2,12 @@
 // notice when a device pairs. The link is only on this screen; nothing keeps it.
 import qrcode from 'qrcode-generator';
 import { useEffect, useMemo, useState } from 'react';
+import { inviteLink } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
-import { useDevices, useWrite } from '@handline/app-data';
+import { useDevices, useRead, useWrite } from '@handline/app-data';
 import { Button, Dialog, Icon, NOTE } from '#src/ui/index.ts';
 
-type Code = { link: string; until: number };
+type Code = { link: string | null; until: number };
 
 /** The link as an SVG QR; it is drawn on white so a scanner reads it in the dark theme too. */
 function Qr({ link }: { link: string }) {
@@ -32,6 +33,7 @@ export function Invite({ onClose }: { onClose: () => void }) {
   const store = useStore();
   const pair = useWrite('device.pair');
   const known = useDevices().data?.devices;
+  const encrypted = useRead('connection.get', {}).data?.listener?.encryption === 'tls';
   const [start] = useState(() => new Set(known?.map((d) => d.id)));
   const [code, setCode] = useState<Code | null>(null);
   const [left, setLeft] = useState(0);
@@ -42,9 +44,7 @@ export function Invite({ onClose }: { onClose: () => void }) {
       {},
       {
         onSuccess: (r) => {
-          // `web_url` opens the page in a browser; a daemon that does not send it still gives the app's own link.
-          const link = (r as { web_url?: string }).web_url ?? r.uri;
-          setCode({ link, until: Date.parse(r.expires_at) });
+          setCode({ link: inviteLink(r.uri, encrypted), until: Date.parse(r.expires_at) });
         },
       },
     );
@@ -63,15 +63,16 @@ export function Invite({ onClose }: { onClose: () => void }) {
     store.notices.push('ok', `${joined.name} connected`);
     onClose();
   }, [joined]); // eslint-disable-line react-hooks/exhaustive-deps -- once per new device
+  const link = code?.link ?? null;
   const expired = !!code && left === 0;
   return (
     <Dialog title="Connect a device" onClose={onClose}>
-      {code && !expired ? (
+      {link && !expired ? (
         <div className="flex flex-wrap items-start gap-5">
-          <Qr link={code.link} />
+          <Qr link={link} />
           <div className="flex min-w-[220px] flex-1 flex-col gap-2">
             <span className="text-sm text-ink-2">Or open this on the other computer</span>
-            <code className="block rounded-md bg-panel px-3 py-2 font-mono text-sm [overflow-wrap:anywhere]">{code.link}</code>
+            <code className="block rounded-md bg-panel px-3 py-2 font-mono text-sm [overflow-wrap:anywhere]">{link}</code>
             <div className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-1.5 text-sm text-ink-2">
                 <Icon name="waiting" size={14} label="" /> Valid for <b className="tabular-nums text-ink">{clock(left)}</b>
@@ -79,7 +80,7 @@ export function Invite({ onClose }: { onClose: () => void }) {
               <Button
                 label="Copy link"
                 variant="outline"
-                onClick={() => void navigator.clipboard?.writeText(code.link).then(() => setCopied(true))}
+                onClick={() => void navigator.clipboard?.writeText(link).then(() => setCopied(true))}
               >
                 {copied ? 'Copied' : 'Copy link'}
               </Button>
@@ -89,7 +90,13 @@ export function Invite({ onClose }: { onClose: () => void }) {
       ) : (
         <div className="flex flex-col items-start gap-2">
           <p className="m-0" role={expired ? 'status' : undefined}>
-            {expired ? 'This invite expired.' : pair.isError ? 'No invite could be made.' : 'Making an invite…'}
+            {expired
+              ? 'This invite expired.'
+              : code
+                ? 'Another computer cannot reach this one: the app listens on this computer only. Turn on Tailscale, or Allow devices on this network, and restart.'
+                : pair.isError
+                  ? 'No invite could be made.'
+                  : 'Making an invite…'}
           </p>
           {expired || pair.isError ? (
             <Button label="New invite" variant="solid" onClick={make}>

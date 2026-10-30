@@ -30,8 +30,7 @@ export class FakePairing {
       code,
       expires_at: new Date(now.getTime() + 300_000).toISOString(),
       fingerprint: 'fa'.repeat(32),
-      uri: `handline://pair?${new URLSearchParams({ host: '127.0.0.1:0', fp: 'fa'.repeat(32), code })}`,
-      web_url: `http://127.0.0.1:7443/#pair=${code}`,
+      uri: `handline://pair?${new URLSearchParams({ host: 'mac.tail1.ts.net:7443', fp: 'fa'.repeat(32), code })}`,
     });
   }
 

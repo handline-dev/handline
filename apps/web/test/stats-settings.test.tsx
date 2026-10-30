@@ -327,7 +327,7 @@ describe('settings', () => {
     await click(button('Connect a device')!);
     await until(() => $('.ui-dialog [aria-label="Invite QR code"] svg'), 'the QR');
     const dialog = $('.ui-dialog')!;
-    expect(text(dialog)).toMatch(/#pair=[A-Z0-9-]+/);
+    expect(text(dialog)).toMatch(/https?:\/\/mac\.tail1\.ts\.net:7443\/#pair=[A-Z0-9-]+/);
     expect(text(dialog)).toMatch(/Valid for\s*[45]:\d\d/);
     expect(text(dialog)).toContain('Anyone with this link for 5 minutes gets full control');
   });
