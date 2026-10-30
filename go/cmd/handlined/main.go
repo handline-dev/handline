@@ -272,6 +272,8 @@ func main() {
 		}
 	}
 	defer housekeeping.DumpStacksOnUSR1()() // kill -USR1 <pid>: every goroutine's stack, in the err log
+	// kill -USR2 <pid>: a CPU profile of the next 30 s, under the home's logs
+	defer housekeeping.ProfileCPUOnUSR2(filepath.Join(homeDir, "logs"), func(s string) { log.Print(s) })()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	tickStop := make(chan struct{}) // a signal or an answered daemon.upgrade stops the tick
