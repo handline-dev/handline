@@ -132,7 +132,8 @@ function handleSettings(origin: string, client: DaemonClient, remote: Remote | n
 
 function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null, network: boolean, f?: Follower): void {
   const c = new Connection(origin, {
-    build: () => ({ sha: runningBuild, canRestart: !remote }),
+    // Only when the build on disk is this one: a newer one (main moved) is the follow offer's to apply, app and daemon together.
+    build: () => ({ sha: runningBuild, canRestart: !remote && readBuildSha(import.meta.dirname) === runningBuild }),
     restartDaemon: () => own.restartDaemon(),
     mode: () => ({ mode, remote: remote?.host ?? null }),
     follow: () => (f ? { sha: f.sha, state: f.state, next: f.next?.sha ?? null } : null),
@@ -365,7 +366,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       settings,
       current,
       build: runningBuild,
-      upgradeDaemon: () => upgradeTo(),
+      upgradeDaemon: () => upgradeTo(runningBuild ?? undefined),
       openWindow: () => void openWindow(),
       openPage: (screen) => void openWindow().then(() => win?.webContents.send(CHANNELS.navigate, { screen, id: '', event: 'tray' })),
       update: () => trayUpdate(flow),

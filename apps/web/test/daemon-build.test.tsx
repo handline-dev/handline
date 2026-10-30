@@ -51,43 +51,35 @@ beforeEach(() => history.replaceState(null, ''));
 afterEach(unmount);
 
 describe('the daemon build notice', () => {
-  it('names both builds in the top bar when they differ, and Restart daemon asks the app to move the daemon', async () => {
+  it('moves the daemon by itself once, and shows nothing when that works', async () => {
     const restart = vi.fn(async () => ({ ok: true }));
     await mount({ sha: 'abc123def456', canRestart: true, restart });
-    await until(() => $('.topbar .daemon-build'), 'the notice');
-    expect($('.topbar .daemon-build')!.textContent).toContain('Daemon is fake000, app is abc123d');
-    await act(async () => void ($('.topbar .daemon-build button') as HTMLElement).click());
+    await until(() => restart.mock.calls.length, 'the restart');
+    await wait(50);
     expect(restart).toHaveBeenCalledOnce();
+    expect($('.daemon-build')).toBeNull();
+    expect(document.querySelector('.toast')).toBeNull();
   });
-  it('says why when the daemon will not move', async () => {
-    const refuse = async () => ({ ok: false, code: 'cannot_restart', message: 'exe prints another sha' });
-    await mount({ sha: 'abc123def456', canRestart: true, restart: refuse });
-    await until(() => $('.topbar .daemon-build button'), 'the button');
-    await act(async () => void ($('.topbar .daemon-build button') as HTMLElement).click());
-    await until(() => $('.topbar .daemon-build')!.textContent!.includes('Not restarted'), 'the bar line');
-    expect($('.topbar .daemon-build')!.textContent).not.toContain('exe prints');
+  it('does nothing for the same build, in a plain browser, for another device, or when a newer build waits on disk', async () => {
+    const restart = vi.fn(async () => ({ ok: true }));
+    await mount({ sha: 'fake0000', canRestart: true, restart });
+    await unmount();
+    await mount(null);
+    await unmount();
+    await mount({ sha: 'abc123def456', canRestart: false, restart });
+    await wait(50);
+    expect(restart).not.toHaveBeenCalled();
+    expect(document.querySelector('.toast')).toBeNull();
   });
-  it('keeps the top bar to one line and puts the whole refusal in a notice with Try again', async () => {
+  it('shows a notice with Try again when the daemon will not move', async () => {
     const why = 'the daemon did not upgrade: daemon.upgrade is for a founder or above; this caller is anonymous';
-    const restart = vi.fn(async () => ({ ok: false, code: 'cannot_restart', message: why }));
+    // A real refusal takes a round trip, which is after the store has finished starting (that clears the toasts).
+    const restart = vi.fn(async () => (await wait(100), { ok: false, code: 'cannot_restart', message: why }));
     await mount({ sha: 'abc123def456', canRestart: true, restart });
-    await until(() => $('.topbar .daemon-build button'), 'the button');
-    await act(async () => void ($('.topbar .daemon-build button') as HTMLElement).click());
     await until(() => document.body.textContent!.includes(why), 'the notice');
-    expect($('.topbar .daemon-build')!.textContent).toBe('Not restartedRestart daemon');
     const again = [...document.querySelectorAll('.toast button')].find((b) => b.textContent === 'Try again') as HTMLElement;
     await act(async () => void again.click());
     expect(restart).toHaveBeenCalledTimes(2);
-  });
-  it('says nothing for the same build or in a plain browser, and offers no button for a daemon on another device', async () => {
-    await mount({ sha: 'fake0000', canRestart: true });
-    expect($('.topbar .daemon-build')).toBeNull();
-    await unmount();
-    await mount(null);
-    expect($('.topbar .daemon-build')).toBeNull();
-    await unmount();
-    await mount({ sha: 'abc123def456', canRestart: false });
-    await until(() => $('.topbar .daemon-build'), 'the notice');
-    expect($('.topbar .daemon-build button')).toBeNull();
+    await wait(150);
   });
 });
