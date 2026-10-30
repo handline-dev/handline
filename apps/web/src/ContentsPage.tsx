@@ -38,9 +38,29 @@ function useInView(parts: readonly Part[]): string {
 }
 
 export function ContentsPage({ parts, children }: { parts: readonly Part[]; children: ReactNode }) {
-  const on = useInView(parts);
+  const seen = useInView(parts);
+  // The last groups cannot reach the top of the page: a click marks its item, and the end of the page marks the last one.
+  const [clicked, setClicked] = useState<string | null>(null);
+  const [atEnd, setAtEnd] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const scroller = box.current?.closest('section');
+    if (!scroller) return;
+    const look = () => setAtEnd(scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2);
+    const drop = () => setClicked(null);
+    look();
+    scroller.addEventListener('scroll', look);
+    scroller.addEventListener('wheel', drop);
+    scroller.addEventListener('touchmove', drop);
+    return () => {
+      scroller.removeEventListener('scroll', look);
+      scroller.removeEventListener('wheel', drop);
+      scroller.removeEventListener('touchmove', drop);
+    };
+  }, []);
+  const on = clicked ?? (atEnd ? parts.at(-1)!.id : seen);
   return (
-    <div className="contents-page flex min-w-0 gap-10 max-md:block">
+    <div ref={box} className="contents-page flex min-w-0 gap-10 max-md:block">
       <nav
         aria-label="Contents"
         className="sticky top-0 flex max-h-screen w-[200px] flex-none flex-col gap-0.5 self-start py-2 max-md:hidden"
@@ -51,7 +71,10 @@ export function ContentsPage({ parts, children }: { parts: readonly Part[]; chil
             type="button"
             aria-current={p.id === on ? 'location' : undefined}
             className={`tint flex cursor-pointer items-center gap-2 rounded-sm border-0 bg-transparent px-2 py-1 text-left text-md ${p.id === on ? 'bg-raised font-medium text-ink' : 'text-ink-2'}`}
-            onClick={() => document.getElementById(p.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            onClick={() => {
+              setClicked(p.id);
+              document.getElementById(p.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
           >
             {p.icon ? <p.icon width={15} height={15} strokeWidth={1.75} aria-hidden /> : null}
             {p.label}

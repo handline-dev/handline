@@ -118,6 +118,8 @@ export function Devices() {
               </RowTitle>
               <Button
                 label={`Revoke ${d.name}`}
+                variant="outline"
+                size="sm"
                 disabled={!!off}
                 title={off}
                 onClick={() => (setRefused(''), setAsking({ id: d.id, name: d.name }))}

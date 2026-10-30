@@ -102,8 +102,8 @@ export function Appearance({ storage }: { storage: KV | null }) {
             value={theme}
             options={[
               { value: 'system', label: 'System' },
-              { value: 'dark', label: 'Dark' },
               { value: 'light', label: 'Light' },
+              { value: 'dark', label: 'Dark' },
             ]}
             onChange={(v) => {
               setTheme(v);

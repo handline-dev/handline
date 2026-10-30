@@ -69,7 +69,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       change={(on) => ({ handoff_note: on })}
                     />
                     <Row label="Handoff text" hint="What the agent is asked before a session closes">
-                      <Button label={prompt ? 'Hide' : 'Edit'} size="sm" onClick={() => setPrompt(!prompt)}>
+                      <Button label={prompt ? 'Hide' : 'Edit'} variant="outline" size="sm" onClick={() => setPrompt(!prompt)}>
                         {prompt ? 'Hide' : 'Edit'}
                       </Button>
                     </Row>
@@ -100,6 +100,8 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       <Row label="Machine limits" hint="Load, memory and heavy slots live in the resource manager (bottom right)">
                         <Button
                           label="Open"
+                          variant="outline"
+                          size="sm"
                           onClick={() => window.dispatchEvent(new CustomEvent(OPEN_RESOURCES, { detail: { at: 'load' } }))}
                         >
                           Open

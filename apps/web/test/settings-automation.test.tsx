@@ -159,6 +159,17 @@ describe('settings: handoff prompt and cache expiry', () => {
     expect(prompt()).toBeNull();
   });
 
+  it('a click on the last group marks it in the contents list, though the page cannot scroll it to the top', async () => {
+    Element.prototype.scrollIntoView = () => {};
+    await mount(setup(), false);
+    await until(() => $('[data-setting="Handoff text"]'), 'the rows');
+    const item = (label: string) =>
+      [...document.querySelectorAll('nav[aria-label="Contents"] button')].find((b) => b.textContent === label)!;
+    await click(item('This computer') as HTMLElement);
+    expect(item('This computer').getAttribute('aria-current')).toBe('location');
+    expect(item('Notifications').getAttribute('aria-current')).toBeNull();
+  });
+
   it('a daemon without settings.get shows no rows', async () => {
     await mount(setup({ daemon: { admin: false } }), false);
     await wait(50);
