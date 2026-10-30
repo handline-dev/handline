@@ -3,6 +3,10 @@
 import { axisTicks, dateTime, lostAtLastReset, runwayWords, weekResets } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 
+/** The label of an account by its name, as the account rows show it. */
+export type Labels = Record<string, string>;
+const named = (l: Labels, a: string) => l[a] ?? a;
+
 export type Span = { t0: number; t1: number };
 const pos = ({ t0, t1 }: Span, at: string) => (t1 === t0 ? 0 : ((Date.parse(at) - t0) / (t1 - t0)) * 100);
 /** "Fri 09:00". */
@@ -10,12 +14,12 @@ const resetAt = (at: string) => new Date(at).toLocaleString([], { weekday: 'shor
 const inSpan = (s: Span, at: string) => Date.parse(at) >= s.t0 && Date.parse(at) <= s.t1;
 
 /** "Week 43% left" and, after it at body size, what the pace loses at the last reset (or when an account runs out). */
-export function WeekReadout({ o }: { o: Outlook }) {
+export function WeekReadout({ o, labels }: { o: Outlook; labels: Labels }) {
   const left = o.past.filter((p) => p.left_pct !== null).at(-1)?.left_pct ?? null;
   const lost = lostAtLastReset(o);
   const soonest = o.runway.filter((r) => r.runs_out_in_seconds !== null).sort((a, b) => a.runs_out_in_seconds! - b.runs_out_in_seconds!)[0];
   const pace = lost
-    ? `at this pace about ${Math.round(lost.pct)}% of ${lost.account}'s week goes unused`
+    ? `at this pace about ${Math.round(lost.pct)}% of ${named(labels, lost.account)}'s week goes unused`
     : soonest
       ? `at this pace ${soonest.account} ${runwayWords(soonest)}`
       : '';
@@ -47,7 +51,7 @@ export function YMarks() {
 }
 
 /** Under the plot: the weekday (clock over a day and a half) labels, and under them each account's weekly reset with its time. */
-export function XAxis({ o, span }: { o: Outlook; span: Span }) {
+export function XAxis({ o, span, labels }: { o: Outlook; span: Span; labels: Labels }) {
   const resets = weekResets(o).filter((r) => inSpan(span, r.at));
   return (
     <div className="x-axis absolute inset-x-0 top-full pt-2 text-sm" aria-hidden>
@@ -70,7 +74,7 @@ export function XAxis({ o, span }: { o: Outlook; span: Span }) {
             className="reset-mark muted absolute whitespace-nowrap"
             style={{ left: `${pos(span, r.at)}%`, transform: pos(span, r.at) > 85 ? 'translateX(-100%)' : 'translateX(-50%)' }}
           >
-            {r.account} {resetAt(r.at)}
+            {named(labels, r.account)} {resetAt(r.at)}
           </span>
         ))}
       </div>
@@ -79,7 +83,7 @@ export function XAxis({ o, span }: { o: Outlook; span: Span }) {
 }
 
 /** The one lost bar: the week left unused at the last guessed reset, from 0% up, with its words beside it. */
-export function LostBar({ o, span }: { o: Outlook; span: Span }) {
+export function LostBar({ o, span, labels }: { o: Outlook; span: Span; labels: Labels }) {
   const lost = lostAtLastReset(o);
   if (!lost || !inSpan(span, lost.at)) return null;
   const x = pos(span, lost.at);
@@ -87,7 +91,7 @@ export function LostBar({ o, span }: { o: Outlook; span: Span }) {
     <>
       <span
         data-lost
-        className="lost-bar absolute bottom-0 w-3 -translate-x-full bg-acc"
+        className="lost-bar absolute bottom-px w-3 -translate-x-full bg-acc"
         style={{ left: `${x}%`, height: `${lost.pct}%` }}
         aria-hidden
       />
@@ -95,7 +99,7 @@ export function LostBar({ o, span }: { o: Outlook; span: Span }) {
         href="#/requests"
         className="lost-link absolute -translate-y-full pr-4 text-right whitespace-nowrap text-acc-ink no-underline"
         style={{ right: `${100 - x}%`, bottom: `${lost.pct}%` }}
-        title={`${lost.account}: ${Math.round(lost.pct)}% of the week is lost at the reset ${dateTime(lost.at)} at this pace`}
+        title={`${named(labels, lost.account)}: ${Math.round(lost.pct)}% of the week is lost at the reset ${dateTime(lost.at)} at this pace`}
       >
         {Math.round(lost.pct)}% lost ›
       </a>

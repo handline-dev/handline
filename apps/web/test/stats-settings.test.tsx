@@ -96,6 +96,21 @@ describe('stats', () => {
     expect($('.acct-list [data-account] .gauge')).not.toBeNull();
   });
 
+  it('an account that needs a login has its state, Log in and its plan and no window text; the others show their agents in a list', async () => {
+    await mount('#/stats');
+    await until(() => $('.usage-accounts [data-account="gamma"]'), 'the account lines');
+    const gamma = $('.usage-accounts [data-account="gamma"]')!;
+    expect(text(gamma)).toContain('Login needed');
+    expect(text(gamma)).not.toMatch(/left|resets|not started/);
+    expect(gamma.querySelector('.badge')).toBeNull(); // a glyph and a word, no pill
+    const alpha = $('.usage-accounts [data-account="alpha"]')!;
+    expect(text(alpha.querySelector('.usage-state'))).toContain('In use');
+    expect(alpha.querySelector('.badge')).toBeNull();
+    await click(alpha.querySelector('.usage-agents button'));
+    expect($$('[role="dialog"] button').length).toBeGreaterThan(0);
+    expect(text($('.usage-accounts [data-account="alpha"] .usage-warn'))).not.toMatch(/ahead/);
+  });
+
   it('the 7 d window shows its own figures, and the old ones stay until they arrive', async () => {
     const s = await mount('#/stats');
     await until(() => $('.who-used'), 'the 24 h table');
@@ -134,12 +149,40 @@ describe('outlook', () => {
     expect($('.usage-accounts [data-account="beta"] .usage-lost')).toBeNull(); // beta's week has no reset in the guess
   });
 
+  it('the guess line ends at the last reset and the lost bar stands on the 0% line', async () => {
+    await mount('#/stats');
+    await until(() => $('.outlook-svg'), 'the graph');
+    const end = $('.outlook-svg .line.future')!.getAttribute('d')!.split(' ').at(-1)!;
+    expect(end.replace('L', '').split(',')[0]).toBe('560.0'); // the plot's right edge is the reset, no run on to 0%
+    expect($('[data-lost]')!.className).toContain('bottom-px');
+    expect(text($('[data-reset-mark="alpha"]'))).toContain('alpha');
+  });
+
+  it('cost per day stays reachable beside the range menu, with 7, 14 and 30 days, a bar per day and a click on an agent for that one alone', async () => {
+    await mount('#/stats');
+    await until(() => $('.outlook-svg'), 'the graph');
+    await click(button('Cost per day'));
+    await until(() => $$('.cost-day').length === 7, 'seven days');
+    const range = $('select[aria-label="Range"]') as HTMLSelectElement;
+    expect([...range.options].map((o) => o.value)).toEqual(['7d', '14d', '30d']);
+    await setValue(range, '14d');
+    await until(() => $$('.cost-day').length === 14, 'fourteen days');
+    expect($$('.agent-cost tbody tr').map((r) => r.dataset.agent)).toEqual([
+      'handline.architect',
+      'handline.auditor',
+      'handline.term-build',
+    ]);
+    expect($$('.agent-cost .cost-pick b').map(text)).toEqual(['A', 'B', 'C']);
+    await click($('[data-agent="handline.auditor"] .cost-pick'));
+    expect($('.cost')!.getAttribute('aria-label')).toBe('Cost per day, handline.auditor alone');
+  });
+
   it('the range last chosen is the one it opens on next time', async () => {
     await mount('#/stats');
     await until(() => $('.outlook-svg'), 'the graph');
     await setValue($('select[aria-label="Range"]') as HTMLSelectElement, '3d');
     await until(() => $('.outlook-svg'), 'the graph');
-    expect(JSON.parse(localStorage.getItem('outlook-look')!)).toEqual({ range: '3d' });
+    expect(JSON.parse(localStorage.getItem('outlook-look')!)).toEqual({ view: 'left', range: '3d' });
   });
 
   it('pointing at the graph reads the time and the percent, and leaving clears it', async () => {

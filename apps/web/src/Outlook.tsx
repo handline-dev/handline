@@ -2,36 +2,41 @@
 // guessed after it, with each account's weekly reset under the axis and the part lost at the last one as a bar. The numbers are in the words
 // and under the picture's aria-label, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { dateTime, guessLine, weekResets } from '@handline/app-core';
+import { dateTime, guessLine, lostAtLastReset, weekResets } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 import type { useOutlook } from '@handline/app-data';
 import { GRID_LINE, LINE, NOW_LINE, RESET_LINE } from '#src/outlookStyle.ts';
-import { LostBar, WeekReadout, XAxis, YMarks } from '#src/OutlookWeek.tsx';
-import { Select } from '#src/ui/index.ts';
+import { LostBar, WeekReadout, XAxis, YMarks, type Labels } from '#src/OutlookWeek.tsx';
+import { Cost } from '#src/OutlookCost.tsx';
+import { Segmented, Select } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
 
 type Range = Outlook['range'];
-const RANGES: Range[] = ['12h', '24h', '3d', '7d', '14d'];
+type View = 'left' | 'cost';
+const RANGES: Record<View, Range[]> = { left: ['12h', '24h', '3d', '7d', '14d'], cost: ['7d', '14d', '30d'] };
 const W = 560;
 const H = 160;
-const RANGE_KEY = 'outlook-look';
+const LOOK_KEY = 'outlook-look';
 
-/** The range last used is remembered by this window only; a browser that refuses storage starts on 7 days. */
-export function useRange(): [Range, (r: Range) => void] {
-  const [range, set] = useState<Range>(() => {
+export type Look = { view: View; range: Range };
+
+/** The view and range last used are remembered by this window only; a browser that refuses storage starts on the week left over 7 days. */
+export function useLook(): [Look, (l: Look) => void] {
+  const [look, set] = useState<Look>(() => {
     try {
-      const r = JSON.parse(localStorage.getItem(RANGE_KEY) ?? '{}').range;
-      return RANGES.includes(r) ? r : '7d';
+      const l = JSON.parse(localStorage.getItem(LOOK_KEY) ?? '{}');
+      const view: View = l.view === 'cost' ? 'cost' : 'left';
+      return { view, range: RANGES[view].includes(l.range) ? l.range : '7d' };
     } catch {
-      return '7d';
+      return { view: 'left', range: '7d' };
     }
   });
   return [
-    range,
-    (r) => {
-      set(r);
+    look,
+    (l) => {
+      set(l);
       try {
-        localStorage.setItem(RANGE_KEY, JSON.stringify({ range: r }));
+        localStorage.setItem(LOOK_KEY, JSON.stringify(l));
       } catch {
         /* not remembered */
       }
@@ -39,7 +44,14 @@ export function useRange(): [Range, (r: Range) => void] {
   ];
 }
 
-function Line({ o }: { o: Outlook }) {
+/** The guess line ends at the last guessed reset: the daemon's line goes on as if the week did not reset, which is not a guess of anything. */
+function clipAtReset(o: Outlook): Outlook {
+  const end = lostAtLastReset(o);
+  return end ? { ...o, future: o.future.filter((p) => Date.parse(p.at) <= Date.parse(end.at)) } : o;
+}
+
+function Line({ o: full, labels }: { o: Outlook; labels: Labels }) {
+  const o = clipAtReset(full);
   const all = [...o.past, ...o.future].filter((p) => p.left_pct !== null);
   const t0 = Date.parse((all[0] ?? { at: o.now }).at);
   const t1 = Date.parse((all.at(-1) ?? { at: o.now }).at);
@@ -99,8 +111,8 @@ function Line({ o }: { o: Outlook }) {
             now
           </span>
           <YMarks />
-          <LostBar o={o} span={{ t0, t1 }} />
-          <XAxis o={o} span={{ t0, t1 }} />
+          <LostBar o={full} span={{ t0, t1 }} labels={labels} />
+          <XAxis o={full} span={{ t0, t1 }} labels={labels} />
         </div>
       </div>
       <p className="outlook-readout muted m-0 mt-14 h-5 text-sm" aria-live="polite">
@@ -110,27 +122,37 @@ function Line({ o }: { o: Outlook }) {
   );
 }
 
-export function OutlookSection({ q, range, setRange }: { q: ReturnType<typeof useOutlook>; range: Range; setRange: (r: Range) => void }) {
+export function OutlookSection(props: { q: ReturnType<typeof useOutlook>; look: Look; setLook: (l: Look) => void; labels: Labels }) {
+  const { q, look, setLook, labels } = props;
   const o = q.data;
   return (
-    <section className="outlook mb-4" aria-label="Week left">
+    <section className="outlook mb-4 pt-4" aria-label={look.view === 'left' ? 'Week left' : 'Cost per day'}>
+      <div className="flex items-baseline gap-3">
+        <div className="flex-1">
+          {o && look.view === 'left' ? (
+            <WeekReadout o={o} labels={labels} />
+          ) : look.view === 'cost' ? (
+            <strong className="text-xl font-semibold">Cost per day</strong>
+          ) : null}
+        </div>
+        <Segmented
+          label="View"
+          value={look.view}
+          onChange={(view) => setLook({ view, range: RANGES[view].includes(look.range) ? look.range : '7d' })}
+          options={[
+            { value: 'left', label: 'Week left' },
+            { value: 'cost', label: 'Cost per day' },
+          ]}
+        />
+        <Select
+          label="Range"
+          value={look.range}
+          onChange={(e) => setLook({ ...look, range: e.target.value as Range })}
+          options={RANGES[look.view].map((r) => ({ value: r, label: r }))}
+        />
+      </div>
       <View q={q} served shape="stats" what="the outlook">
-        {o ? (
-          <>
-            <div className="flex items-baseline gap-3">
-              <div className="flex-1">
-                <WeekReadout o={o} />
-              </div>
-              <Select
-                label="Range"
-                value={range}
-                onChange={(e) => setRange(e.target.value as Range)}
-                options={RANGES.map((r) => ({ value: r, label: r }))}
-              />
-            </div>
-            <Line o={o} />
-          </>
-        ) : null}
+        {o ? look.view === 'left' ? <Line o={o} labels={labels} /> : <Cost key={look.range} o={o} /> : null}
       </View>
     </section>
   );

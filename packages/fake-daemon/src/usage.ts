@@ -17,7 +17,7 @@ const OVERLAYS: Record<string, number[]> = {
   'grp:grp': [0, 2, 4.1, 5.5, 6.8, 7.5, 8.1, 8.4, 8.7, 9, 9.3, 9.6, 9.9],
 };
 
-/** stats.outlook's by_account: alpha a little above the average, beta below it, so the two average to about `left_pct`; alpha's week resets in 2 days, as its runway says. The fake does not pace, so there is no line. */
+/** stats.outlook's by_account: alpha a little above the average, beta below it, so the two average to about `left_pct`; alpha's week resets as its account row says. The fake does not pace, so there is no line. */
 function byAccount(past: Outlook['past'], future: Outlook['future'], now: number, head: number): Outlook['by_account'] {
   const points = (pts: Outlook['past'], d: number) =>
     pts.map((p) => ({
@@ -26,7 +26,7 @@ function byAccount(past: Outlook['past'], future: Outlook['future'], now: number
       week_left: p.left_pct === null ? null : Math.min(100, Math.max(0, p.left_pct + d)),
       line_left: null,
     }));
-  const reset = now + 2 * DAY;
+  const reset = now + 70 * HOUR; // the same reset alpha's account row carries
   return [
     {
       account: 'alpha',
@@ -119,7 +119,7 @@ export function outlookOf(nowIso: Timestamp, range: Outlook['range'], pick?: unk
     past,
     future,
     runway: [
-      { account: 'alpha', runs_out_in_seconds: null, week_resets_at: at(now + 2 * DAY) },
+      { account: 'alpha', runs_out_in_seconds: null, week_resets_at: at(now + 70 * HOUR) },
       { account: 'beta', runs_out_in_seconds: 2 * 3600, week_resets_at: null },
     ],
     cost_per_day,
