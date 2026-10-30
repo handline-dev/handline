@@ -23,7 +23,12 @@ function seed(s: ReturnType<typeof setup>, names: string[]) {
 
 const $m = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 const mouse = (type: string, x: number, y: number, on: EventTarget = document) =>
-  act(async () => void on.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mouseup' ? 0 : 1 })));
+  act(
+    async () =>
+      void on.dispatchEvent(
+        new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mouseup' ? 0 : 1 }),
+      ),
+  );
 /** One drag on the stage, as a finger would draw a box. */
 async function drag() {
   const stage = $m('photo-stage')!;
