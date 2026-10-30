@@ -21,6 +21,7 @@ import {
 } from '@handline/app-core';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { Badges } from '#src/Badges.tsx';
+import { WithKey } from '#src/WithKey.tsx';
 import { OpenInItems } from '#src/OpenInItems.tsx';
 import { showPill } from '#src/Pill.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
@@ -258,27 +259,31 @@ export function PaneActions({ group }: { group: Group }) {
       <MenuButton size="sm" label="Open in" name="Open in" align="end" trigger="Open in" className="shell:[-webkit-app-region:no-drag]">
         <OpenInItems agent={agent} cwd={detail.cwd} />
       </MenuButton>
-      <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="shell:[-webkit-app-region:no-drag]">
-        {choices.map((c) => (
-          <MenuItem
-            key={c.label}
-            icon={c.icon}
-            disabled={c.disabled}
-            onSelect={() => void choose(c, (w, kind, params) => openTab(w, kind, params, group.id))}
-          >
-            {c.label}
-          </MenuItem>
-        ))}
-      </MenuButton>
-      <Button
-        icon="split"
-        size="sm"
-        label="Split this pane"
-        title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
-        disabled={!canSplit(group.id)}
-        className="shell:[-webkit-app-region:no-drag]"
-        onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
-      />
+      <WithKey k="⌘T">
+        <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="shell:[-webkit-app-region:no-drag]">
+          {choices.map((c) => (
+            <MenuItem
+              key={c.label}
+              icon={c.icon}
+              disabled={c.disabled}
+              onSelect={() => void choose(c, (w, kind, params) => openTab(w, kind, params, group.id))}
+            >
+              {c.label}
+            </MenuItem>
+          ))}
+        </MenuButton>
+      </WithKey>
+      <WithKey k="⌘\">
+        <Button
+          icon="split"
+          size="sm"
+          label="Split this pane"
+          title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
+          disabled={!canSplit(group.id)}
+          className="shell:[-webkit-app-region:no-drag]"
+          onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
+        />
+      </WithKey>
     </>
   );
 }

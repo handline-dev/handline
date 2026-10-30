@@ -75,11 +75,16 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   useShell(agent);
   useHeldKeys();
   const unread = useUnread().length;
-  const [railOpen, setRail] = useState(() => setting(storage, 'rail', '1').value === '1');
+  // Below 900px the sidebar is a drawer over the page: it starts closed and closes once something is picked.
+  const narrow = () => typeof matchMedia === 'function' && matchMedia('(max-width: 900px)').matches;
+  const [railOpen, setRail] = useState(() => !narrow() && setting(storage, 'rail', '1').value === '1');
   const toggle = () => {
     setRail(!railOpen);
     setting(storage, 'rail', '1').save(railOpen ? '0' : '1');
   };
+  useEffect(() => {
+    if (narrow()) setRail(false);
+  }, [agent, tasks, page]);
   const toggleRef = useRef(toggle);
   toggleRef.current = toggle;
   const [palette, setPalette] = useState(false);

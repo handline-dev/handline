@@ -251,6 +251,7 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
   const save = useWrite('settings.set');
   const [editing, setEditing] = useState<Which | null>(openAt);
   const store = useStore();
+  const [said, setSaid] = useState<{ text: string; undo: () => void } | null>(null);
   const m = r.machine;
   const toggle = (w: Which) => setEditing(editing === w ? null : w);
   /** Says so in the notice stack once the daemon has taken it, with Undo to the value before; a refusal says why instead. */
@@ -258,14 +259,11 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
     save.mutate(
       { changes: { [key]: to } satisfies PageSettings },
       {
-        onSuccess: () =>
-          store.notices.keep(
-            `limit:${key}`,
-            'ok',
-            `${what} limit: ${text}`,
-            { actions: [{ label: 'Undo', run: () => save.mutate({ changes: { [key]: was } satisfies PageSettings }) }] },
-            true,
-          ),
+        onSuccess: () => {
+          const undo = () => save.mutate({ changes: { [key]: was } satisfies PageSettings });
+          store.notices.keep(`limit:${key}`, 'ok', `${what} limit: ${text}`, { actions: [{ label: 'Undo', run: undo }] }, true);
+          setSaid({ text: `${what} limit: ${text}`, undo });
+        },
         onError: (e) => store.notices.push('fail', `${what} limit not changed: ${sentence(classify(e)) || 'no answer from the daemon'}`),
       },
     );
@@ -288,7 +286,7 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
         icon={Cpu}
         label="Load"
         value={`${Math.round(m.load_per_core * 100)}%`}
-        limit={limits.load_per_core_pct ? `Limit ${limits.load_per_core_pct}%` : 'No limit'}
+        limit={limits.load_per_core_pct ? `Limit ${limits.load_per_core_pct}% of the machine` : 'No limit'}
         pct={loadPct}
         mark={limits.load_per_core_pct ? (limits.load_per_core_pct / loadMax) * 100 : undefined}
         tone={full ? 'bad' : toneOf(m.load_per_core * 100 > 100 ? 61 : 0)}
@@ -302,7 +300,7 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
           step={50}
           unit="%"
           off="No limit: new starts are never held."
-          effect={`Agents wait above ${limits.load_per_core_pct}%`}
+          effect={`Agents wait when load is above ${limits.load_per_core_pct}% of the whole machine (100% is every core busy)`}
           onChange={(n) => change('Load', n ? `${n}%` : 'off', 'load_per_core_pct', n, limits.load_per_core_pct)}
         />
       </Line>
@@ -347,7 +345,10 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
       <Line
         icon={Layers}
         label="Heavy slots"
-        value={`Limit ${limits.heavy_slots}`}
+        value={`${m.heavy_running} of ${limits.heavy_slots}`}
+        limit="running"
+        pct={(m.heavy_running / limits.heavy_slots) * 100}
+        tone={m.heavy_running >= limits.heavy_slots ? 'bad' : 'ok'}
         open={editing === 'slots'}
         onToggle={() => toggle('slots')}
       >
@@ -373,6 +374,18 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
           </li>
         ))}
       </ul>
+      {said ? (
+        <div className="limit-said flex items-center justify-between gap-2 rounded-sm bg-raised px-2 py-1.5 text-sm" role="status">
+          {said.text}
+          <button
+            type="button"
+            className="cursor-pointer border-0 bg-transparent p-0 text-sm text-acc-ink"
+            onClick={() => (said.undo(), setSaid(null))}
+          >
+            Undo
+          </button>
+        </div>
+      ) : null}
       <a className="mt-1 text-sm" href="#/machine">
         Open Machine ›
       </a>
