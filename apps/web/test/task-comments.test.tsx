@@ -65,6 +65,17 @@ describe('a comment', () => {
   });
 });
 
+describe('a comment with a shell block', () => {
+  it('shows a command card with Copy and no Run on a page with no panes', async () => {
+    await mount((s) => s.daemon.tasks.memo({ task: 1688, text: 'Try:\n```sh\npnpm test\n```' }, 'add', 'human'));
+    await until(() => section()!.querySelector('.command-card'), 'the card');
+    const card = section()!.querySelector('.command-card')!;
+    expect(card.querySelector('code')?.textContent).toBe('pnpm test');
+    expect(card.querySelector('button[title="Copy"], button[aria-label="Copy"]')).not.toBeNull();
+    expect([...card.querySelectorAll('button')].some((b) => (b.title || b.getAttribute('aria-label') || '').startsWith('Run'))).toBe(false);
+  });
+});
+
 describe('a reply to a comment', () => {
   it('names the comment it answers, sends reply, and shows what it answered', async () => {
     const s = await mount((x) => x.daemon.tasks.memo({ task: 1688, text: 'Which port is it?' }, 'add', 'handline.architect'));

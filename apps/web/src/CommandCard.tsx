@@ -2,9 +2,9 @@
 import { useEffect, useState } from 'react';
 import { useAgentDetail, useWrite } from '@handline/app-data';
 import type { CommandRun } from '@handline/client';
-import { openTab } from '@handline/app-core';
+import { CHAT, fillTab, groupsOf, openTab, splitPane } from '@handline/app-core';
 import { useNow } from '#src/Gauge.tsx';
-import { useWorkspace } from '#src/Workspace.tsx';
+import { useWorkspaceIfAny } from '#src/Workspace.tsx';
 import { Button } from '#src/ui/index.ts';
 
 /** Which command block of which message a card is, and its last run. */
@@ -19,7 +19,7 @@ const runLine = (r: CommandRun, now: number) => {
   if (r.state === 'running') return `Running · ${s}s`;
   if (r.state === 'stopped') return 'Stopped';
   return [
-    r.state === 'done' ? 'Done' : 'Failed',
+    r.state === 'done' ? '✓ Done' : '✗ Failed',
     r.exit === undefined ? null : `exit ${r.exit}`,
     r.seconds === undefined ? null : `${r.seconds}s`,
   ]
@@ -27,8 +27,11 @@ const runLine = (r: CommandRun, now: number) => {
     .join(' · ');
 };
 
-/** The computer the daemon runs on, as the page knows it: this one when the page is served from it. */
-const hostName = () => (/^(localhost|127\.|\[?::1)/.test(location.hostname) ? 'this computer' : location.hostname);
+/** The machine the daemon runs on, by the address the page reached it at; the daemon serves no machine name yet. */
+const hostName = () => location.hostname;
+
+/** `/Users/me/work/x` as `~/work/x`. */
+const homeShort = (path: string) => path.replace(/^\/(Users|home)\/[^/]+/, '~');
 
 export const isShell = (lang: string) => /^(sh|bash|shell|zsh)$/i.test(lang);
 
@@ -44,7 +47,7 @@ export const riskOf = (command: string): string | null => RISKY.find(([re]) => r
 
 export function CommandCard({ text, agent, block }: { text: string; agent?: string; block?: BlockRef }) {
   const path = useAgentDetail(agent ?? '').data?.worktree?.path;
-  const folder = agent && path ? path.split('/').filter(Boolean).at(-1) : null;
+  const folder = agent && path ? homeShort(path) : null;
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -53,12 +56,23 @@ export function CommandCard({ text, agent, block }: { text: string; agent?: stri
   }, [copied]);
   const copy = () => void navigator.clipboard?.writeText(text).then(() => setCopied(true));
   const risk = riskOf(text);
-  const { apply } = useWorkspace();
+  const ws = useWorkspaceIfAny();
   const { mutateAsync: openShell } = useWrite('shell.open', agent ?? '');
   const [asking, setAsking] = useState(false);
   const run = block?.run;
   const now = useNow(run?.state === 'running' ? 1000 : 60_000);
-  const show = (handle: string) => apply((w) => openTab(w, 'shell', { handle }));
+  // The terminal opens in the pane beside the chat, named after the command.
+  const show = (handle: string) =>
+    ws?.apply((w) => {
+      const params = { handle, title: text.trim().split('\n')[0]!.slice(0, 32) };
+      const groups = groupsOf(w.root);
+      const chat = groups.find((g) => g.tabs.includes(CHAT)) ?? groups[0]!;
+      const beside = groups.find((g) => g.id !== chat.id);
+      if (beside) return openTab(w, 'shell', params, beside.id);
+      const split = splitPane(w, chat.id);
+      const fresh = split && groupsOf(split.root).find((g) => g.id === split.active)?.activeTab;
+      return split && fresh ? fillTab(split, fresh, 'shell', params) : openTab(w, 'shell', params);
+    });
   const start = async () => {
     setAsking(false);
     if (!agent || !block) return;
@@ -69,7 +83,7 @@ export function CommandCard({ text, agent, block }: { text: string; agent?: stri
     }
   };
   return (
-    <div className="command-card my-1 rounded-md bg-black/10 first:mt-0 last:mb-0" data-kind="command">
+    <div className="command-card my-1 min-w-0 rounded-md border border-line bg-panel first:mt-0 last:mb-0" data-kind="command">
       <div className="flex min-h-7 items-center justify-between gap-2 pr-1 pl-2">
         <span className="muted min-w-0 truncate text-meta">{folder}</span>
         <span className="flex flex-none items-center gap-1">
@@ -79,7 +93,7 @@ export function CommandCard({ text, agent, block }: { text: string; agent?: stri
             </span>
           ) : null}
           <Button variant="ghost" size="sm" icon={copied ? 'done' : 'copy'} label="Copy" onClick={copy} />
-          {agent && block ? (
+          {agent && block && ws ? (
             <Button
               variant="ghost"
               size="sm"
@@ -95,16 +109,22 @@ export function CommandCard({ text, agent, block }: { text: string; agent?: stri
         <code>{text}</code>
       </pre>
       {asking ? (
-        <div className="flex items-center gap-2 px-2 pb-2 text-meta" role="alertdialog" aria-label={`Run in ${folder ?? 'the worktree'}?`}>
-          <span className="min-w-0 flex-1">{`Run in ${folder ?? 'the worktree'}? It runs on ${hostName()} as you.`}</span>
+        <div
+          className="flex flex-wrap items-center gap-2 px-2 pb-2 text-meta"
+          role="alertdialog"
+          aria-label={`Run in ${folder ?? 'the worktree'}?`}
+        >
+          <span className="min-w-0 flex-[1_1_12rem] [overflow-wrap:anywhere]">{`Run in ${folder ?? 'the worktree'}? It runs on ${hostName()} as you.`}</span>
           <Button size="sm" label="Cancel" onClick={() => setAsking(false)} />
-          <Button size="sm" variant="solid" label="Run" onClick={() => void start()} />
+          <Button size="sm" variant="solid" label="Run" className={risk ? '!bg-bad' : undefined} onClick={() => void start()} />
         </div>
       ) : null}
       {run ? (
         <p className="m-0 flex items-center gap-2 px-2 pb-2 text-meta" data-run={run.state}>
           <span className={run.state === 'failed' ? 'text-bad' : 'muted'}>{runLine(run, now)}</span>
-          {run.state === 'running' ? <Button size="sm" label="Open" onClick={() => show(run.terminal)} /> : null}
+          {ws && run.terminal && run.state !== 'stopped' ? (
+            <Button size="sm" label={run.state === 'running' ? 'Open' : 'Open output'} onClick={() => show(run.terminal)} />
+          ) : null}
         </p>
       ) : null}
       {risk ? <p className="m-0 px-2 pb-2 text-meta text-bad">{risk}</p> : null}

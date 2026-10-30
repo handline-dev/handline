@@ -90,15 +90,15 @@ describe('Markdown in a chat message', () => {
     await wait(() => box.querySelector('.command-card'));
     const cards = [...box.querySelectorAll<HTMLElement>('.command-card')];
     expect(cards.map((c) => c.querySelector('code')?.textContent)).toEqual(['true', 'rm -rf build']);
-    expect(cards[0]!.querySelector('[data-run]')?.textContent).toBe('Done · exit 0 · 3s');
+    expect(cards[0]!.querySelector('[data-run]')?.textContent).toBe('✓ Done · exit 0 · 3sOpen output');
     expect(cards[0]!.textContent).not.toContain('Deletes files');
     expect(cards[1]!.textContent).toContain('Deletes files for good.');
     expect([...box.querySelectorAll('pre')].filter((p) => !p.closest('.command-card')).length).toBe(1);
     const button = (c: HTMLElement, label: string) =>
-      [...c.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.title === label || b.getAttribute('aria-label') === label);
-    await act(async () => button(cards[1]!, 'Run in handline.architect')!.click());
+      [...c.querySelectorAll<HTMLButtonElement>('button')].find((b) => (b.title || b.getAttribute('aria-label') || '').startsWith(label));
+    await act(async () => button(cards[1]!, 'Run in ')!.click());
     expect(cards[1]!.querySelector('[role=alertdialog]')?.textContent).toMatch(/It runs on .* as you\./);
-    await act(async () => button(cards[1]!, 'Run')!.click());
+    await act(async () => button(cards[1]!.querySelector<HTMLElement>('[role=alertdialog]')!, 'Run')!.click());
     const runs = async () => (await s.client.call('chat.messages', { agent: ARCH, scope: 'mine' })).messages.find((m) => m.id === id)?.runs;
     for (let i = 0; i < 100 && !(await runs())?.some((r) => r.block === `${id}:1`); i++)
       await act(async () => void (await new Promise((r) => setTimeout(r, 10))));
