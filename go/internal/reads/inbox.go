@@ -117,12 +117,44 @@ func (e *Env) FounderItems(since int64) ([]map[string]any, error) {
 
 // founderItemsKept is FounderItems; with kept it also lists the says read in the last 7 days, as read.
 func (e *Env) founderItemsKept(since int64, kept bool) ([]map[string]any, error) {
+	heads, err := e.founderHeads(since, kept)
+	if err != nil {
+		return nil, err
+	}
+	return e.items(heads)
+}
+
+// itemHead is what an inbox item shows before its task and fix are looked up: enough to filter and page on.
+type itemHead struct {
+	id, at, memo           int64
+	ref, kind, agent, body string
+	read                   bool
+}
+
+// items looks up each head's task and fix: two queries a row, so a page builds only its own rows.
+func (e *Env) items(heads []itemHead) ([]map[string]any, error) {
+	var out []map[string]any
+	for _, h := range heads {
+		it, err := e.item(h.id, h.ref, h.kind, h.agent, h.body, h.at, h.read)
+		if err != nil {
+			return nil, err
+		}
+		if h.memo != 0 {
+			it["memo"] = h.memo
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+// founderHeads is founderItemsKept before the per-row lookups.
+func (e *Env) founderHeads(since int64, kept bool) ([]itemHead, error) {
 	rows, err := e.mailboxRowsKept(kept)
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]int64{}
-	var out []map[string]any
+	var out []itemHead
 	for _, m := range rows {
 		if m.id < since {
 			continue
@@ -142,23 +174,23 @@ func (e *Env) founderItemsKept(since int64, kept bool) ([]map[string]any, error)
 		} else if kind == "" {
 			kind = "ask"
 		}
-		it, err := e.item(m.id, m.ref, kind, m.from, m.body, m.ts, (m.id <= cursor && m.memo == 0) || (m.kept && !m.gate))
-		if err != nil {
-			return nil, err
-		}
-		if m.memo != 0 {
-			it["memo"] = m.memo
-		}
-		out = append(out, it)
+		out = append(out, itemHead{id: m.id, ref: m.ref, kind: kind, agent: m.from, body: m.body, at: m.ts, memo: m.memo,
+			read: (m.id <= cursor && m.memo == 0) || (m.kept && !m.gate)})
 	}
 	return out, nil
 }
 
-// agentItems is an agent's own incoming requests.
-func (e *Env) agentItems(agent string) ([]map[string]any, error) { return e.AgentItems(agent, 0) }
-
 // AgentItems is an agent's own incoming requests: all of them, or with only set the one request of that number.
 func (e *Env) AgentItems(agent string, only int64) ([]map[string]any, error) {
+	heads, err := e.agentHeads(agent, only)
+	if err != nil {
+		return nil, err
+	}
+	return e.items(heads)
+}
+
+// agentHeads is AgentItems before the per-row lookups.
+func (e *Env) agentHeads(agent string, only int64) ([]itemHead, error) {
 	which, args := "", []any{agent}
 	if only != 0 {
 		which, args = "AND id = ? ", append(args, only)
@@ -168,18 +200,14 @@ func (e *Env) AgentItems(agent string, only int64) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []map[string]any
+	var out []itemHead
 	for _, r := range rows {
 		kind := r.str("kind")
 		if kind == "" {
 			kind = "ask"
 		}
-		it, err := e.item(r.i("id"), r.str("ref"), kind, r.str("requester"), r.str("body"), r.i("ts"),
-			r.set("read_at") || r.str("state") != "queued")
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, it)
+		out = append(out, itemHead{id: r.i("id"), ref: r.str("ref"), kind: kind, agent: r.str("requester"), body: r.str("body"),
+			at: r.i("ts"), read: r.set("read_at") || r.str("state") != "queued"})
 	}
 	return out, nil
 }
@@ -205,29 +233,29 @@ func (e *Env) inboxPage(c *rpc.Conn, params map[string]any) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
-	var items []map[string]any
+	var heads []itemHead
 	if c.Caller.Role == "agent" {
-		items, err = e.agentItems(c.Caller.Info["name"].(string))
+		heads, err = e.agentHeads(c.Caller.Info["name"].(string), 0)
 	} else {
-		items, err = e.founderItemsKept(0, true)
+		heads, err = e.founderHeads(0, true)
 	}
 	if err != nil {
 		return nil, err
 	}
-	sort.SliceStable(items, func(i, j int) bool { return items[i]["id"].(int64) > items[j]["id"].(int64) }) // newest first
-	var kept []map[string]any
-	for _, it := range items {
-		if (unread && it["read"].(bool)) || (kind != nil && it["kind"] != *kind) || (agent != nil && it["agent"] != *agent) ||
-			(before != nil && it["id"].(int64) >= *before) {
+	sort.SliceStable(heads, func(i, j int) bool { return heads[i].id > heads[j].id }) // newest first
+	var kept []itemHead
+	for _, h := range heads {
+		if (unread && h.read) || (kind != nil && h.kind != *kind) || (agent != nil && h.agent != *agent) || (before != nil && h.id >= *before) {
 			continue
 		}
-		kept = append(kept, it)
+		kept = append(kept, h)
+	}
+	built, err := e.items(kept[:min(limit, len(kept))])
+	if err != nil {
+		return nil, err
 	}
 	page := []any{}
-	for i, it := range kept {
-		if i >= limit {
-			break
-		}
+	for _, it := range built {
 		page = append(page, it)
 	}
 	return map[string]any{"items": page, "more": len(kept) > limit}, nil
