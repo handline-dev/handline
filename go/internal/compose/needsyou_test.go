@@ -86,7 +86,7 @@ func TestASessionFileSayingWaitingNeedsAPersonAndOneSayingBusyDoesNot(t *testing
 	}
 	put("waiting", "permission prompt")
 	n := (&Parts{db: d, home: home}).needsYou()("worker")
-	if n == nil || n.Kind != "permission" || n.Source != "session" || n.Text != "permission prompt" || n.Since != 5000 {
+	if n == nil || n.Kind != "permission" || n.Source != "session" || n.Title != "Waiting for your OK" || n.Text != "permission prompt" || n.Since != 5000 {
 		t.Fatalf("%+v", n)
 	}
 }
@@ -218,7 +218,7 @@ func TestAPromptTheNotificationHookReportsNeedsAPersonOnlyBehindTheSwitch(t *tes
 	}
 	needs := (&Parts{db: d, home: home, notified: true}).needsYou()
 	n := needs("worker")
-	if n == nil || n.Kind != "permission" || n.Source != "notification" || n.Since != 1700 {
+	if n == nil || n.Kind != "permission" || n.Source != "notification" || n.Title != "Waiting for your OK" || n.Since != 1700 {
 		t.Fatalf("%+v", n)
 	}
 	os.MkdirAll(filepath.Join(home, "waiting"), 0o755)

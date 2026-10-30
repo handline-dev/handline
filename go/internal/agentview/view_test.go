@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/prompts"
@@ -139,7 +140,7 @@ func TestAnAgentThatNeedsAPersonIsWaitingWithNeedsYouAndOneThatDoesNotHasNull(t 
 		case "needy":
 			return &NeedsYou{Kind: "permission", Source: "hook", Title: "Waiting for your OK", Text: "Bash: ls", Since: 4000}
 		case "noline":
-			return &NeedsYou{Kind: "dialog", Source: "session", Since: 4100}
+			return &NeedsYou{Kind: "dialog", Source: "session", Title: "Waiting at a dialog for longer than forty\ncharacters", Since: 4100}
 		}
 		return nil
 	}
@@ -152,7 +153,8 @@ func TestAnAgentThatNeedsAPersonIsWaitingWithNeedsYouAndOneThatDoesNotHasNull(t 
 		n["text"] != "Bash: ls" || n["since"] != "1970-01-01T01:06:40Z" || n["title"] != "Waiting for your OK" {
 		t.Errorf("needy: %v", v)
 	}
-	if n := r.stored(t, "noline")["needs_you"].(map[string]any); n["text"] != nil || n["kind"] != "dialog" {
+	if n := r.stored(t, "noline")["needs_you"].(map[string]any); n["text"] != nil || n["kind"] != "dialog" ||
+		utf8.RuneCountInString(n["title"].(string)) > 40 || strings.Contains(n["title"].(string), "\n") {
 		t.Errorf("a need with no text says null: %v", n)
 	}
 	if v := r.stored(t, "plain"); v["needs_you"] != nil || v["state"] != "idle" || v["has_dialog"] != false {
