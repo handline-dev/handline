@@ -126,31 +126,7 @@ export function RequestItem(props: {
   const small = { color: c.muted, fontSize: font.size.sm } as const;
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }} testID="request-page">
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, minHeight: 48 }}>
-        <Pressable
-          testID="request-back"
-          accessibilityRole="button"
-          accessibilityLabel="Requests"
-          onPress={props.onBack}
-          style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: space.sm, gap: space.xs }}
-        >
-          <Icon name="back" decorative size={18} color={c.accent} />
-          <Text style={{ color: c.accent, fontSize: font.size.md }}>Requests</Text>
-        </Pressable>
-        <View style={{ flex: 1 }} />
-        <Text
-          testID="request-position"
-          style={{ color: c.muted, fontSize: font.size.md, marginRight: space.sm }}
-        >{`${props.at.n} of ${props.at.of}`}</Text>
-        <StepButton testID="request-prev" label="Previous" icon="less" disabled={props.at.n <= 1} onPress={() => props.onStep(-1)} />
-        <StepButton
-          testID="request-next"
-          label="Next"
-          icon="chevron"
-          disabled={props.at.n >= props.at.of}
-          onPress={() => props.onStep(1)}
-        />
-      </View>
+      <ItemBar at={props.at} onBack={props.onBack} onStep={props.onStep} />
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
           <Pressable
@@ -301,5 +277,31 @@ function StepButton(props: { testID: string; label: string; icon: 'less' | 'chev
     >
       <Icon name={props.icon} decorative size={20} color={c.ink} />
     </Pressable>
+  );
+}
+
+/** The top of an item: back to the list, where this one stands, and up and down. */
+function ItemBar(props: { at: { n: number; of: number }; onBack: () => void; onStep: (by: -1 | 1) => void }) {
+  const c = usePalette();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, minHeight: 48 }}>
+      <Pressable
+        testID="request-back"
+        accessibilityRole="button"
+        accessibilityLabel="Requests"
+        onPress={props.onBack}
+        style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: space.sm, gap: space.xs }}
+      >
+        <Icon name="back" decorative size={18} color={c.accent} />
+        <Text style={{ color: c.accent, fontSize: font.size.md }}>Requests</Text>
+      </Pressable>
+      <View style={{ flex: 1 }} />
+      <Text
+        testID="request-position"
+        style={{ color: c.muted, fontSize: font.size.md, marginRight: space.sm }}
+      >{`${props.at.n} of ${props.at.of}`}</Text>
+      <StepButton testID="request-prev" label="Previous" icon="less" disabled={props.at.n <= 1} onPress={() => props.onStep(-1)} />
+      <StepButton testID="request-next" label="Next" icon="chevron" disabled={props.at.n >= props.at.of} onPress={() => props.onStep(1)} />
+    </View>
   );
 }
