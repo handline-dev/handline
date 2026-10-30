@@ -1,6 +1,6 @@
 // The status bar's right-hand resource area: the keep-awake choice and the cells of what the machine and the agents use (CPU, memory, disk),
 // which open the resource manager: each line carries its limit, changed in place; the held card and Settings open it too.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   bytesText,
   DEFAULT_LIMITS,
@@ -252,17 +252,23 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
   const [editing, setEditing] = useState<Which | null>(openAt);
   const store = useStore();
   const [said, setSaid] = useState<{ text: string; undo: () => void } | null>(null);
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => void (open.current = false);
+  }, []);
   const m = r.machine;
   const toggle = (w: Which) => setEditing(editing === w ? null : w);
-  /** Says so in the notice stack once the daemon has taken it, with Undo to the value before; a refusal says why instead. */
+  /** Says so once the daemon has taken it, with Undo to the value before: in the popover's footer, or the notice stack if it closed; a refusal says why instead. */
   const change = (what: string, text: string, key: keyof Limits, to: number, was: number) => {
     save.mutate(
       { changes: { [key]: to } satisfies PageSettings },
       {
         onSuccess: () => {
           const undo = () => save.mutate({ changes: { [key]: was } satisfies PageSettings });
-          store.notices.keep(`limit:${key}`, 'ok', `${what} limit: ${text}`, { actions: [{ label: 'Undo', run: undo }] }, true);
-          setSaid({ text: `${what} limit: ${text}`, undo });
+          // With the popover open the line is its footer's alone; in the stack only when the popover was closed meanwhile.
+          if (open.current) setSaid({ text: `${what} limit: ${text}`, undo });
+          else store.notices.keep(`limit:${key}`, 'ok', `${what} limit: ${text}`, { actions: [{ label: 'Undo', run: undo }] }, true);
         },
         onError: (e) => store.notices.push('fail', `${what} limit not changed: ${sentence(classify(e)) || 'no answer from the daemon'}`),
       },
@@ -286,7 +292,7 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
         icon={Cpu}
         label="Load"
         value={`${Math.round(m.load_per_core * 100)}%`}
-        limit={limits.load_per_core_pct ? `Limit ${limits.load_per_core_pct}% of the machine` : 'No limit'}
+        limit={limits.load_per_core_pct ? `Limit ${limits.load_per_core_pct}%` : 'No limit'}
         pct={loadPct}
         mark={limits.load_per_core_pct ? (limits.load_per_core_pct / loadMax) * 100 : undefined}
         tone={full ? 'bad' : toneOf(m.load_per_core * 100 > 100 ? 61 : 0)}
@@ -300,7 +306,7 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
           step={50}
           unit="%"
           off="No limit: new starts are never held."
-          effect={`Agents wait when load is above ${limits.load_per_core_pct}% of the whole machine (100% is every core busy)`}
+          effect={`Agents wait when load is above ${limits.load_per_core_pct}%. 100% means every core is busy.`}
           onChange={(n) => change('Load', n ? `${n}%` : 'off', 'load_per_core_pct', n, limits.load_per_core_pct)}
         />
       </Line>

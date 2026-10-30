@@ -156,11 +156,31 @@ describe('my turn', () => {
     await until(() => reviewCard(9103), 'the review card');
     await click(button(reviewCard(9103)!, 'Approve'));
     expect(reviewCard(9103)).toBeUndefined();
-    await click([...document.querySelectorAll('button')].find((b) => label(b) === 'Undo'));
+    const undo = [...document.querySelectorAll('button')].find((b) => label(b) === 'Undo')!;
+    expect(undo.closest('[role=status]')!.className).toContain('pointer-events-auto'); // the toast sits in a pointer-events-none wrapper
+    await click(undo);
     await until(() => reviewCard(9103), 'the card back');
     await act(async () => void window.dispatchEvent(new Event('pagehide')));
     await wait(50);
     expect(s.daemon.tasks.find(9103).state).not.toBe('done');
+  });
+
+  it('the card that moves up into the answered one is opened next, not the top card', async () => {
+    const s = setup();
+    review(s, 9201);
+    review(s, 9202);
+    review(s, 9203);
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} })); // wide: one card is always open
+    await open(s);
+    await pick(ofTask(9201), 'the first review row');
+    await until(() => reviewCard(9201), 'the review card');
+    await click(button(reviewCard(9201)!, 'Approve'));
+    await until(() => listRows().some((r) => r.getAttribute('aria-current') === 'true'), 'a card open');
+    expect(
+      listRows()
+        .find((r) => r.getAttribute('aria-current') === 'true')!
+        .getAttribute('aria-label'),
+    ).toBe('Open T9202'); // local-ref-ok
   });
 
   it('an answer held when the page goes away is kept, and the next page sends it with the same ids', async () => {

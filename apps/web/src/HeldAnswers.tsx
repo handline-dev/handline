@@ -1,7 +1,6 @@
 // Requests answers that wait before they are sent, so Undo is real.
 import { useEffect, useRef, useState } from 'react';
 import { classify, sentence, useWrite } from '@handline/app-data';
-import { Button } from '#src/ui/index.ts';
 
 const HOLD_MS = 5000;
 const STORE = 'handline:held-answers';
@@ -91,18 +90,4 @@ export function useHeldAnswers(say: (line: string) => void) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return { away, last, hold, undo };
-}
-
-/** The toast line of the answer just held, with its Undo. */
-export function HeldLine({ last, undo }: { last: { key: string; line: string }; undo: (key: string) => void }) {
-  return (
-    <>
-      {last.line}{' '}
-      <span className="pointer-events-auto">
-        <Button variant="ghost" size="sm" icon="undo" label="Undo" onClick={() => undo(last.key)}>
-          Undo
-        </Button>
-      </span>
-    </>
-  );
 }

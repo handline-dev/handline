@@ -4,6 +4,7 @@ import { ChevronRight, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
 import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
+import { useKeepPlace } from '#src/useKeepPlace.ts';
 import { Fold } from '#src/Fold.tsx';
 import { NewTask } from '#src/NewTask.tsx';
 import { BlocksLine } from '#src/BlocksLine.tsx';
@@ -18,7 +19,7 @@ import { Toast } from '#src/ds/Floating.tsx';
 import { Link, Who } from '#src/ds/Link.tsx';
 import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
-import { HeldLine, useHeldAnswers, type HeldStep } from '#src/HeldAnswers.tsx';
+import { useHeldAnswers, type HeldStep } from '#src/HeldAnswers.tsx';
 import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
 
 const REQUEST_KEYS: KeyRows = [
@@ -332,13 +333,16 @@ export function RequestsPage() {
   const toast =
     held.last || said ? (
       <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
-        <Toast>{held.last ? <HeldLine last={held.last} undo={held.undo} /> : said}</Toast>
+        <Toast action={held.last ? 'Undo' : undefined} onAction={() => held.last && held.undo(held.last.key)}>
+          {held.last ? held.last.line : said}
+        </Toast>
       </div>
     ) : null;
   // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
   // The list reads in its groups, so j and k walk the cards in that order.
   const ordered = GROUPS.flatMap((g) => cards.filter((c) => groupOf(c) === g));
   const sel = cards.find((c) => c.key === pick) ?? (wide ? ordered[0] : undefined);
+  useKeepPlace(ordered, pick, setPick, wide);
   useScreenKeys('On Requests', REQUEST_KEYS);
   useKey((k) => {
     if (k !== 'j' && k !== 'k') return false;
@@ -363,7 +367,7 @@ export function RequestsPage() {
     <ScrollPage beside={wide} className="requests-page" aria-label="Requests">
       <PageHead>
         <PageTitle>
-          Requests <span className="muted">{cards.length}</span> <Kbd className="ui-keys">J K</Kbd>
+          Requests <span className="muted">{all.cards.length}</span> <Kbd className="ui-keys">J K</Kbd>
         </PageTitle>
         <DsButton iconOnly icon={Plus} label="New request" size="s" onClick={() => setAsking(true)} />
       </PageHead>
