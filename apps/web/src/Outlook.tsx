@@ -1,237 +1,32 @@
-// The usage outlook (stats.outlook): the week left of the accounts, recorded and guessed, as a line; or the cost per day, stacked by agent, with
-// a table of each agent's cost and share under it and a click on an agent to draw that one alone. A series has a shape (a dash, a pattern and a
-// letter), not only a hue. The numbers are always in a table behind a toggle, so the picture is never the only way to read them.
+// The usage outlook (stats.outlook), the head of the Usage page: "Week 43% left" and the week left of the accounts together, recorded to now and
+// guessed after it, with each account's weekly reset under the axis and the part lost at the last one as a bar. The numbers are in the words
+// and under the picture's aria-label, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { costByAgent, dateTime, guessLine } from '@handline/app-core';
+import { dateTime, guessLine, lostAtLastReset, weekResets } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
-import { useOutlook } from '@handline/app-data';
-import {
-  COST_BARS,
-  COST_DAY,
-  COST_LABEL,
-  COST_PICK,
-  COST_STACK,
-  COST_SWATCH,
-  DATA_TABLE,
-  GRID_LINE,
-  LEGEND,
-  LEGEND_ITEM,
-  LINE,
-  NOW_LINE,
-  OUTLOOK_END,
-  RESET_LINE,
-  tone,
-} from '#src/outlookStyle.ts';
-import { Button, ChartCard, Select, Segmented } from '#src/ui/index.ts';
+import type { useOutlook } from '@handline/app-data';
+import { GRID_LINE, LINE, NOW_LINE, RESET_LINE } from '#src/outlookStyle.ts';
+import { LostBar, WeekReadout, XAxis, YMarks, type Labels } from '#src/OutlookWeek.tsx';
+import { Cost } from '#src/OutlookCost.tsx';
+import { Segmented, Select } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
 
 type Range = Outlook['range'];
-const HEADROOM: Range[] = ['12h', '24h', '3d', '7d', '14d'];
-const COST: Range[] = ['7d', '14d', '30d'];
+type View = 'left' | 'cost';
+const RANGES: Record<View, Range[]> = { left: ['12h', '24h', '3d', '7d', '14d'], cost: ['7d', '14d', '30d'] };
 const W = 560;
 const H = 160;
-
-function Line({ o }: { o: Outlook }) {
-  const all = [...o.past, ...o.future].filter((p) => p.left_pct !== null);
-  const t0 = Date.parse((all[0] ?? { at: o.now }).at);
-  const t1 = Date.parse((all.at(-1) ?? { at: o.now }).at);
-  const x = (at: string) => (t1 === t0 ? 0 : ((Date.parse(at) - t0) / (t1 - t0)) * W);
-  const y = (pct: number) => H - (pct / 100) * H;
-  const lastLeft = all.at(-1)?.left_pct ?? null;
-  const [cursor, setCursor] = useState<number | null>(null);
-  const points = [...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].filter(
-    (p) => p.left_pct !== null,
-  );
-  const near =
-    cursor === null
-      ? null
-      : points.reduce((best, p) => (Math.abs(x(p.at) - cursor) < Math.abs(x(best.at) - cursor) ? p : best), points[0]!);
-  const resets = o.runway.flatMap((r) =>
-    r.week_resets_at && Date.parse(r.week_resets_at) >= t0 && Date.parse(r.week_resets_at) <= t1 ? [r.week_resets_at] : [],
-  );
-  const scrub = (e: React.PointerEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const svg = e.currentTarget.querySelector('svg')!.getBoundingClientRect();
-    setCursor(Math.min(W, Math.max(0, ((e.clientX - svg.left) / (svg.width || r.width)) * W)));
-  };
-  const path = (pts: Outlook['past']) =>
-    pts
-      .filter((p) => p.left_pct !== null)
-      .map((p, i) => `${i ? 'L' : 'M'}${x(p.at).toFixed(1)},${y(p.left_pct!).toFixed(1)}`)
-      .join(' ');
-  return (
-    <>
-      <div
-        className="outlook-plot relative touch-pan-y pr-[8.5rem]"
-        onPointerMove={scrub}
-        onPointerDown={scrub}
-        onPointerLeave={() => setCursor(null)}
-      >
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="none"
-          className="outlook-svg h-[160px] w-full"
-          role="img"
-          aria-label={`Week left, the ${o.accounts} accounts with a reading together, recorded and guessed`}
-        >
-          {[0, 50, 100].map((g) => (
-            <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} className={GRID_LINE} />
-          ))}
-          <path d={path(o.past)} className={`${LINE} past`} fill="none" />
-          <path d={path(guessLine(o))} className={`${LINE} future`} fill="none" strokeDasharray="5 4" />
-          <line x1={x(o.now)} x2={x(o.now)} y1={0} y2={H} className={NOW_LINE} />
-          {resets.map((at) => (
-            <line key={at} data-reset={at} x1={x(at)} x2={x(at)} y1={0} y2={H} className={RESET_LINE} />
-          ))}
-          {near ? (
-            <line x1={x(near.at)} x2={x(near.at)} y1={0} y2={H} className="cursor stroke-acc [vector-effect:non-scaling-stroke]" />
-          ) : null}
-        </svg>
-        <p className="outlook-readout muted m-0 mt-1 h-5 text-xs" aria-live="polite">
-          {near ? `${dateTime(near.at)} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}` : ''}
-        </p>
-        <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
-          {o.accounts === 1 ? 'the account' : `all ${o.accounts} accounts`}
-        </span>
-      </div>
-      <ul className={LEGEND} aria-label="Lines">
-        <li className={LEGEND_ITEM}>
-          <svg viewBox="0 0 24 8" width="24" height="8" aria-hidden>
-            <line x1="0" x2="24" y1="4" y2="4" className={`${LINE} past`} />
-          </svg>{' '}
-          recorded
-        </li>
-        <li className={LEGEND_ITEM}>
-          <svg viewBox="0 0 24 8" width="24" height="8" aria-hidden>
-            <line x1="0" x2="24" y1="4" y2="4" className={`${LINE} future`} strokeDasharray="5 4" />
-          </svg>{' '}
-          guess
-        </li>
-        <li className={LEGEND_ITEM}>
-          <svg viewBox="0 0 24 8" width="24" height="8" aria-hidden>
-            <line x1="0" x2="24" y1="4" y2="4" className={NOW_LINE} />
-          </svg>{' '}
-          now
-        </li>
-        {resets.length ? (
-          <li className={LEGEND_ITEM}>
-            <svg viewBox="0 0 24 8" width="24" height="8" aria-hidden>
-              <line x1="12" x2="12" y1="0" y2="8" className={RESET_LINE} />
-            </svg>{' '}
-            week resets
-          </li>
-        ) : null}
-      </ul>
-    </>
-  );
-}
-
-const letter = (i: number) => String.fromCharCode(65 + (i % 26));
-
-function Cost({ o, only, pick }: { o: Outlook; only: string | null; pick: (agent: string | null) => void }) {
-  const { agents, sums, all } = costByAgent(o);
-  const shown = (d: Outlook['cost_per_day'][number], a: string) => (only === null || only === a ? (d.agents[a] ?? 0) : 0);
-  const total = (d: Outlook['cost_per_day'][number]) => agents.reduce((sum, a) => sum + shown(d, a), 0);
-  const top = Math.max(1, ...o.cost_per_day.map(total));
-  return (
-    <div className="cost-wrap">
-      <div className={COST_BARS} role="img" aria-label={only ? `Cost per day, ${only} alone` : 'Cost per day, by agent'}>
-        {o.cost_per_day.map((d) => (
-          <div key={d.day} className={COST_DAY} data-day={d.day} title={`${d.day}: $${total(d).toFixed(2)}`}>
-            <span className={COST_STACK} style={{ height: `${(total(d) / top) * 100}%` }}>
-              {agents.map((a, i) => (
-                <span key={a} className={`cost-seg basis-0 ${tone(i)}`} style={{ flexGrow: shown(d, a) }} />
-              ))}
-            </span>
-            <span className={COST_LABEL}>{d.day.slice(5)}</span>
-          </div>
-        ))}
-      </div>
-      <table className={`${DATA_TABLE} agent-cost`} aria-label="Cost by agent">
-        <thead>
-          <tr>
-            <th>Agent</th>
-            <th>Cost</th>
-            <th>Share</th>
-          </tr>
-        </thead>
-        <tbody>
-          {agents.map((a, i) => (
-            <tr key={a} data-agent={a} aria-selected={only === a} className="aria-selected:bg-raised">
-              <td>
-                <button
-                  className={COST_PICK}
-                  aria-pressed={only === a}
-                  title={only === a ? 'Show every agent' : `Only ${a}`}
-                  onClick={() => pick(only === a ? null : a)}
-                >
-                  <span className={`${COST_SWATCH} ${tone(i)}`} aria-hidden />
-                  <b>{letter(i)}</b> {a}
-                </button>
-              </td>
-              <td>${sums[i]!.toFixed(2)}</td>
-              <td>{Math.round((sums[i]! / (all || 1)) * 100)}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Table({ o, view }: { o: Outlook; view: 'left' | 'cost' }) {
-  return view === 'left' ? (
-    <table className={DATA_TABLE}>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Week left</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        {[...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].map((p) => (
-          <tr key={p.at}>
-            <td>{dateTime(p.at)}</td>
-            <td>{p.left_pct === null ? 'no data' : `${Math.round(p.left_pct)}%`}</td>
-            <td className="muted">{p.guess ? 'guess' : ''}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  ) : (
-    <table className={DATA_TABLE}>
-      <thead>
-        <tr>
-          <th>Day</th>
-          <th>Agent</th>
-          <th>Cost</th>
-        </tr>
-      </thead>
-      <tbody>
-        {o.cost_per_day.flatMap((d) =>
-          Object.entries(d.agents).map(([a, c]) => (
-            <tr key={`${d.day}${a}`}>
-              <td>{d.day}</td>
-              <td>{a}</td>
-              <td>${c.toFixed(2)}</td>
-            </tr>
-          )),
-        )}
-      </tbody>
-    </table>
-  );
-}
-
 const LOOK_KEY = 'outlook-look';
 
+export type Look = { view: View; range: Range };
+
 /** The view and range last used are remembered by this window only; a browser that refuses storage starts on the week left over 7 days. */
-function useLook(): [{ view: 'left' | 'cost'; range: Range }, (l: { view: 'left' | 'cost'; range: Range }) => void] {
-  const [look, set] = useState<{ view: 'left' | 'cost'; range: Range }>(() => {
+export function useLook(): [Look, (l: Look) => void] {
+  const [look, set] = useState<Look>(() => {
     try {
       const l = JSON.parse(localStorage.getItem(LOOK_KEY) ?? '{}');
-      const view = l.view === 'cost' ? 'cost' : 'left';
-      return { view, range: (view === 'left' ? HEADROOM : COST).includes(l.range) ? l.range : '7d' };
+      const view: View = l.view === 'cost' ? 'cost' : 'left';
+      return { view, range: RANGES[view].includes(l.range) ? l.range : '7d' };
     } catch {
       return { view: 'left', range: '7d' };
     }
@@ -249,50 +44,116 @@ function useLook(): [{ view: 'left' | 'cost'; range: Range }, (l: { view: 'left'
   ];
 }
 
-export function OutlookSection() {
-  const [{ view, range }, setLook] = useLook();
-  const setView = (v: 'left' | 'cost') => setLook({ view: v, range });
-  const setRange = (r: Range) => setLook({ view, range: r });
-  const [table, setTable] = useState(false);
-  const [only, setOnly] = useState<string | null>(null);
-  const ranges = view === 'left' ? HEADROOM : COST;
-  const shown = ranges.includes(range) ? range : ranges[0]!;
-  const q = useOutlook(shown);
+/** The guess line ends at the last guessed reset: the daemon's line goes on as if the week did not reset, which is not a guess of anything. */
+function clipAtReset(o: Outlook): Outlook {
+  const end = lostAtLastReset(o);
+  return end ? { ...o, future: o.future.filter((p) => Date.parse(p.at) <= Date.parse(end.at)) } : o;
+}
+
+function Line({ o: full, labels }: { o: Outlook; labels: Labels }) {
+  const o = clipAtReset(full);
+  const all = [...o.past, ...o.future].filter((p) => p.left_pct !== null);
+  const t0 = Date.parse((all[0] ?? { at: o.now }).at);
+  const t1 = Date.parse((all.at(-1) ?? { at: o.now }).at);
+  const x = (at: string) => (t1 === t0 ? 0 : ((Date.parse(at) - t0) / (t1 - t0)) * W);
+  const y = (pct: number) => H - (pct / 100) * H;
+  const [cursor, setCursor] = useState<number | null>(null);
+  const points = [...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].filter(
+    (p) => p.left_pct !== null,
+  );
+  const near =
+    cursor === null
+      ? null
+      : points.reduce((best, p) => (Math.abs(x(p.at) - cursor) < Math.abs(x(best.at) - cursor) ? p : best), points[0]!);
+  const resets = weekResets(o).filter((r) => Date.parse(r.at) >= t0 && Date.parse(r.at) <= t1);
+  const scrub = (e: React.PointerEvent<HTMLDivElement>) => {
+    const svg = e.currentTarget.querySelector('svg')!.getBoundingClientRect();
+    setCursor(Math.min(W, Math.max(0, ((e.clientX - svg.left) / (svg.width || 1)) * W)));
+  };
+  const path = (pts: Outlook['past']) =>
+    pts
+      .filter((p) => p.left_pct !== null)
+      .map((p, i) => `${i ? 'L' : 'M'}${x(p.at).toFixed(1)},${y(p.left_pct!).toFixed(1)}`)
+      .join(' ');
+  return (
+    <>
+      <div
+        className="outlook-plot relative mt-4 touch-pan-y pl-11"
+        onPointerMove={scrub}
+        onPointerDown={scrub}
+        onPointerLeave={() => setCursor(null)}
+      >
+        <div className="outlook-frame relative">
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            preserveAspectRatio="none"
+            className="outlook-svg h-[240px] w-full overflow-visible"
+            role="img"
+            aria-label={`Week left, the ${o.accounts} accounts with a reading together, recorded and guessed`}
+          >
+            {[0, 50, 100].map((g) => (
+              <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} className={GRID_LINE} />
+            ))}
+            {resets.map((r) => (
+              <line key={`${r.account}${r.at}`} data-reset={r.at} x1={x(r.at)} x2={x(r.at)} y1={0} y2={H} className={RESET_LINE} />
+            ))}
+            <path d={path(o.past)} className={`${LINE} past`} fill="none" />
+            <path d={path(guessLine(o))} className={`${LINE} future`} fill="none" strokeDasharray="5 4" />
+            <line x1={x(o.now)} x2={x(o.now)} y1={0} y2={H} className={NOW_LINE} />
+            {near ? (
+              <line x1={x(near.at)} x2={x(near.at)} y1={0} y2={H} className="cursor stroke-ink-3 [vector-effect:non-scaling-stroke]" />
+            ) : null}
+          </svg>
+          <span
+            className="now-label absolute -top-5 -translate-x-1/2 text-sm"
+            style={{ left: `${((Date.parse(o.now) - t0) / (t1 - t0 || 1)) * 100}%` }}
+          >
+            now
+          </span>
+          <YMarks />
+          <LostBar o={full} span={{ t0, t1 }} labels={labels} />
+          <XAxis o={full} span={{ t0, t1 }} labels={labels} />
+        </div>
+      </div>
+      <p className="outlook-readout muted m-0 mt-14 h-5 text-sm" aria-live="polite">
+        {near ? `${dateTime(near.at)} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}` : ''}
+      </p>
+    </>
+  );
+}
+
+export function OutlookSection(props: { q: ReturnType<typeof useOutlook>; look: Look; setLook: (l: Look) => void; labels: Labels }) {
+  const { q, look, setLook, labels } = props;
   const o = q.data;
   return (
-    <ChartCard className="outlook mb-3" aria-label="Outlook">
-      <div className="outlook-controls mb-2 flex flex-wrap items-center gap-2">
-        <h3 className="m-0 flex-1 text-lg font-semibold">Outlook</h3>
+    <section className="outlook mb-4 pt-4" aria-label={look.view === 'left' ? 'Week left' : 'Cost per day'}>
+      <div className="flex items-baseline gap-3">
+        <div className="flex-1">
+          {o && look.view === 'left' ? (
+            <WeekReadout o={o} labels={labels} />
+          ) : look.view === 'cost' ? (
+            <strong className="text-xl font-semibold">Cost per day</strong>
+          ) : null}
+        </div>
         <Segmented
           label="View"
-          value={view}
-          onChange={setView}
+          value={look.view}
+          onChange={(view) => setLook({ view, range: RANGES[view].includes(look.range) ? look.range : '7d' })}
           options={[
-            { value: 'left', label: 'Session left' },
+            { value: 'left', label: 'Week left' },
             { value: 'cost', label: 'Cost per day' },
           ]}
         />
-        {ranges.length <= 3 ? (
-          <Segmented label="Range" value={shown} onChange={setRange} options={ranges.map((r) => ({ value: r, label: r }))} />
-        ) : (
-          <Select
-            label="Range"
-            value={shown}
-            onChange={(e) => setRange(e.target.value as Range)}
-            options={ranges.map((r) => ({ value: r, label: r }))}
-          />
-        )}
-        <Button icon="tasks" label="Table" variant="outline" aria-pressed={table} onClick={() => setTable(!table)} />
-        {view === 'cost' && only ? <Button label="All agents" variant="outline" onClick={() => setOnly(null)} /> : null}
+        <Select
+          label="Range"
+          value={look.range}
+          onChange={(e) => setLook({ ...look, range: e.target.value as Range })}
+          options={RANGES[look.view].map((r) => ({ value: r, label: r }))}
+        />
       </div>
       <View q={q} served shape="stats" what="the outlook">
-        {o ? (
-          <>
-            {view === 'left' ? <Line o={o} /> : <Cost o={o} only={only} pick={setOnly} />}
-            {table ? <Table o={o} view={view} /> : null}
-          </>
-        ) : null}
+        {o ? look.view === 'left' ? <Line o={o} labels={labels} /> : <Cost key={look.range} o={o} /> : null}
       </View>
-    </ChartCard>
+    </section>
   );
 }

@@ -55,9 +55,7 @@
   "stale": "file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written.",
   "too_big": "file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it).",
   "build": "daemon.upgrade was handed a binary that does not start, or one that says it is another build than the sha named; the daemon stays on the build it runs.",
-  "orphan": "worktree.remove: the path is no orphan worktree (an agent works in it, or it is not a worktree of an agent's repo). An agent's worktree goes only with the agent.",
-  "dirty": "worktree.remove: the orphan holds work (files changed, or commits not on main); the data carries files_changed and commits_ahead, and force removes it. agent.retire: a worktree of the agent holds work and the call gave no worktree answer; the data carries worktrees [{path, files_changed, commits_ahead}], and nothing is retired.",
-  "git": "worktree.remove: git refused to remove the worktree; the reason carries git's words.",
+  "dirty": "agent.retire: a worktree of the agent holds work and the call gave no worktree answer; the data carries worktrees [{path, files_changed, commits_ahead}], and nothing is retired.",
   "worktree": "agent.retire: a worktree of the agent cannot be removed, so the agent is not retired: the founder answered keep for one that holds work, or it is locked, on no branch or on main (force removes the last two). The reason names the worktree and why; nothing was changed."
  },
  "x-note-topics": "The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or applying, or its apply ran again: it was decided, withdrawn, turned applying, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed. The `notifications` topic's task_done: `agent` is the agent that closed the task, `data.task` its id, `data.task_title` its title and `data.result` the first non-blank line of its done evidence, trimmed, cut at 140 characters, `data.reporter` who the task answers to (its reporter, else its opener) and `data.from_founder` whether the founder gave it (the founder opened it or answers for it); each of the last four is absent when the daemon has none. A bell row draws the agent, task_title, result and `at` from the event alone, never fetching the task; `title` stays a plain line for a client that reads none of them. The `notifications` topic's stall: `title` is `<agent>: <needs_you title>` when the agent's view has needs_you, else `<agent> stalled`; `data.title` and `data.text` are that needs_you's title and text, each absent when there is none.",
@@ -243,6 +241,13 @@
    "snapshot": "requests.list",
    "data": {
     "request.changed": "RequestRow"
+   }
+  },
+  "for_you": {
+   "snapshot": "for_you.list",
+   "data": {
+    "for_you.opened": "ForYouOpened",
+    "for_you.closed": "ForYouClosed"
    }
   }
  },
@@ -733,9 +738,10 @@
      "hr",
      "transcript",
      "prefs",
-     "requests"
+     "requests",
+     "for_you"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live. for_you (member, which includes the founder): the set of open items waiting on the founder, as for_you.list; an event whenever the count's set changes, with the new count. A client that misses events reads for_you.list again."
    },
    "Caller": {
     "type": "object",
@@ -1768,12 +1774,6 @@
       "default": 5,
       "description": "Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses."
      },
-     "host_simulator_hold": {
-      "type": "integer",
-      "minimum": 0,
-      "default": 1,
-      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine (a booted iOS simulator device, or the qemu an Android emulator runs on); 0 does not. Held the same way as a load limit (status reason load), by the same rules."
-     },
      "pacing": {
       "type": "boolean",
       "default": true,
@@ -2062,18 +2062,6 @@
        }
       ],
       "description": "Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses. null removes the key (back to the default)."
-     },
-     "host_simulator_hold": {
-      "oneOf": [
-       {
-        "type": "integer",
-        "minimum": 0
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine; 0 does not. null removes the key (back to the default)."
      },
      "pacing": {
       "oneOf": [
@@ -2796,6 +2784,20 @@
        "$ref": "#/components/schemas/AgentName"
       },
       "description": "The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice."
+     },
+     "later": {
+      "type": "object",
+      "description": "For you items the founder put off, by `kind:id` (ForYouItem.kind and id, such as `task:42`). prefs.set merges this key entry by entry: an entry sets or replaces one item, null clears it; the other entries stay, so two devices deferring different items lose nothing. An entry whose time passed or whose task ended is dead and the daemon drops it at the next prefs.set that changes later. Absent entries mean not deferred.",
+      "additionalProperties": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/Later"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
      }
     },
     "required": [
@@ -2810,7 +2812,7 @@
    },
    "NavPrefsChanges": {
     "type": "object",
-    "description": "Any keys of NavPrefs; each given key replaces the stored value whole.",
+    "description": "Any keys of NavPrefs; each given key replaces the stored value whole, except `later`, which merges entry by entry.",
     "properties": {
      "pins": {
       "type": "array",
@@ -2858,6 +2860,20 @@
        "$ref": "#/components/schemas/AgentName"
       },
       "description": "The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice."
+     },
+     "later": {
+      "type": "object",
+      "description": "Entries to set or clear in NavPrefs.later: an entry sets or replaces one item's deferral, null clears it; the other items stay. A key is `kind:id` of a For you item (kind task, comment or machine: a prompt or an HR proposal cannot be put off); an entry has exactly one of until and after_task.",
+      "additionalProperties": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/Later"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
      }
     },
     "additionalProperties": false
@@ -2904,22 +2920,6 @@
      "text": {
       "type": "string",
       "description": "The item in plain words, with the free space in it."
-     },
-     "orphan_worktrees": {
-      "type": "object",
-      "description": "disk only, when there are any: the worktrees no agent works in (worktrees.list orphan), as housekeeping last measured them (at most hourly). The text names them too.",
-      "properties": {
-       "count": {
-        "type": "integer"
-       },
-       "size_bytes": {
-        "type": "integer"
-       }
-      },
-      "required": [
-       "count",
-       "size_bytes"
-      ]
      }
     },
     "required": [
@@ -2938,6 +2938,161 @@
     },
     "required": [
      "id"
+    ]
+   },
+   "Later": {
+    "type": "object",
+    "description": "Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. The founder's choice, kept in NavPrefs.later under the item's `kind:id`; the daemon reads it in for_you.list and the apps hide and return the item on their clock and on task.changed.",
+    "properties": {
+     "until": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "after_task": {
+      "type": "integer"
+     }
+    },
+    "additionalProperties": false,
+    "oneOf": [
+     {
+      "required": [
+       "until"
+      ]
+     },
+     {
+      "required": [
+       "after_task"
+      ]
+     }
+    ]
+   },
+   "ForYouItem": {
+    "type": "object",
+    "description": "One open item waiting on the founder. A task given to the founder (or the ask on it) is `task`, an agent's `@human` ask in a task comment is `comment`, an agent's open permission prompt or dialog is `prompt`, an HR proposal that waits is `hr`, and something the machine needs is `machine`. A plain say is not an item: nothing is asked.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "task",
+       "comment",
+       "prompt",
+       "hr",
+       "machine"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "task: the task number. comment: the comment's number (InboxItem.memo), or the request's ref for an ask that is on no task. prompt: Prompt.id. hr: the proposal's id (Proposal.id). machine: the need's kind, `disk`. The pair (kind, id) names the item, as in the keys of NavPrefs.later."
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Who asks; null for the machine."
+     },
+     "title": {
+      "type": "string",
+      "description": "One line: a task's title, a comment's first line, a prompt's command or tool, a proposal's title, the machine need's text."
+     },
+     "asks": {
+      "type": "string",
+      "enum": [
+       "allow",
+       "decide",
+       "review",
+       "do"
+      ],
+      "description": "What the item wants of the founder. A task or comment: `review` when the task is tagged review, else `decide`. A prompt: `allow` for a permission, else `decide`. An HR proposal: `allow`. The machine: `do`."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "When it began to wait."
+     },
+     "later": {
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/Later"
+       }
+      ],
+      "description": "Only while the founder has the item deferred and the deferral is not over (NavPrefs.later)."
+     }
+    },
+    "required": [
+     "kind",
+     "id",
+     "agent",
+     "title",
+     "asks",
+     "since"
+    ]
+   },
+   "ForYouList": {
+    "type": "object",
+    "properties": {
+     "items": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ForYouItem"
+      },
+      "description": "Every open item, oldest `since` first (then kind and id), the deferred ones too."
+     },
+     "count": {
+      "type": "integer",
+      "description": "The items without `later`: what a badge and the Requests count show."
+     }
+    },
+    "required": [
+     "items",
+     "count"
+    ]
+   },
+   "ForYouOpened": {
+    "type": "object",
+    "description": "The data of a for_you.opened event: an item joined the count (it opened, or came back from Later).",
+    "properties": {
+     "item": {
+      "$ref": "#/components/schemas/ForYouItem"
+     },
+     "count": {
+      "type": "integer",
+      "description": "The count with it."
+     }
+    },
+    "required": [
+     "item",
+     "count"
+    ]
+   },
+   "ForYouClosed": {
+    "type": "object",
+    "description": "The data of a for_you.closed event: an item left the count (answered anywhere, closed, discarded, withdrawn, or deferred).",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "task",
+       "comment",
+       "prompt",
+       "hr",
+       "machine"
+      ]
+     },
+     "id": {
+      "type": "string"
+     },
+     "count": {
+      "type": "integer",
+      "description": "The count without it."
+     }
+    },
+    "required": [
+     "kind",
+     "id",
+     "count"
     ]
    }
   },
@@ -3448,7 +3603,7 @@
   },
   {
    "name": "prefs.set",
-   "summary": "Change the person's view preferences: each key given in changes.nav replaces the stored one.",
+   "summary": "Change the person's view preferences: each key given in changes.nav replaces the stored one, but `later` merges by item.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3784,6 +3939,28 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "for_you.list",
+   "summary": "Every open item waiting on the founder, whatever it is made of today (task rows, comment asks, prompts, HR proposals, the machine's needs), and the count of those not deferred.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/ForYouList"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1
   }
  ]
 }

@@ -16,11 +16,13 @@ import { useBulk } from '#src/taskActions.ts';
 import { useMarks } from '#src/useMarks.ts';
 import { View } from '#src/View.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
+import { goTasks } from '#src/route.ts';
 
 const CLOSED = ['done', 'discarded'];
 const bare = (agent: string) => agent.split('.').at(-1) ?? agent; // 'handline.daemon' is 'daemon' in a row: the team is the same on every line
 // state · number · title (the one column that gives) · owner · time
-const COLS = 'grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_6.5rem_5rem]';
+/** Below 28rem of pane the who column goes, so the title keeps the room. */
+const COLS = 'grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_5rem] @[28rem]:grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_6.5rem_5rem]';
 
 export function TasksTab({ agent, task = null }: { agent: string; task?: number | null }) {
   const { query: q, items, more, loadOlder, loadingOlder } = useAgentTasks(agent);
@@ -28,7 +30,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
   const [view, setView] = useState<'list' | 'graph'>('list');
   const now = useNow();
   const { served } = useServes('tasks.list');
-  const { apply } = useWorkspace();
+  const { apply, setDragging } = useWorkspace();
   const open = task; // the open task lives in the tab's params, so a chat line can open one on a tab already there
   const setOpen = (id: number | null) => apply((w) => openTask(w, id));
   const rows = useMemo(() => agentTasks(items, agent, now), [items, agent, now]);
@@ -59,18 +61,24 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
   const endSelect = () => (setSelecting(false), setMarked(new Set()));
   if (open !== null) return <TaskDetail id={open} embedded />;
   return (
-    <section className="tasks-tab h-full overflow-auto p-2" aria-label={`Tasks of ${agent}`}>
+    <section className="tasks-tab mx-auto h-full w-full max-w-[var(--w-col)] overflow-auto p-2" aria-label={`Tasks of ${agent}`}>
       <View q={q} served={served} shape="tasks" what="the tasks" empty={!mine.length && `${agent} holds and has opened no tasks.`}>
         <div className="mb-1 flex items-center justify-between">
-          <Segmented
-            label="View"
-            value={view}
-            onChange={setView}
-            options={[
-              { value: 'list', label: 'List' },
-              { value: 'graph', label: 'Graph' },
-            ]}
-          />
+          <span className="flex items-center gap-2">
+            <Segmented
+              label="View"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'list', label: 'List' },
+                { value: 'graph', label: 'Graph' },
+              ]}
+            />
+            <span className="agent-chip inline-flex h-6 items-center gap-1 rounded-sm bg-surface pr-0.5 pl-2 text-xs text-ink-2">
+              {bare(agent)}
+              <Button icon="close" size="sm" label="Show every agent's tasks" title="Show every agent's tasks" onClick={() => goTasks()} />
+            </span>
+          </span>
           {view === 'graph' ? null : selecting ? (
             <Button variant="outline" size="sm" label="Done selecting" aria-label="Done selecting" onClick={endSelect}>
               Done
@@ -93,7 +101,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
             <TaskColumns tasks={graphTasks} now={now} me={me} scopeKey={agent} />
           </div>
         ) : (
-          <ul className="tasks-tab-list m-0 flex list-none flex-col gap-1 p-0">
+          <ul className="tasks-tab-list @container m-0 flex list-none flex-col gap-1 p-0">
             {rows.map(({ task: t, role }) => {
               const due = dueOf(t, now);
               return (
@@ -109,8 +117,15 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                         />
                       ) : null}
                       <button
-                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border bg-panel px-2.5 py-1.5 text-left${due?.over ? ' overdue border-bad' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
+                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-left${marked.has(t.id) ? ' bg-raised' : ' bg-transparent'}${due?.over ? ' overdue border-bad' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
                         data-task={t.id}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer?.setData('text/plain', taskRef(t.id));
+                          // The drop cover appears over the pane; mounting it inside dragstart makes Chromium cancel the drag.
+                          setTimeout(() => setDragging(`tasks:${t.id}`), 0);
+                        }}
+                        onDragEnd={() => setDragging(null)}
                         onClick={() => setOpen(t.id)}
                       >
                         <StateChip state={t.state} result={watchResult(t)} />
@@ -122,15 +137,18 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                           {t.title}
                         </span>
                         {role === 'assigned' ? (
-                          <span className="who min-w-0 truncate text-xs text-ink-2" title={`Opened by ${agent}, held by ${t.to}`}>
+                          <span
+                            className="who hidden min-w-0 truncate text-xs text-ink-2 @[28rem]:block"
+                            title={`Opened by ${agent}, held by ${t.to}`}
+                          >
                             <Icon name="agent" size={12} aria-hidden /> {bare(t.to)}
                           </span>
                         ) : t.from !== agent ? (
-                          <span className="who min-w-0 truncate text-xs text-ink-2" title={`Opened by ${t.from}`}>
+                          <span className="who hidden min-w-0 truncate text-xs text-ink-2 @[28rem]:block" title={`Opened by ${t.from}`}>
                             from {bare(t.from)}
                           </span>
                         ) : (
-                          <span className="who" />
+                          <span className="who hidden @[28rem]:block" />
                         )}
                         {due ? (
                           <span

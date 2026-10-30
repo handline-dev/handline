@@ -13,12 +13,11 @@ import (
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// The limits' config.yaml keys and their defaults. The agent cap is off by default; the load and memory limits and the simulator hold are on.
+// The limits' config.yaml keys and their defaults. The agent cap is off by default; the load and memory limits are on.
 const (
 	AgentCapKey       = "host_active_cap"
 	LoadPctKey        = "load_per_core_pct"
 	RAMFreePctKey     = "ram_free_min_pct"
-	SimulatorKey      = "host_simulator_hold"
 	DiskFreeGBKey     = "disk_free_min_gb"
 	DefaultLoadPct    = 150
 	DefaultRAMFreePct = 10
@@ -31,13 +30,12 @@ type Limits struct {
 	LoadPct    int // most 1-minute load per core, in percent
 	RAMFreePct int // least free memory, in percent of all
 	DiskFreeGB int // least free disk on the home's volume, in GB; only the heavy slot holds on it
-	Simulator  int // 1: a running phone simulator or emulator holds new starts, 0: it does not
 }
 
 // LimitsOf reads the limits from config, each at its default when it is not set to a whole number of at least 0.
 func LimitsOf(cfg usage.Config) Limits {
 	return Limits{Agents: setting(cfg, AgentCapKey, 0), LoadPct: setting(cfg, LoadPctKey, DefaultLoadPct),
-		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct), DiskFreeGB: setting(cfg, DiskFreeGBKey, DefaultDiskFreeGB), Simulator: setting(cfg, SimulatorKey, 1)}
+		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct), DiskFreeGB: setting(cfg, DiskFreeGBKey, DefaultDiskFreeGB)}
 }
 
 func setting(cfg usage.Config, key string, def int) int {
@@ -69,9 +67,6 @@ func Cause(why string) string {
 	return strings.TrimSpace(s)
 }
 
-// memoryLoad is the reason given for a low-memory hold and for a running simulator or emulator, in the words the founder reads.
-const memoryLoad = "the computer is under heavy memory load right now. It starts by itself when the load drops."
-
 // Held is why a new start must wait, "" when it may go. active is the agents mid-turn on the machine; m is the latest measure, nil
 // before the first, when only the agent cap is checked.
 func Held(l Limits, active int, m *sysres.Machine) string {
@@ -84,9 +79,6 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 	if m == nil {
 		return ""
 	}
-	if l.Simulator > 0 && m.Simulator != "" {
-		return HeldPrefix + memoryLoad // a running simulator is held for the memory it takes, and said that way
-	}
 	if l.LoadPct > 0 && m.Cores > 0 {
 		if pct := int(m.Load1 * 100 / float64(m.Cores)); pct > l.LoadPct {
 			return HeldPrefix + "the computer is busy right now. It starts by itself when it calms down."
@@ -94,7 +86,7 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 	}
 	if l.RAMFreePct > 0 && m.RAMTotal > 0 {
 		if pct := int(m.RAMFree * 100 / m.RAMTotal); pct < l.RAMFreePct {
-			return HeldPrefix + memoryLoad
+			return HeldPrefix + "the computer is under heavy memory load right now. It starts by itself when the load drops."
 		}
 	}
 	return ""

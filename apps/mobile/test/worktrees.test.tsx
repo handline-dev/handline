@@ -1,27 +1,10 @@
 // The three worktree answers on the phone, on the fake daemon: the delete pop for work in a worktree, the decision the daemon opens when
-// nobody was there to ask, and the leftover worktrees under the disk card.
+// nobody was there to ask, and the disk card.
 import { describe, expect, it, vi } from 'vitest';
-import type { Worktree } from '@handline/client';
 import { setMachineNeeds } from '@handline/fake-daemon/helpers';
 import { $, ARCH, box, mount, press, text, until } from '#test/harness.tsx';
 
 const LEAF = 'handline.term-build';
-const orphan = (name: string, more: Partial<Worktree> = {}): Worktree => ({
-  path: `/work/${name}`,
-  repo: 'handline',
-  branch: name,
-  owner: null,
-  parent: null,
-  children: [],
-  status: 'done',
-  changed: [],
-  orphan: true,
-  merged: true,
-  files_changed: 0,
-  commits_ahead: 0,
-  size_bytes: 2 ** 30,
-  ...more,
-});
 
 describe('Delete agent with work in its worktree', () => {
   it('turns into the three answers, and the pick is sent with the delete again', async () => {
@@ -157,52 +140,20 @@ describe('the decision for a worktree that holds work', () => {
   }, 20000);
 });
 
-describe('the leftover worktrees under the disk card', () => {
-  const disk = [{ kind: 'disk' as const, since: '2026-10-30T08:00:00Z', text: 'Free space is 3 GB.' }];
-  it('lists them, removes a clean one at once, and asks before one that holds work', async () => {
+describe('the disk card', () => {
+  it('opens to what the daemon says of the disk', async () => {
     const m = await mount(
-      (s) => {
-        s.daemon.admin.worktrees.rows.push(orphan('merged-one'), orphan('busy-one', { merged: false, files_changed: 4, commits_ahead: 1 }));
-        void setMachineNeeds(s, disk);
-      },
+      (s) => void setMachineNeeds(s, [{ kind: 'disk', since: '2026-10-30T08:00:00Z', text: 'Free space is 3 GB.' }]),
       undefined,
       'founder',
-      { role: 'founder' },
-    );
-    await press($('nav-inbox'));
-    await until(() => $('disk-open'), 'the card');
-    await press($('disk-open'));
-    await until(() => $('disk-orphans-open'), 'the list button');
-    expect(text($('disk-card'))).toContain('Free space is 3 GB.');
-    expect(text($('disk-orphans-open'))).toContain('Leftover worktrees: 2, 2.0 GB');
-    await press($('disk-orphans-open'));
-    await press($('orphan-remove-merged-one'));
-    await until(() => !m.daemon.admin.worktrees.rows.some((w) => w.path === '/work/merged-one'), 'the removal');
-    await until(() => $('orphan-remove-merged-one') === null, 'the row gone');
-    await press($('orphan-remove-busy-one'));
-    await until(() => $('orphan-force'), 'the question');
-    expect(text($('orphan-ask-sheet'))).toContain('4 unsaved files, 1 unpushed commit');
-    expect(m.daemon.admin.worktrees.rows.some((w) => w.path === '/work/busy-one')).toBe(true);
-    await press($('orphan-force'));
-    await until(() => !m.daemon.admin.worktrees.rows.some((w) => w.path === '/work/busy-one'), 'the forced removal');
-    m.store.stop();
-  }, 20000);
-
-  it('shows the card but no list to a member phone', async () => {
-    const m = await mount(
-      (s) => {
-        s.daemon.admin.worktrees.rows.push(orphan('merged-one'));
-        void setMachineNeeds(s, disk);
+      {
+        role: 'founder',
       },
-      undefined,
-      'member',
-      { role: 'member' },
     );
     await press($('nav-inbox'));
     await until(() => $('disk-open'), 'the card');
     await press($('disk-open'));
     expect(text($('disk-card'))).toContain('Free space is 3 GB.');
-    expect($('disk-orphans-open')).toBeNull();
     m.store.stop();
   }, 20000);
 });

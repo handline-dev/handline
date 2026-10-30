@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Resources } from '@handline/client';
-import { bytesText, limitSentence, loadFull, memoryLow, resourceLine, useRows } from '#src/index.ts';
+import { bytesText, limitSentence, loadFull, memoryLow, resourceCells, useRows } from '#src/index.ts';
 
 const GB = 2 ** 30;
 const res = (m: Partial<Resources['machine']> = {}, agents: Resources['agents'] = {}): Resources => ({
@@ -28,18 +28,26 @@ test('bytes read as the shortest figure', () => {
   assert.deepEqual([3.6 * GB, 120 * GB, 420 * 2 ** 20].map(bytesText), ['3.6 GB', '120 GB', '420 MB']);
 });
 
-test('the bar line says the agents share, their memory, whether the load is full and the memory free, in words', () => {
-  const r = res({ ram_free_bytes: 9.8 * GB, load_per_core: 2.8, ram_free_pct: 30 });
+test('the bar cells say the CPU, the memory free and the disk left, and a cell over its limit says so in words', () => {
+  const r = res({ ram_free_bytes: 9.8 * GB, load_per_core: 2.8, ram_free_pct: 30, disk_free_bytes: 50 * GB });
   r.agents_total = { cpu_pct: 240, rss_bytes: 5.6 * GB };
-  assert.deepEqual(resourceLine(r), { text: 'Agents: CPU 24%, 5.6 GB · Load full · Memory 9.8 GB free (30%)', over: true });
-  const calm = res({ load_per_core: 0.4, ram_free_pct: 40 });
-  assert.equal(resourceLine(calm)!.over, false);
-  assert.match(resourceLine(calm)!.text, /^Agents: CPU \d+%, .* · Memory .* free \(40%\)$/);
-  assert.equal(
-    resourceLine(res({ ram_free_bytes: 1.1 * GB, ram_free_pct: 3 }))!.text.endsWith('Memory low: 1.1 GB free (3%)'),
-    true,
-    'low memory is said, not only red',
+  const cells = resourceCells(r)!;
+  assert.deepEqual(
+    cells.map((c) => c.text),
+    ['CPU 24% · Load full', 'Memory 9.8 GB free', 'Disk 50 GB left'],
   );
+  assert.deepEqual(
+    cells.map((c) => c.warn),
+    [true, false, false],
+  );
+  const calm = resourceCells(res({ load_per_core: 0.4, ram_free_pct: 40, disk_free_bytes: 100 * GB }))!;
+  assert.equal(
+    calm.some((c) => c.warn),
+    false,
+  );
+  const tight = resourceCells(res({ ram_free_bytes: 1.1 * GB, ram_free_pct: 3, disk_free_bytes: 4 * GB }))!;
+  assert.equal(tight[1]!.text, 'Memory low 1.1 GB free');
+  assert.equal(tight[2]!.text, 'Disk 4.0 GB left · Low');
 });
 
 test('a limit of never holds nothing, and the memory floor holds under it', () => {
@@ -53,8 +61,8 @@ test('a limit of never holds nothing, and the memory floor holds under it', () =
 });
 
 test('nothing is shown before the daemon has measured', () => {
-  assert.equal(resourceLine(null), null);
-  assert.equal(resourceLine(undefined), null);
+  assert.equal(resourceCells(null), null);
+  assert.equal(resourceCells(undefined), null);
 });
 
 test('agents are heaviest first with a totals line', () => {

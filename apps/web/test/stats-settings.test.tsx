@@ -1,4 +1,4 @@
-// U16: the Stats page (tiles, charts, outlook) and the Home settings page (fields, switches, standing answers) on the fake daemon.
+// U16: the Usage page (outlook, accounts, who used it) and the Home settings page (fields, switches, standing answers) on the fake daemon.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -38,7 +38,6 @@ const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new Focu
 const field = (label: string) => $(`[data-setting="${label}"] input`) as HTMLInputElement;
 const toggle = (label: string) => $(`[data-setting="${label}"] [role="switch"]`) as HTMLElement;
 const byLabel = (label: string) => ($$('label').find((l) => text(l) === label) as HTMLLabelElement).control as HTMLInputElement;
-const tile = (name: string) => text($(`[data-tile="${name}"] strong`));
 
 async function mount(hash: string, s = setup()) {
   location.hash = hash;
@@ -58,70 +57,124 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('machine', () => {
+  it('lists the resources, the agents and the storage, with no remove button', async () => {
+    const s = setup();
+    await mount('#/machine', s);
+    await until(() => $('.machine-page [data-agent]'), 'the agents');
+    expect($$('.machine-page nav button').map(text)).toEqual(['Resources', 'Agents', 'Storage']);
+    expect($$('.machine-page [data-agent]').length).toBeGreaterThan(0);
+    expect(button('Delete') ?? button('Remove')).toBeUndefined();
+  });
+});
+
 describe('stats', () => {
-  it('shows a skeleton, then the four counts, the span and both charts', async () => {
+  it('shows a skeleton, then who used it as a plain table with no tiles', async () => {
     const s = setup();
     const release = s.daemon.knobs.hold('stats.get'); // held until the skeleton is seen: no wall-clock race between the read and the skeleton's delay
     await mount('#/stats', s);
     await until(() => $('.stats .skeleton'), 'the skeleton');
     release();
-    await until(() => $('[data-tile]'), 'the tiles');
-    expect(['tasks done', 'moves', 'handoffs', 'blocks'].map(tile)).toEqual(['3', '1', '2', '0']);
-    expect(text($('[data-span]'))).toContain(' to ');
-    expect($('[data-tile="blocks"]')!.hasAttribute('data-warn')).toBe(false);
-    const rows = $$('[data-agent]');
+    await until(() => $('.who-used'), 'the table');
+    expect($('[data-tile]')).toBeNull();
+    const rows = $$('.who-used [data-agent]');
     expect(rows.length).toBeGreaterThan(0);
     expect(text(rows[0])).toContain('$');
-    expect(text($('.chart[aria-label="Who used it"]'))).not.toContain('idle');
+    expect($('.who-used')!.tagName).toBe('TABLE');
   });
 
-  it('Stats is a section of the Usage page without the accounts; the Accounts tab of Settings holds the accounts with their gauges and no stats', async () => {
+  it('the Usage page holds the accounts one line each; the Accounts tab of Settings holds their gauges and no stats', async () => {
     await mount('#/stats');
-    await until(() => $('[data-tile]'), 'the tiles');
+    await until(() => $('.usage-accounts [data-account]'), 'the account lines');
     expect(text($('h2'))).toBe('Usage');
+    expect($$('.usage-accounts [data-account]').length).toBeGreaterThan(0);
+    expect(text($('.usage-accounts [data-account]'))).toMatch(/5-hour .*Week .*left/);
     expect($('.acct-list')).toBeNull();
     await act(async () => void (location.hash = '#/accounts'));
     await until(() => text($('h2')) === 'Settings' && $('.acct-list [data-account]'), 'the Accounts tab');
-    expect($('[data-tile]')).toBeNull();
+    expect($('.who-used')).toBeNull();
     expect($('.acct-list [data-account] .gauge')).not.toBeNull();
   });
 
-  it('every tile has an icon', async () => {
+  it('an account that needs a login has its state, Log in and its plan and no window text; the others show their agents in a list', async () => {
     await mount('#/stats');
-    await until(() => $('[data-tile]'), 'the tiles');
-    expect($$('[data-tile] svg').map((i) => i.getAttribute('data-icon'))).toEqual(['done', 'session', 'reply', 'blocked']);
+    await until(() => $('.usage-accounts [data-account="gamma"]'), 'the account lines');
+    const gamma = $('.usage-accounts [data-account="gamma"]')!;
+    expect(text(gamma)).toContain('Login needed');
+    expect(text(gamma)).not.toMatch(/left|resets|not started/);
+    expect(gamma.querySelector('.badge')).toBeNull(); // a glyph and a word, no pill
+    const alpha = $('.usage-accounts [data-account="alpha"]')!;
+    expect(text(alpha.querySelector('.usage-state'))).toContain('In use');
+    expect(alpha.querySelector('.badge')).toBeNull();
+    await click(alpha.querySelector('.usage-agents button'));
+    expect($$('[role="dialog"] button').length).toBeGreaterThan(0);
+    expect(text($('.usage-accounts [data-account="alpha"] .usage-warn'))).not.toMatch(/ahead/);
   });
 
   it('the 7 d window shows its own figures, and the old ones stay until they arrive', async () => {
     const s = await mount('#/stats');
-    await until(() => tile('tasks done') === '3', 'the 24 h tiles');
+    await until(() => $('.who-used'), 'the 24 h table');
+    const before = $$('.who-used [data-agent]').map(text);
     const release = s.daemon.knobs.hold('stats.get');
     await click(button('7 d'));
-    expect(tile('tasks done')).toBe('3');
+    expect($$('.who-used [data-agent]').map(text)).toEqual(before);
     release();
-    await until(() => tile('tasks done') === '19', 'the 7 d tiles');
-    expect($('[data-tile="blocks"]')!.hasAttribute('data-warn')).toBe(true);
-    expect(tile('blocks')).toBe('4');
+    await until(() => $$('.who-used [data-agent]').map(text).join() !== before.join(), 'the 7 d table');
   });
 });
 
 describe('outlook', () => {
   beforeEach(() => localStorage.clear());
 
-  it('shows the week left with the guess apart, and the numbers behind Table', async () => {
+  it('is the approved page: the readout, the line solid then dashed, now and the resets, one lost bar, no card, no legend', async () => {
     await mount('#/stats');
     await until(() => $('.outlook-svg'), 'the graph');
+    expect($('.outlook.chart')).toBeNull(); // no card
+    expect($('.outlook h3')).toBeNull(); // no title
+    expect($('.outlook-legend')).toBeNull();
+    expect(text($('.week-left'))).toMatch(/^Week \d+% left$/);
+    expect(text($('.week-pace'))).toMatch(/^· at this pace about \d+% of alpha's week goes unused$/);
     expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
-    expect(text($('.outlook-legend'))).toContain('guess');
+    expect($('.outlook-svg .line.past')!.getAttribute('stroke-dasharray')).toBeNull();
     const end = $('.outlook-svg .line.past')!.getAttribute('d')!.split(' ').at(-1);
     expect($('.outlook-svg .line.future')!.getAttribute('d')!.split(' ')[0]).toBe(end!.replace('L', 'M')); // the guess starts where the recorded line ends
-    expect($('.acct-list')).toBeNull(); // the accounts are in Settings
-    expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
-    expect($('[data-runway]')).toBeNull(); // the account rows below say how long each lasts
-    expect($('.data-table')).toBeNull();
-    await click(button('Table'));
-    expect($$('.data-table tbody tr').length).toBeGreaterThan(10);
-    expect(text($('.data-table'))).toContain('guess');
+    expect(text($('.now-label'))).toBe('now');
+    expect($$('.y-mark').map(text)).toEqual(['0%', '50%', '100%']);
+    expect($$('.x-tick').length).toBeGreaterThan(2);
+    expect($$('[data-reset-mark]').map((r) => r.dataset.resetMark)).toContain('alpha');
+    expect($$('[data-lost]').length).toBe(1);
+    expect(text($('.lost-link'))).toMatch(/^\d+% lost ›$/); // the number is beside the bar, not only in its title
+    expect($('[data-lost]')!.className).toContain('bg-acc');
+    expect(text($('.usage-accounts [data-account="alpha"] .usage-lost'))).toMatch(/^\d+% lost at this pace$/);
+    expect($('.usage-accounts [data-account="beta"] .usage-lost')).toBeNull(); // beta's week has no reset in the guess
+  });
+
+  it('the guess line ends at the last reset and the lost bar stands on the 0% line', async () => {
+    await mount('#/stats');
+    await until(() => $('.outlook-svg'), 'the graph');
+    const end = $('.outlook-svg .line.future')!.getAttribute('d')!.split(' ').at(-1)!;
+    expect(end.replace('L', '').split(',')[0]).toBe('560.0'); // the plot's right edge is the reset, no run on to 0%
+    expect($('[data-lost]')!.className).toContain('bottom-px');
+    expect(text($('[data-reset-mark="alpha"]'))).toContain('alpha');
+  });
+
+  it('cost per day stays reachable beside the range menu, with 7, 14 and 30 days, a bar per day and a click on an agent for that one alone', async () => {
+    await mount('#/stats');
+    await until(() => $('.outlook-svg'), 'the graph');
+    await click(button('Cost per day'));
+    await until(() => $$('.cost-day').length === 7, 'seven days');
+    const range = $('select[aria-label="Range"]') as HTMLSelectElement;
+    expect([...range.options].map((o) => o.value)).toEqual(['7d', '14d', '30d']);
+    await setValue(range, '14d');
+    await until(() => $$('.cost-day').length === 14, 'fourteen days');
+    expect($$('.agent-cost tbody tr').map((r) => r.dataset.agent)).toEqual([
+      'handline.architect',
+      'handline.auditor',
+      'handline.term-build',
+    ]);
+    expect($$('.agent-cost .cost-pick b').map(text)).toEqual(['A', 'B', 'C']);
+    await click($('[data-agent="handline.auditor"] .cost-pick'));
+    expect($('.cost')!.getAttribute('aria-label')).toBe('Cost per day, handline.auditor alone');
   });
 
   it('the range last chosen is the one it opens on next time', async () => {
@@ -132,7 +185,7 @@ describe('outlook', () => {
     expect(JSON.parse(localStorage.getItem('outlook-look')!)).toEqual({ view: 'left', range: '3d' });
   });
 
-  it('pointing at the graph reads the time and the percent, leaving clears it, and the week reset has a mark named in the legend', async () => {
+  it('pointing at the graph reads the time and the percent, and leaving clears it', async () => {
     await mount('#/stats');
     await until(() => $('.outlook-svg'), 'the graph');
     expect(text($('.outlook-readout'))).toBe('');
@@ -152,56 +205,9 @@ describe('outlook', () => {
     expect(text($('.outlook-readout'))).toMatch(/\d+% left/);
     expect($('.outlook-svg .cursor')).not.toBeNull();
     expect(($('select[aria-label="Range"]') as HTMLSelectElement).value).toBe('7d'); // the week is what it opens on
-    await setValue($('select[aria-label="Range"]') as HTMLSelectElement, '24h');
-    await until(() => !$('.outlook-svg [data-reset]'), 'the 24 h graph');
-    expect($('.outlook-svg [data-reset]')).toBeNull(); // alpha's week resets after the 24 h shown
-    await setValue($('select[aria-label="Range"]') as HTMLSelectElement, '7d');
-    await until(() => $('.outlook-svg [data-reset]'), 'the reset mark');
-    expect(text($('.outlook-legend'))).toContain('week resets');
     await act(async () => void plot.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })));
     await act(async () => void plot.dispatchEvent(new MouseEvent('pointerleave')));
     expect(text($('.outlook-readout'))).toBe('');
-  });
-
-  it('the cost view offers 7, 14 and 30 days and draws a bar per day with the values in the table', async () => {
-    await mount('#/stats');
-    await until(() => $('.outlook-svg'), 'the graph');
-    await click(button('Cost per day'));
-    await until(() => $$('.cost-day').length === 7, 'seven days');
-    expect($$('[role="radiogroup"][aria-label="Range"] [role="radio"]').map((r) => r.getAttribute('aria-label'))).toEqual([
-      '7d',
-      '14d',
-      '30d',
-    ]);
-    await click(button('14d'));
-    await until(() => $$('.cost-day').length === 14, 'fourteen days');
-    expect($$('.agent-cost tbody tr').map((r) => r.dataset.agent)).toEqual([
-      'handline.architect',
-      'handline.auditor',
-      'handline.term-build',
-    ]);
-    expect($$('.agent-cost tbody tr').every((r) => /%$/.test(text(r.lastElementChild)))).toBe(true);
-    await click(button('Table'));
-    expect(text($('.data-table[aria-label="Cost by agent"]'))).toContain('handline.architect');
-  });
-
-  it('a series has a pattern and a letter as well as a tone, and a click on an agent draws that one alone', async () => {
-    await mount('#/stats');
-    await until(() => $('.outlook-svg'), 'the graph');
-    await click(button('Cost per day'));
-    await until(() => $$('.cost-day').length === 7, 'seven days');
-    expect($$('.agent-cost .cost-pick b').map(text)).toEqual(['A', 'B', 'C']);
-    expect($$('.agent-cost .cost-swatch').map((w) => [...w.classList].filter((c) => /^c\d$/.test(c)).join())).toEqual(['c0', 'c1', 'c2']);
-    expect($('.cost')!.getAttribute('aria-label')).toBe('Cost per day, by agent');
-    await click($('[data-agent="handline.auditor"] .cost-pick'));
-    expect($('.cost')!.getAttribute('aria-label')).toBe('Cost per day, handline.auditor alone');
-    expect(
-      $$('.cost-seg')
-        .filter((x) => x.style.flexGrow !== '0' && x.style.flexGrow !== '')
-        .every((x) => x.classList.contains('c1')),
-    ).toBe(true);
-    await click(button('All agents'));
-    expect($('.cost')!.getAttribute('aria-label')).toBe('Cost per day, by agent');
   });
 
   it('a daemon that does not serve stats says so and draws no outlook', async () => {

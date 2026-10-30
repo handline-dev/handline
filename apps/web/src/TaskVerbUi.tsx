@@ -18,6 +18,7 @@ import {
   type At,
 } from '#src/ui/index.ts';
 import type { IconName } from '@handline/app-ui';
+import { goTasks } from '#src/route.ts';
 import { Sheet, useCan } from '#src/taskui.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 
@@ -148,6 +149,27 @@ export function VerbMenu(props: {
   );
 }
 
+/** Open the task and copy where it is, ahead of the verbs: the mouse path to what the keys do. */
+function PlaceItems({ id }: { id: number }) {
+  return (
+    <>
+      <MenuItem icon="open" onSelect={() => goTasks(id)}>
+        Open
+      </MenuItem>
+      <MenuItem
+        icon="reference"
+        onSelect={() => void navigator.clipboard?.writeText(`${location.origin}${location.pathname}#/tasks/${id}`)}
+      >
+        Copy link
+      </MenuItem>
+      <MenuItem icon="reference" onSelect={() => void navigator.clipboard?.writeText(taskRef(id))}>
+        Copy number
+      </MenuItem>
+      <MenuSeparator />
+    </>
+  );
+}
+
 /** A list row's menu: a right-click on the row opens it at the cursor, the ⋯ button handed to `children` opens it under the button.
  *  A press outside closes it, so a second row's menu opening closes the first. */
 export function RowMenu(props: {
@@ -180,6 +202,7 @@ export function RowMenu(props: {
     <Menu openRef={at} onOpenChange={setOpen}>
       <MenuTrigger>{props.children(more, open)}</MenuTrigger>
       <MenuContent aria-label={`#${props.tasks[0]?.id}`} onClick={(e) => e.stopPropagation()}>
+        {props.tasks.length === 1 && props.tasks[0]!.id > 0 ? <PlaceItems id={props.tasks[0]!.id} /> : null}
         <VerbItems tasks={props.tasks} me={props.me} cans={props.cans} onPick={props.onPick} />
       </MenuContent>
     </Menu>

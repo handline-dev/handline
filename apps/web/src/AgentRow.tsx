@@ -4,20 +4,18 @@ import { ago, dotOf, queuedBehind, rowName, agentStateWord, type Verb, badgesOf,
 import type { AgentView } from '@handline/client';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
-import { Hand } from 'lucide-react';
+import { StateMark } from '#src/ds/StateMark.tsx';
 import { Chip } from '#src/ds/Chip.tsx';
 import { Badges } from '#src/Badges.tsx';
-import { Icon, Menu, type At, MenuContent, MenuTrigger, VisuallyHidden } from '#src/ui/index.ts';
+import { Icon, Menu, type At, MenuContent, MenuTrigger } from '#src/ui/index.ts';
 import { goAgent } from '#src/route.ts';
 import { AgentMenu, RowControls } from '#src/RowControls.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useAgentRowData, type AgentRowData } from '#src/AgentRowData.ts';
 
-// What a row's one line holds, in px: the state mark, the name's least width, a chip's icon and padding, a letter of it, and the gap between items.
+// What a row's one line holds, in px: the state mark, the name's least width, and the gap between items.
 const MARK_W = 14;
 const NAME_MIN = 72;
-const CHIP_PAD = 28;
-const CHAR_W = 7;
 const GAP = 8;
 const RESTART_W = 93; // the icon and "Restarting…"
 const TIME_W = 34;
@@ -72,23 +70,19 @@ function AgentRowView({
   const [ask, setAsk] = useState<Verb | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  // The needs-you chip comes right after the name (the lesser chips drop first) and is the word when the word fits beside the name, else the icon.
   const main = useRef<HTMLButtonElement>(null);
-  const [wide, setWide] = useState(true);
   const [roomy, setRoomy] = useState(true); // the word "Restarting…" fits beside the name and the time, else its icon alone
-  const kindLen = a.needs_you?.kind.length ?? 0;
   useEffect(() => {
     const el = main.current;
     if (!el) return;
     const fit = () => {
-      setWide(el.clientWidth >= MARK_W + NAME_MIN + CHIP_PAD + CHAR_W * kindLen + 2 * GAP);
       setRoomy(!el.clientWidth || el.clientWidth >= MARK_W + NAME_MIN + RESTART_W + TIME_W + 3 * GAP);
     };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [kindLen]);
+  }, []);
   const queued = queuedBehind(a) || 0;
   const queuedTip = [`${queued} waiting behind the current task`, ...waiting.map((t) => `${taskRef(t.id)} ${t.title}`)].join('\n');
   const badges = badgesOf(a, me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
@@ -140,12 +134,18 @@ function AgentRowView({
                   aria-current={selected ? 'true' : undefined}
                   title={tip}
                 >
-                  <Mark
-                    dot={dot}
-                    title={[MARKS[dot].label, dot === 'blocked' || dot === 'waiting' ? whyOf(a) : null, ago(a.state_since)]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  />
+                  {a.needs_you ? (
+                    <span className="mark alarm inline-flex flex-none">
+                      <StateMark state="alarm" label={[a.needs_you.title, ago(a.state_since)].join(' · ')} />
+                    </span>
+                  ) : (
+                    <Mark
+                      dot={dot}
+                      title={[MARKS[dot].label, dot === 'blocked' || dot === 'waiting' ? whyOf(a) : null, ago(a.state_since)]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    />
+                  )}
                   <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">
                     {rowName(a.name, depth, team)}
                   </span>
@@ -157,13 +157,6 @@ function AgentRowView({
                       >
                         <Icon name="refresh" size={12} aria-hidden className="animate-spin motion-reduce:animate-none" />
                         {roomy ? 'Restarting…' : null}
-                      </span>
-                    ) : null}
-                    {a.needs_you ? (
-                      <span className="needs inline-flex flex-none" title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}>
-                        <Chip kind="you" icon={Hand}>
-                          {wide ? a.needs_you.kind : <VisuallyHidden>{a.needs_you.kind}</VisuallyHidden>}
-                        </Chip>
                       </span>
                     ) : null}
                     <Badges badges={badges} mark />

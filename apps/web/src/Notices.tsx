@@ -1,10 +1,9 @@
-// The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (a link to what
-// needs the person, then what happened, newest first), and the short results stacked above it.
+// The notices: the bell at the status bar's right end with the unread count, the list that opens upward from it (what happened, newest first), and the short results stacked above it.
 import { UpdateNotice } from '#src/UpdateNotice.tsx';
 import { useEffect, useState } from 'react';
 import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
-import { useMyTurn, useTasks, useWrite } from '@handline/app-data';
+import { useTasks, useWrite } from '@handline/app-data';
 import { Button, Icon, Popup } from '#src/ui/index.ts';
 
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
@@ -32,7 +31,6 @@ export function NoticeBell() {
   const store = useStore();
   const unread = useSelector((s) => s.notices.unread());
   const list = useSelector((s) => s.notices.list());
-  const waiting = useMyTurn().cards.length;
   const spare = useSpareNotices();
   const [open, setOpen] = useState(false);
   return (
@@ -51,23 +49,12 @@ export function NoticeBell() {
       </button>
       <Popup open={open} onClose={() => setOpen(false)} title="Notices" align="right" up bare>
         <div className="max-h-[60vh] w-[360px] max-w-[90vw] overflow-y-auto">
-          {waiting ? (
-            <button
-              type="button"
-              className="notice-turn flex w-full cursor-pointer items-center gap-2 border-0 border-b border-line bg-[color-mix(in_srgb,var(--color-wait)_14%,transparent)] px-3 py-1.5 text-left text-md font-medium text-ink"
-              onClick={() => void ((location.hash = '#/requests'), setOpen(false))}
-            >
-              <span className="size-2 flex-none rounded-full bg-wait" aria-hidden />
-              <span className="flex-1">Requests</span>
-              <Icon name="chevronRight" size={14} label="Opens Requests" aria-hidden />
-            </button>
-          ) : null}
           {spare.map((n) => (
             <div key={n.task} className="border-b border-line">
               <SpareCard n={n} />
             </div>
           ))}
-          {list.length === 0 && !waiting && !spare.length ? <p className="m-0 px-3 py-2 text-xs text-ink-3">Nothing new.</p> : null}
+          {list.length === 0 && !spare.length ? <p className="m-0 px-3 py-2 text-xs text-ink-3">Nothing new.</p> : null}
           {list.map((n) => (
             <Row key={n.id} n={n} onOpened={() => setOpen(false)} />
           ))}
@@ -75,14 +62,24 @@ export function NoticeBell() {
         {list.length ? (
           <footer className="flex items-center justify-between border-t border-line px-3 py-1.5 text-xs text-ink-3">
             <span>{unread ? `${unread} unread` : 'All read'}</span>
-            <button
-              type="button"
-              className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 disabled:opacity-50"
-              disabled={!unread}
-              onClick={() => store.notices.markAllRead()}
-            >
-              Mark all read
-            </button>
+            <span className="flex gap-3">
+              <button
+                type="button"
+                className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 disabled:opacity-50"
+                disabled={!unread}
+                onClick={() => store.notices.markAllRead()}
+              >
+                Mark all read
+              </button>
+              <button
+                type="button"
+                className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 disabled:opacity-50"
+                disabled={list.every((n) => !n.read)}
+                onClick={() => store.notices.removeRead()}
+              >
+                Remove read ones
+              </button>
+            </span>
           </footer>
         ) : null}
       </Popup>
@@ -167,6 +164,9 @@ function useAway(onChange: (away: boolean) => void) {
  * toast or the keyboard focus in it stops its clock, as does a hidden or unfocused window. A click opens what it is about and closes only it.
  */
 const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['done', 'text-ok'], info: ['info', 'text-ink-3'] } as const;
+/** The stack shows the newest three; the bell lists the rest. */
+const MAX_TOASTS = 3;
+const SPARE_STAYS_MS = 10_000;
 const CHIP = 'bg-raised! tint';
 
 /** The buttons of a kept notice: the main one filled, the rest grey chips. The notice is read once one is pressed. */
@@ -193,7 +193,7 @@ function Actions({ n }: { n: Notice }) {
   );
 }
 
-/** One toast: a normal card on the neutral panel, the status icon, a bold title and a short second line, then its buttons: the main one filled, the rest grey chips. */
+/** One toast: the same inset on every side, the status icon with a bold title and a short second line, then its buttons flush right: the main one filled, the rest grey chips. */
 function Toast({ n }: { n: Notice }) {
   const store = useStore();
   const [more, setMore] = useState(false);
@@ -205,7 +205,7 @@ function Toast({ n }: { n: Notice }) {
   const long = !!n.details;
   return (
     <div
-      className="toast relative flex items-start gap-2 rounded-md border border-line bg-panel px-3 py-2 text-md text-ink shadow-[var(--shadow)]"
+      className="toast relative flex items-start gap-2 rounded-md border border-line bg-panel p-3 text-md text-ink shadow-[var(--shadow)]"
       onPointerEnter={() => store.notices.hold(n.id, 'pointer')}
       onPointerLeave={() => store.notices.release(n.id, 'pointer')}
       onFocus={() => store.notices.hold(n.id, 'focus')}
@@ -236,7 +236,7 @@ function Toast({ n }: { n: Notice }) {
         {more && n.details ? <span className="whitespace-pre-wrap text-xs text-ink-3">{n.details}</span> : null}
         {live?.actions?.length ? <Actions n={n} /> : null}
         {!live && (go || n.retry || long) ? (
-          <span className="mt-0.5 flex flex-wrap gap-1.5">
+          <span className="mt-0.5 flex flex-wrap justify-end gap-1.5">
             {go ? (
               <Button variant="solid" size="sm" label={openWord(n)} className="toast-open" onClick={() => openNotice(store, n)}>
                 {openWord(n)}
@@ -277,7 +277,15 @@ function Toast({ n }: { n: Notice }) {
 function Toasts({ hidden }: { hidden: boolean }) {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
-  const spare = useSpareNotices();
+  const [left, setLeft] = useState<ReadonlySet<number>>(new Set());
+  const spare = useSpareNotices().filter((n) => !left.has(n.task));
+  // The weekly-loss card steps aside to the bell after a while, so it never keeps covering the composer's Send button.
+  const ids = spare.map((n) => n.task).join();
+  useEffect(() => {
+    if (!ids) return;
+    const t = setTimeout(() => setLeft((l) => new Set([...l, ...ids.split(',').map(Number)])), SPARE_STAYS_MS);
+    return () => clearTimeout(t);
+  }, [ids]);
   useAway((away) => store.notices.setAway(away));
   // Escape closes the toast the focus is in, else the newest one.
   const first = toasts[0]?.id;
@@ -294,13 +302,13 @@ function Toasts({ hidden }: { hidden: boolean }) {
   }, [first, hidden, store]);
   if ((!toasts.length && !spare.length) || hidden) return null;
   return (
-    <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
+    <div className="toasts absolute right-0 bottom-full z-10 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
       {spare.map((n) => (
         <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow)]">
           <SpareCard n={n} />
         </div>
       ))}
-      {toasts.map((n) => (
+      {toasts.slice(0, MAX_TOASTS).map((n) => (
         <Toast key={n.id} n={n} />
       ))}
     </div>

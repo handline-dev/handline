@@ -21,6 +21,9 @@ import {
 } from '@handline/app-core';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { Badges } from '#src/Badges.tsx';
+import { WithKey } from '#src/WithKey.tsx';
+import { OpenInItems } from '#src/OpenInItems.tsx';
+import { showPill } from '#src/Pill.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
 import { lineAt, slotAt } from '#src/tabSlots.ts';
@@ -206,20 +209,14 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
                 aria-label={`Close ${tabLabel(t, structured)}`}
                 title={
                   t.kind === 'terminal' || t.kind === 'transcript'
-                    ? 'Close the tab; the agent keeps running'
+                    ? 'Close the tab; the agent keeps working'
                     : t.kind === 'shell'
                       ? 'Close the terminal'
                       : 'Close the tab'
                 }
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (
-                    t.kind === 'terminal' &&
-                    !structured &&
-                    detail.session_open &&
-                    !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
-                  )
-                    return;
+                  if (t.kind === 'terminal' && !structured && detail.session_open) showPill(`${agent} keeps working in the background`);
                   if (t.kind === 'shell') closeShell({ terminal: String(t.params.handle) }); // the shell ends with its tab
                   apply((w) => closeTab(w, id));
                 }}
@@ -255,31 +252,38 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
 
 /** The bar's + and Split for `group`. */
 export function PaneActions({ group }: { group: Group }) {
-  const { agent, apply, canSplit } = useWorkspace();
+  const { agent, detail, apply, canSplit } = useWorkspace();
   const { choices, choose } = useChoices(usePaneData(agent).openShell);
   return (
     <>
-      <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="shell:[-webkit-app-region:no-drag]">
-        {choices.map((c) => (
-          <MenuItem
-            key={c.label}
-            icon={c.icon}
-            disabled={c.disabled}
-            onSelect={() => void choose(c, (w, kind, params) => openTab(w, kind, params, group.id))}
-          >
-            {c.label}
-          </MenuItem>
-        ))}
+      <MenuButton size="sm" label="Open in" name="Open in" align="end" trigger="Open in" className="shell:[-webkit-app-region:no-drag]">
+        <OpenInItems agent={agent} cwd={detail.cwd} />
       </MenuButton>
-      <Button
-        icon="split"
-        size="sm"
-        label="Split this pane"
-        title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
-        disabled={!canSplit(group.id)}
-        className="shell:[-webkit-app-region:no-drag]"
-        onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
-      />
+      <WithKey k="⌘T">
+        <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="shell:[-webkit-app-region:no-drag]">
+          {choices.map((c) => (
+            <MenuItem
+              key={c.label}
+              icon={c.icon}
+              disabled={c.disabled}
+              onSelect={() => void choose(c, (w, kind, params) => openTab(w, kind, params, group.id))}
+            >
+              {c.label}
+            </MenuItem>
+          ))}
+        </MenuButton>
+      </WithKey>
+      <WithKey k="⌘\">
+        <Button
+          icon="split"
+          size="sm"
+          label="Split this pane"
+          title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
+          disabled={!canSplit(group.id)}
+          className="shell:[-webkit-app-region:no-drag]"
+          onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
+        />
+      </WithKey>
     </>
   );
 }

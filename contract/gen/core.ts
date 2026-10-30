@@ -11,8 +11,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs" | "requests";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live. for_you (member, which includes the founder): the set of open items waiting on the founder, as for_you.list; an event whenever the count's set changes, with the new count. A client that misses events reads for_you.list again. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs" | "requests" | "for_you";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -296,8 +296,6 @@ export type SettingsValues = {
   ram_free_min_pct?: number;
   /** Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses. */
   disk_free_min_gb?: number;
-  /** 1 holds the daemon's new work while a phone simulator or emulator runs on this machine (a booted iOS simulator device, or the qemu an Android emulator runs on); 0 does not. Held the same way as a load limit (status reason load), by the same rules. */
-  host_simulator_hold?: number;
   /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. */
   pacing?: boolean;
   /** Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes. */
@@ -354,8 +352,6 @@ export type SettingsChanges = {
   ram_free_min_pct?: number | null;
   /** Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses. null removes the key (back to the default). */
   disk_free_min_gb?: number | null;
-  /** 1 holds the daemon's new work while a phone simulator or emulator runs on this machine; 0 does not. null removes the key (back to the default). */
-  host_simulator_hold?: number | null;
   /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. null removes the key (back to the default). */
   pacing?: boolean | null;
   /** Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes. null removes the key (back to the default). */
@@ -547,9 +543,11 @@ export type NavPrefs = {
   collapsed: AgentName[];
   /** The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice. */
   order: AgentName[];
+  /** For you items the founder put off, by `kind:id` (ForYouItem.kind and id, such as `task:42`). prefs.set merges this key entry by entry: an entry sets or replaces one item, null clears it; the other entries stay, so two devices deferring different items lose nothing. An entry whose time passed or whose task ended is dead and the daemon drops it at the next prefs.set that changes later. Absent entries mean not deferred. */
+  later?: { [key: string]: Later | null };
 };
 
-/** Any keys of NavPrefs; each given key replaces the stored value whole. */
+/** Any keys of NavPrefs; each given key replaces the stored value whole, except `later`, which merges entry by entry. */
 export type NavPrefsChanges = {
   /** Pinned agents in the person's order: the dock shows them first and the list on top. No name twice. */
   pins?: AgentName[];
@@ -563,6 +561,8 @@ export type NavPrefsChanges = {
   collapsed?: AgentName[];
   /** The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice. */
   order?: AgentName[];
+  /** Entries to set or clear in NavPrefs.later: an entry sets or replaces one item's deferral, null clears it; the other items stay. A key is `kind:id` of a For you item (kind task, comment or machine: a prompt or an HR proposal cannot be put off); an entry has exactly one of until and after_task. */
+  later?: { [key: string]: Later | null };
 };
 
 /** The person's view preferences, one set for the founder's devices, kept by the daemon. A new daemon serves the defaults: no pins, unread_only false, hidden empty, layout tree, collapsed empty, order empty. */
@@ -582,16 +582,53 @@ export type MachineNeed = {
   since: Timestamp;
   /** The item in plain words, with the free space in it. */
   text: string;
-  /** disk only, when there are any: the worktrees no agent works in (worktrees.list orphan), as housekeeping last measured them (at most hourly). The text names them too. */
-  orphan_worktrees?: {
-    count: number;
-    size_bytes: number;
-  };
 };
 
 /** attachment.remove deleted this image or file: a client marks every ImagePart and MemoFile with this id gone and removed, without refetching. */
 export type AttachmentRemoved = {
   id: AttachmentId;
+};
+
+/** Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. The founder's choice, kept in NavPrefs.later under the item's `kind:id`; the daemon reads it in for_you.list and the apps hide and return the item on their clock and on task.changed. */
+export type Later = unknown | unknown;
+
+/** One open item waiting on the founder. A task given to the founder (or the ask on it) is `task`, an agent's `@human` ask in a task comment is `comment`, an agent's open permission prompt or dialog is `prompt`, an HR proposal that waits is `hr`, and something the machine needs is `machine`. A plain say is not an item: nothing is asked. */
+export type ForYouItem = {
+  kind: "task" | "comment" | "prompt" | "hr" | "machine";
+  /** task: the task number. comment: the comment's number (InboxItem.memo), or the request's ref for an ask that is on no task. prompt: Prompt.id. hr: the proposal's id (Proposal.id). machine: the need's kind, `disk`. The pair (kind, id) names the item, as in the keys of NavPrefs.later. */
+  id: string;
+  /** Who asks; null for the machine. */
+  agent: AgentName | null;
+  /** One line: a task's title, a comment's first line, a prompt's command or tool, a proposal's title, the machine need's text. */
+  title: string;
+  /** What the item wants of the founder. A task or comment: `review` when the task is tagged review, else `decide`. A prompt: `allow` for a permission, else `decide`. An HR proposal: `allow`. The machine: `do`. */
+  asks: "allow" | "decide" | "review" | "do";
+  /** When it began to wait. */
+  since: Timestamp;
+  /** Only while the founder has the item deferred and the deferral is not over (NavPrefs.later). */
+  later?: Later;
+};
+
+export type ForYouList = {
+  /** Every open item, oldest `since` first (then kind and id), the deferred ones too. */
+  items: ForYouItem[];
+  /** The items without `later`: what a badge and the Requests count show. */
+  count: number;
+};
+
+/** The data of a for_you.opened event: an item joined the count (it opened, or came back from Later). */
+export type ForYouOpened = {
+  item: ForYouItem;
+  /** The count with it. */
+  count: number;
+};
+
+/** The data of a for_you.closed event: an item left the count (answered anywhere, closed, discarded, withdrawn, or deferred). */
+export type ForYouClosed = {
+  kind: "task" | "comment" | "prompt" | "hr" | "machine";
+  id: string;
+  /** The count without it. */
+  count: number;
 };
 
 export interface CoreMethods {
@@ -714,6 +751,7 @@ export interface CoreMethods {
   agent?: AgentName;
   request_id: RequestId;
 }; result: Accepted };
+  "for_you.list": { params: { [key: string]: unknown }; result: ForYouList & ReadCursor };
 }
 
 export const CORE_METHODS: { [K in keyof CoreMethods]: { role: Role; callers: Role[] | null; write: boolean; since: number } } = {
@@ -733,6 +771,7 @@ export const CORE_METHODS: { [K in keyof CoreMethods]: { role: Role; callers: Ro
   "daemon.upgrade": { role: "founder", callers: null, write: true, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
+  "for_you.list": { role: "member", callers: null, write: false, since: 1 },
 };
 
 export const PROTOCOL = 1;

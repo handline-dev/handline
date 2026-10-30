@@ -1,7 +1,18 @@
 // What a dragged tab shows over a pane: one cover for the whole pane (handle included) that picks one zone from the pointer. The handle lights up
 // and takes the tab at the end of the pane, the centre lights the whole pane, an edge lights the exact half the split will take (app-core drop.ts).
 import { useState, type DragEvent, type RefObject } from 'react';
-import { dropPreview, dropZone, groupOf, moveTab, splitTab, type Box, type DropZone, type Group } from '@handline/app-core';
+import {
+  dropPreview,
+  dropZone,
+  groupOf,
+  moveTab,
+  openTab,
+  splitNew,
+  splitTab,
+  type Box,
+  type DropZone,
+  type Group,
+} from '@handline/app-core';
 import { useWorkspace } from '#src/Workspace.tsx';
 
 /** `handle` is the pane's thin handle while the window is split, null when the pane has none (its tabs are all in the bar). */
@@ -10,9 +21,11 @@ export function DropOverlay({ group, handle }: { group: Group; handle: RefObject
   const [shown, setShown] = useState<{ zone: DropZone; box: Box | null; size: { w: number; h: number } } | null>(null);
   if (!dragging) return null;
   const from = groupOf(ws, dragging);
-  if (!from) return null;
-  const same = from.id === group.id;
-  const alone = from.tabs.length === 1;
+  // A task dragged out of a list is not a tab yet: it becomes one where it lands.
+  const task = /^tasks:(\d+)$/.exec(dragging);
+  if (!from && !task) return null;
+  const same = from?.id === group.id;
+  const alone = from?.tabs.length === 1;
   const edgesOk = !merged && !(alone && same);
 
   /** The zone under the pointer, or null where a drop would change nothing. */
@@ -28,7 +41,7 @@ export function DropOverlay({ group, handle }: { group: Group; handle: RefObject
     );
     if (zone.kind === 'strip') {
       const last = group.tabs.length - 1;
-      const stays = same && group.tabs.indexOf(dragging) === last; // already the last tab: dropping on the handle changes nothing
+      const stays = same && !!from && group.tabs.indexOf(dragging) === last; // already the last tab: dropping on the handle changes nothing
       return stays ? null : { zone, box: { x: 0, y: 0, w: size.w, h: bar?.getBoundingClientRect().height ?? 0 }, size };
     }
     if (zone.kind === 'center' && same) return null;
@@ -52,9 +65,11 @@ export function DropOverlay({ group, handle }: { group: Group; handle: RefObject
         if (!next) return;
         e.preventDefault();
         e.stopPropagation();
-        if (next.zone.kind === 'edge') drop(splitTab(ws, dragging, group.id, next.zone.edge));
+        const params = { task: Number(task?.[1]), pinned: 1 };
+        if (next.zone.kind === 'edge')
+          drop(task ? splitNew(ws, 'tasks', params, group.id, next.zone.edge) : splitTab(ws, dragging, group.id, next.zone.edge));
         else {
-          apply((w) => moveTab(w, dragging, group.id));
+          apply((w) => (task ? openTab(w, 'tasks', params, group.id) : moveTab(w, dragging, group.id)));
           setDragging(null);
         }
       }}

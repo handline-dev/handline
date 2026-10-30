@@ -6,13 +6,25 @@ import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from '#src/Answers.tsx';
 import { Devices } from '#src/Devices.tsx';
 import { DebugEntry } from '#src/debug/DebugEntry.tsx';
-import { SectionHead, SettingsCard } from '#src/ui/index.ts';
+import { Button, SectionHead, SettingsCard } from '#src/ui/index.ts';
 import { HandoffPrompt } from '#src/HandoffPrompt.tsx';
-import { NumberRow, SwitchRow } from '#src/SettingsRows.tsx';
+import { NumberRow, Row, SwitchRow } from '#src/SettingsRows.tsx';
+import { OPEN_RESOURCES } from '#src/ResourceArea.tsx';
 import { Appearance, BackgroundRows, Connection, NoticeBatch, Notifications, TerminalRow, WeekAlertRow } from '#src/SettingsMore.tsx';
 import { TeamSeal } from '#src/TeamSeal.tsx';
 import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
 import { View } from '#src/View.tsx';
+
+const PARTS = [
+  { id: 'set-concurrency', label: 'Concurrency' },
+  { id: 'set-closing', label: 'Closing windows' },
+  { id: 'set-handoff', label: 'Handoff' },
+  { id: 'set-notifications', label: 'Notifications' },
+  { id: 'set-answers', label: 'Always answer' },
+  { id: 'set-devices', label: 'Devices' },
+  { id: 'set-appearance', label: 'Appearance' },
+  { id: 'set-advanced', label: 'Advanced' },
+];
 
 /** The machine-wide cap stays in General; the other load limits are Advanced. */
 const isHostCap = (f: { setting: string }) => f.setting === 'host_active_cap';
@@ -23,7 +35,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
   const v = q.data?.values;
   const limits = v ? limitFields(v) : [];
   return (
-    <SettingsShell tab="settings" label="Settings">
+    <SettingsShell tab="settings" label="Settings" parts={PARTS}>
       <p className="settings-phone muted hidden max-sm:block">Open this on a computer.</p>
       <div className="settings-body flex min-w-0 flex-col gap-4 max-sm:hidden">
         {!served ? (
@@ -85,13 +97,18 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                 <section id="set-appearance">
                   <Appearance storage={storage} />
                 </section>
-                <SettingsFold title="Advanced" hint="Limits, pacing, background work, terminal view">
+                <SettingsFold id="set-advanced" title="Advanced" hint="Limits, pacing, background work, terminal view">
                   <SettingsCard>
-                    {limits
-                      .filter((f) => !isHostCap(f))
-                      .map((f) => (
-                        <NumberRow key={f.label} {...f} />
-                      ))}
+                    {limits.some((f) => !isHostCap(f)) ? (
+                      <Row label="Machine limits" hint="Load, memory and heavy slots live in the resource manager (bottom right)">
+                        <Button
+                          label="Open"
+                          onClick={() => window.dispatchEvent(new CustomEvent(OPEN_RESOURCES, { detail: { at: 'load' } }))}
+                        >
+                          Open
+                        </Button>
+                      </Row>
+                    ) : null}
                     {paceFields(v).map((f) => (
                       <NumberRow key={f.label} {...f} />
                     ))}

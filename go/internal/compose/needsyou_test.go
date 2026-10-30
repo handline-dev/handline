@@ -262,9 +262,9 @@ func TestADialogStallAndAnUnhealedAgentAreOneCardEachAndGoWhenTheirCauseDoes(t *
 			t.Fatal(err)
 		}
 	}
-	set("STALLED", "worker's terminal is showing a "+lifecycle.DialogStall+" only a person answers - nothing was typed into it. It asks to pick a theme.")
+	set("STALLED", "worker's terminal is showing a "+lifecycle.DialogStall+" only a person answers - nothing was typed into it. a dialog is open on its screen: Pick a theme")
 	if n := needs("worker"); n == nil || n.Kind != "dialog" || n.Source != "daemon" || n.Since != 1700 || n.Title != "Stuck at a start-up dialog" ||
-		n.Text != "Nothing was typed into it: only a person can answer it. It asks to pick a theme." {
+		n.Text != "Claude Code is asking Pick a theme. Only you can answer it, in the terminal." {
 		t.Fatalf("a start-up dialog stall is a dialog card, its text without the agent's name: %+v", n)
 	}
 	set("IDLE", "the dialog is answered; the stall is lifted")
@@ -272,8 +272,21 @@ func TestADialogStallAndAnUnhealedAgentAreOneCardEachAndGoWhenTheirCauseDoes(t *
 		t.Fatal("the card goes when the dialog closes")
 	}
 	set("STALLED", supervisor.DialogStall+": the login dialog came back after 3 tries")
-	if n := needs("worker"); n == nil || n.Kind != "dialog" || n.Source != "daemon" || n.Title != "Stuck at a dialog" || n.Text != "the login dialog came back after 3 tries" {
+	if n := needs("worker"); n == nil || n.Kind != "dialog" || n.Source != "daemon" || n.Title != "Stuck at a dialog" || n.Text != "A dialog came up while it was working, so messages can't reach it: the login dialog came back after 3 tries." {
 		t.Fatalf("a dialog ocp cannot get past is a dialog card too: %+v", n)
+	}
+	set("STALLED", "3 "+lifecycle.StartStall+": the repo is no git checkout")
+	if n := needs("worker"); n == nil || n.Kind != "start_failed" || n.Title != "Won't start" || n.Text != "The last 3 starts failed: the repo is no git checkout." {
+		t.Fatalf("starts that failed: %+v", n)
+	}
+	set("STALLED", "3 "+lifecycle.WakeStall+": the terminal did not open")
+	if n := needs("worker"); n == nil || n.Kind != "no_session" || n.Title != "Woke but didn't start" || n.Text != "It was woken 3 times and no session started: the terminal did not open." {
+		t.Fatalf("wakes that started nothing: %+v", n)
+	}
+	set("STALLED", "worker's terminal is showing claude's "+lifecycle.TrustStall+" for /w/tree (account a, recorded worktree /w/tree) - nothing was typed into it")
+	if n := needs("worker"); n == nil || n.Kind != "trust" || n.Title != "Waiting for folder trust" ||
+		n.Text != "Claude Code is asking whether to trust the files in /w/tree. Only you can answer it, in the terminal." {
+		t.Fatalf("a folder-trust prompt: %+v", n)
 	}
 	set("IDLE", "")
 	// The healer's ladder at its last rung, then the trouble ending.

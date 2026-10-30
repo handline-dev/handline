@@ -151,7 +151,7 @@ func isType(kind string, got any) bool {
 var varPattern = regexp.MustCompile(`\{\{(\w+)\}\}`)
 
 // Fill is conformance.py's substitute: a string that is a whole "{{name}}" becomes vars[name], keeping its type; a {{name}} inside a longer
-// string is replaced by the value's text.
+// string is replaced by the value's text; an object's keys are filled as strings.
 func Fill(v any, vars map[string]any) any {
 	switch x := v.(type) {
 	case string:
@@ -169,7 +169,7 @@ func Fill(v any, vars map[string]any) any {
 	case map[string]any:
 		out := map[string]any{}
 		for k, e := range x {
-			out[k] = Fill(e, vars)
+			out[fmt.Sprint(Fill(k, vars))] = Fill(e, vars)
 		}
 		return out
 	case []any:
