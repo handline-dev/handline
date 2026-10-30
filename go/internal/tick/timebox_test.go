@@ -308,7 +308,7 @@ func TestTheBackgroundCheckAsksAnIdleAgentWhichJobsToStopEveryCheckInterval(t *t
 		t.Fatalf("asked before the interval: %v", p.sent)
 	}
 	b.SweepBackgroundCheck(tk, 800)
-	if len(p.sent) != 1 || !strings.Contains(p.sent[0], "1. npm test") || countEvents(t, tk, "a", "background_checked") != 1 {
+	if len(p.sent) != 1 || !strings.Contains(p.sent[0], "1. npm test") || !strings.Contains(p.sent[0], "a process you detached (nohup, &, PPID 1) is not asked about") || countEvents(t, tk, "a", "background_checked") != 1 {
 		t.Fatalf("%v", p.sent)
 	}
 	b.SweepBackgroundCheck(tk, 900)

@@ -67,6 +67,24 @@ func TestTheFoundersReplyIsTypedWithTheMessageItAnswers(t *testing.T) {
 	eventually(t, func() bool { row, _ := db.GetRequest(r.DB, out.RID); return row.LandedAt.Valid })
 }
 
+// A reply that quotes part of its parent carries the quote as a > line under the reference, then a blank line, then its words.
+func TestTheFoundersQuoteIsTypedAboveTheReply(t *testing.T) {
+	r, _, typed := typedRig(t)
+	parent := r.ask("bob", "human", "#566 merge please\nthe checks are green", "say")
+	out, err := r.Ask(r.DB, AskIn{Target: "bob", Body: "which checks?", Requester: "human", Kind: "say", ParentID: parent})
+	r.must(err)
+	out.Finish()
+	r.must(db.MarkFounderAuthored(r.DB, out.RID))
+	r.must(db.SetQuote(r.DB, out.RID, "the checks are green"))
+	if got, err := r.TellNow(r.DB, out.RID); err != nil || got != "sent" {
+		t.Fatalf("%q %v", got, err)
+	}
+	eventually(t, func() bool { return len(*typed) == 1 })
+	if want := "(in reply to " + db.MsgName(r.DB, parent) + ": #566 merge please)\n> the checks are green\n\nwhich checks?"; (*typed)[0] != want {
+		t.Fatalf("typed %q, want %q", (*typed)[0], want)
+	}
+}
+
 // A message that starts with ! is typed exactly as written, even as a reply: the reference line would push the ! off the front.
 func TestABangMessageIsTypedAsWrittenEvenAsAReply(t *testing.T) {
 	r, _, typed := typedRig(t)
@@ -75,6 +93,7 @@ func TestABangMessageIsTypedAsWrittenEvenAsAReply(t *testing.T) {
 	r.must(err)
 	out.Finish()
 	r.must(db.MarkFounderAuthored(r.DB, out.RID))
+	r.must(db.SetQuote(r.DB, out.RID, "merge please"))
 	if got, err := r.TellNow(r.DB, out.RID); err != nil || got != "sent" {
 		t.Fatalf("%q %v", got, err)
 	}

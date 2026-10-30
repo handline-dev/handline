@@ -21,6 +21,7 @@ export const NOT_FROM_UI = [
   'task.memo.delete',
   'task.progress',
   'task.handoff',
+  'worktree.declare', // hl worktree add: an agent records the worktree it works in
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',

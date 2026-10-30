@@ -1,7 +1,7 @@
-// Chat and its composer: my bubble on the right, the agent's words with no ground, one composer for chat and comments.
+// Chat and composer: my bubble on the right, the agent's words with no ground.
 import { ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ReactNode, TextareaHTMLAttributes } from 'react';
+import type { HTMLAttributes, ReactNode, TextareaHTMLAttributes } from 'react';
 
 export function UserBubble({ children }: { children: ReactNode }) {
   return (
@@ -60,3 +60,26 @@ export function FootCell({ icon: Glyph, onOpen, children }: { icon: LucideIcon; 
     </button>
   );
 }
+
+/** A quiet line for what happened or waits, with no ground. */
+export function Notice({
+  icon,
+  actions,
+  children,
+  className,
+  ...rest
+}: { icon: ReactNode; actions?: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      {...rest}
+      className={`card my-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2${className ? ` ${className}` : ''}`}
+    >
+      <span className="flex-none">{icon}</span>
+      <span className="card-what min-w-0">{children}</span>
+      {actions}
+    </div>
+  );
+}
+
+/** The bar under the words: a class, not a part, so a keystroke draws nothing extra. */
+export const COMPOSER_BAR = 'mt-3 flex items-center justify-end gap-2 text-sm text-ink-2';

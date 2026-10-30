@@ -57,15 +57,24 @@ func (e *Env) sayingNow(rid int64) bool {
 	return e.saying[rid]
 }
 
-// founderText is what is typed for a founder's message: the message it replies to, when it is a reply, then the words as written, then
-// the paths of its pictures. A message that starts with `!` is a command typed as written: no reference line, so the `!` stays first.
+// founderText is what is typed for a founder's message: the message it replies to, when it is a reply, and the words it quotes, then the
+// words as written, then the paths of its pictures. A message that starts with `!` is a command typed as written: no reference line or
+// quote, so the `!` stays first.
 func founderText(q db.Q, row *db.Request, images string) string {
-	reply := inReplyTo(q, row)
 	if strings.HasPrefix(row.Body, "!") {
-		reply = ""
+		return strings.TrimSpace(strings.TrimSpace(textsafe.Lines(row.Body)) + "\n" + images)
 	}
+	reply := inReplyTo(q, row)
 	if reply != "" {
 		reply = "(" + reply + ")\n"
 	}
-	return strings.TrimSpace(reply + strings.TrimSpace(textsafe.Lines(row.Body)) + "\n" + images)
+	return strings.TrimSpace(reply + quoted(row) + strings.TrimSpace(textsafe.Lines(row.Body)) + "\n" + images)
+}
+
+// quoted is the words of its parent a message quotes as a > block and a blank line, for above its body; "" with no quote.
+func quoted(r *db.Request) string {
+	if !r.Quote.Valid {
+		return ""
+	}
+	return "> " + textsafe.Oneline(r.Quote.String) + "\n\n"
 }
