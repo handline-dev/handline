@@ -224,10 +224,10 @@ export type AgentSettingValues = {
 };
 
 export type NeedsYou = {
-  /** permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other (a start-up dialog the daemon will not answer included), and any the daemon does not know: unknown is a person. stuck: the daemon retried, restarted and relaunched the agent and it is still stuck: one card, gone when the trouble is. The same event is never two cards, and a load hold is never stuck. */
-  kind: "permission" | "question" | "usage" | "dialog" | "stuck";
+  /** permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other (a start-up dialog the daemon will not answer included), and any the daemon does not know: unknown is a person. stuck: the daemon retried, restarted and relaunched the agent and it is still stuck: one card, gone when the trouble is. trust: the vendor waits at its folder-trust screen. start_failed: the last starts failed and the agent is stalled. no_session: wakes were made and no session started. The same event is never two cards, and a load hold is never stuck. */
+  kind: "permission" | "question" | "usage" | "dialog" | "stuck" | "trust" | "start_failed" | "no_session";
   since: Timestamp;
-  /** The card's title: plain, one line, at most 40 characters, chosen from the kind and where it came from. daemon: 'Stuck at a start-up dialog' (a start-up dialog it will not answer), 'Stuck at a dialog' (a dialog it cannot get past), 'Stuck after restarts' (stuck). hook, session: 'Waiting for your OK' (permission), 'Asked you a question' (question), 'Usage limit: choose what to do' (usage), 'Waiting at a dialog' (dialog). */
+  /** The card's title: plain, one line, at most 40 characters, chosen from the kind and where it came from. daemon: 'Waiting for folder trust' (trust), 'Stuck at a start-up dialog' (a start-up dialog it will not answer), 'Stuck at a dialog' (a dialog it cannot get past), 'Stuck after restarts' (stuck), 'Won't start' (start_failed), 'Woke but didn't start' (no_session). hook, session: 'Waiting for your OK' (permission), 'Asked you a question' (question), 'Usage limit: choose what to do' (usage), 'Waiting at a dialog' (dialog). */
   title: string;
   /** The card's description, a full sentence under the title, from the hook, the session file or the daemon's record; never read from the screen. It does not name the agent: the card is in that agent's chat. */
   text: string | null;

@@ -1,11 +1,23 @@
 // A state is a glyph and a word; the hue only repeats them, so it never carries a state alone. Working spins and starting pulses (both stop for reduced motion).
-import { CircleCheck, CircleDashed, CirclePause, CircleSlash, Hand, Loader, Moon, Circle, type LucideIcon } from 'lucide-react';
+import {
+  CircleCheck,
+  CircleDashed,
+  CirclePause,
+  CircleSlash,
+  Hand,
+  Loader,
+  Moon,
+  Circle,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react';
 
-export type StateName = 'working' | 'needs' | 'blocked' | 'idle' | 'waiting' | 'starting' | 'done' | 'dropped' | 'draft';
+export type StateName = 'working' | 'needs' | 'alarm' | 'blocked' | 'idle' | 'waiting' | 'starting' | 'done' | 'dropped' | 'draft';
 
 const SPEC: Record<StateName, { Glyph: LucideIcon; word: string; look: string }> = {
   working: { Glyph: Loader, word: 'Working', look: 'text-working animate-[spin_1.6s_linear_infinite]' },
   needs: { Glyph: Hand, word: 'Needs you', look: 'text-wait' },
+  alarm: { Glyph: TriangleAlert, word: 'Stuck', look: 'text-wait' },
   blocked: { Glyph: CirclePause, word: 'Blocked', look: 'text-bad' },
   idle: { Glyph: Circle, word: 'Idle', look: '' },
   waiting: { Glyph: Moon, word: 'Waiting for a time', look: '' },

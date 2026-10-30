@@ -25,6 +25,8 @@ export type CardAction =
   | { type: 'worktree'; item: InboxItem; answer: WorktreeAnswer }
   | { type: 'open'; to: string }
   | { type: 'terminal'; agent: string }
+  /** A start that failed: clear the stall so the agent is started again. */
+  | { type: 'retry'; agent: string }
   | { type: 'read'; id: number };
 
 export type WorktreeAnswer = 'keep' | 'save' | 'force';
@@ -262,37 +264,37 @@ export function myTurn({ items, agents, tasks, titles, machine = [], me = '' }: 
 
   for (const a of agents) {
     // A daemon that reads the screen sets has_dialog and serves no needs_you: the card is still a dialog.
-    const n = a.needs_you ?? (a.has_dialog ? { kind: 'dialog', since: a.state_since, text: a.state_detail || null } : null);
+    const n =
+      a.needs_you ?? (a.has_dialog ? { kind: 'dialog', since: a.state_since, text: a.state_detail || null, source: 'screen' } : null);
     if (!n) continue;
     if (n.kind !== 'dialog' && prompted.has(a.name)) continue; // its inbox item is the card
     const dialog = n.kind === 'dialog';
-    const w = when(a.task?.id ?? null);
+    // A stall the daemon raised is the session's, not the task's: it carries no task.
+    const task = n.source === 'daemon' ? null : (a.task?.id ?? null);
+    const w = when(task);
     cards.push({
       key: `agent:${a.name}`,
       kind: dialog ? 'dialog' : 'attention',
-      title: dialog
-        ? 'Waiting on a dialog'
-        : n.kind === 'permission'
-          ? 'Waiting for a yes'
-          : n.kind === 'question'
-            ? 'Asked you a question'
-            : 'Hit the session limit',
+      title: ('title' in n && n.title) || (dialog ? 'Waiting on a dialog' : 'Hit the session limit'), // the daemon's own title; a screen-read dialog has none
       detail: n.text ?? '',
       agent: a.name,
       from: a.name,
-      task: a.task?.id ?? null,
+      task,
       memo: null,
       review: false,
       ...w,
       since: at(n.since),
       primary: 1,
-      // A dialog the daemon does not know has no Allow or Deny: the terminal is the only way.
-      actions: dialog
-        ? [{ type: 'terminal', agent: a.name }]
-        : [
-            { type: 'open', to: `#/agents/${encodeURIComponent(a.name)}` },
-            { type: 'terminal', agent: a.name },
-          ],
+      // A dialog the daemon does not know has no Allow or Deny: the terminal is the only way. A stall the daemon raised has its one button.
+      actions:
+        n.kind === 'start_failed' || n.kind === 'no_session'
+          ? [{ type: 'retry', agent: a.name }]
+          : dialog || n.kind === 'trust'
+            ? [{ type: 'terminal', agent: a.name }]
+            : [
+                { type: 'open', to: `#/agents/${encodeURIComponent(a.name)}` },
+                { type: 'terminal', agent: a.name },
+              ],
     });
   }
 

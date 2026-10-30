@@ -22,6 +22,8 @@ let root: Root | null = null;
 let box: HTMLElement;
 const card = () => box.querySelector<HTMLElement>('.card-needs');
 const chip = () => box.querySelector<HTMLElement>(`[data-agent="${ARCH}"] .needs`);
+const rowLine = () => box.querySelector<HTMLElement>(`[data-agent="${ARCH}"] .row-line`);
+const alarm = () => box.querySelector<HTMLElement>(`[data-agent="${ARCH}"] .mark.alarm`);
 
 async function mount(s: ReturnType<typeof setup>) {
   location.hash = `#/agents/${ARCH}`;
@@ -56,10 +58,106 @@ describe('needs you', () => {
     };
     await mount(s);
     await until(() => card(), 'the card');
-    expect(card()!.textContent).toContain('Out of usage');
+    expect(card()!.querySelector('strong')!.textContent).toBe('Usage limit: choose what to do');
     expect(card()!.textContent).toContain('Weekly limit reached');
-    expect(card()!.querySelector('button')!.getAttribute('aria-label')).toBe('Open terminal');
-    expect(chip()?.textContent).toBe('usage');
+    expect(card()!.querySelector('button')!.textContent).toBe('Open the terminal');
+    expect(chip()).toBeNull(); // no amber chip: a warning mark beside the name and the title whole under it
+    expect(alarm()).not.toBeNull();
+    expect(rowLine()!.textContent).toBe('Usage limit: choose what to do');
+  });
+
+  it('a stall the daemon raised shows its title alone on the row and the title with its description in the chat', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = {
+      needs_you: {
+        kind: 'dialog',
+        since: new Date().toISOString(),
+        title: 'Stuck at a dialog',
+        text: 'cannot get past a dialog: it asks for a login',
+        source: 'daemon',
+      },
+    };
+    await mount(s);
+    await until(() => card(), 'the card');
+    expect(rowLine()!.textContent).toBe('Stuck at a dialog');
+    expect(card()!.querySelector('strong')!.textContent).toBe('Stuck at a dialog');
+    expect(card()!.textContent).toContain('cannot get past a dialog: it asks for a login');
+  });
+
+  it('a start that failed has one button, Try again, in place of the terminal', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = {
+      needs_you: {
+        kind: 'start_failed',
+        since: new Date().toISOString(),
+        title: "Won't start",
+        text: 'The last 3 starts failed: the repo is no git checkout.',
+        source: 'daemon',
+      },
+    };
+    await mount(s);
+    await until(() => card(), 'the card');
+    expect(card()!.querySelectorAll('button').length).toBe(1);
+    expect(card()!.querySelector('button')!.textContent).toBe('Try again');
+    expect(card()!.textContent).toContain('The last 3 starts failed');
+  });
+
+  describe('when the need goes away', () => {
+    const goes = async (source: 'daemon' | 'hook') => {
+      const s = setup();
+      const a = s.daemon.sessions.get(ARCH)!;
+      keep = () => void (a.fx.view = undefined);
+      a.fx.view = {
+        needs_you: { kind: 'trust', since: new Date().toISOString(), title: 'Waiting for folder trust', text: 'x', source },
+      };
+      await mount(s);
+      await until(() => card(), 'the card');
+      a.fx.view = { needs_you: null };
+      const script = (s.daemon as unknown as { script: { setState(s: unknown, state: string): void } }).script;
+      await act(async () => script.setState(a, a.state === 'idle' ? 'running' : 'idle'));
+      await until(() => !card(), 'the card gone');
+    };
+
+    it('leaves one grey line for a stall the daemon raised', async () => {
+      await goes('daemon');
+      await until(() => box.querySelector('.card-solved'), 'the grey line');
+      const line = box.querySelector('.card-solved')!;
+      expect(line.textContent).toMatch(/^Folder trust answered · \d+s$/);
+      expect([...line.children].map((c) => c.tagName)).toEqual(['HR', 'SPAN', 'HR']); // the words centred between two hairlines
+    });
+
+    it('leaves none for a need from a hook or the session', async () => {
+      await goes('hook');
+      await wait(100);
+      expect(box.querySelector('.card-solved')).toBeNull();
+    });
+  });
+
+  it('keeps a reader at the bottom of the chat when the card comes', async () => {
+    const s = setup();
+    const a = s.daemon.sessions.get(ARCH)!;
+    keep = () => void (a.fx.view = undefined);
+    await mount(s);
+    const stream = await (async () => {
+      await until(() => box.querySelector('.stream'), 'the stream');
+      return box.querySelector<HTMLElement>('.stream')!;
+    })();
+    let view = 800;
+    Object.defineProperty(stream, 'scrollHeight', { configurable: true, get: () => 1000 });
+    Object.defineProperty(stream, 'clientHeight', { configurable: true, get: () => view });
+    stream.scrollTop = 200;
+    view = 700; // the card takes 100px from the stream
+    a.fx.view = {
+      needs_you: { kind: 'trust', since: new Date().toISOString(), title: 'Waiting for folder trust', text: 'x', source: 'daemon' },
+    };
+    const script = (s.daemon as unknown as { script: { setState(s: unknown, state: string): void } }).script;
+    await act(async () => script.setState(a, a.state === 'idle' ? 'running' : 'idle'));
+    await until(() => card(), 'the card');
+    await until(() => stream.scrollTop === 300, 'the stream back at its bottom');
   });
 
   it('shows no card and no chip when the daemon says nothing is waited on', async () => {
@@ -91,7 +189,8 @@ describe('needs you', () => {
     await mount(s);
     await until(() => card(), 'the card');
     expect(card()!.dataset.need).toBe('dialog');
+    expect(card()!.querySelector('strong')!.textContent).toBe('Waiting at a dialog');
     expect(card()!.textContent).toContain('dialog open');
-    expect(card()!.querySelector('button')!.getAttribute('aria-label')).toBe('Open terminal');
+    expect(card()!.querySelector('button')!.textContent).toBe('Open the terminal');
   });
 });

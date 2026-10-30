@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/handline/handline/go/internal/agentview"
@@ -54,11 +55,8 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 		// The daemon's own record of an agent waiting on a person: a start-up dialog it will not answer, a dialog it cannot get past, an
 		// agent it could not heal. One card for the event, and it goes when the dialog closes or the trouble does.
 		if row.State == states.Stalled {
-			if detail := row.Detail.String; strings.Contains(detail, lifecycle.DialogStall) {
-				text := strings.TrimSpace("Nothing was typed into it: only a person can answer it. " + lifecycle.DialogReason(detail))
-				return &agentview.NeedsYou{Kind: "dialog", Source: "daemon", Since: row.Updated, Title: "Stuck at a start-up dialog", Text: text}
-			} else if why, ok := strings.CutPrefix(detail, supervisor.DialogStall+": "); ok {
-				return &agentview.NeedsYou{Kind: "dialog", Source: "daemon", Since: row.Updated, Title: "Stuck at a dialog", Text: why}
+			if n := stallNeed(row); n != nil {
+				return n
 			}
 		}
 		if since, up := heal.CardUp(q, agent); up {
@@ -94,4 +92,44 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 		}
 		return nil
 	}
+}
+
+// stallNeed is the card for a stall the daemon raised itself, one of five kinds: the title and the sentence under it are fixed here, from the
+// stalled row's detail, so the two paths that raise a dialog stall (the launch's and the sender's) say the same thing. nil for a stall it has no card for.
+func stallNeed(row *db.AgentState) *agentview.NeedsYou {
+	detail := row.Detail.String
+	need := func(kind, title, text string) *agentview.NeedsYou {
+		return &agentview.NeedsYou{Kind: kind, Source: "daemon", Since: row.Updated, Title: title, Text: text}
+	}
+	switch {
+	case strings.Contains(detail, lifecycle.TrustStall):
+		folder := "its folder"
+		if _, rest, ok := strings.Cut(detail, " for "); ok {
+			if f, _, ok := strings.Cut(rest, " (account"); ok && f != "" {
+				folder = f
+			}
+		}
+		return need("trust", "Waiting for folder trust", "Claude Code is asking whether to trust the files in "+folder+". Only you can answer it, in the terminal.")
+	case strings.Contains(detail, lifecycle.DialogStall):
+		_, ask, _ := strings.Cut(lifecycle.DialogReason(detail), ": ") // the reason is "a dialog is open on its screen: <what it shows>"
+		ask = strings.TrimRight(strings.TrimSpace(ask), ".")
+		if ask == "" {
+			ask = "a question"
+		}
+		return need("dialog", "Stuck at a start-up dialog", "Claude Code is asking "+ask+". Only you can answer it, in the terminal.")
+	case strings.HasPrefix(detail, supervisor.DialogStall+": "):
+		why := strings.TrimRight(strings.TrimSpace(strings.TrimPrefix(detail, supervisor.DialogStall+": ")), ".")
+		return need("dialog", "Stuck at a dialog", "A dialog came up while it was working, so messages can't reach it: "+why+".")
+	case strings.Contains(detail, lifecycle.StartStall):
+		return need("start_failed", "Won't start", fmt.Sprintf("The last %d starts failed: %s.", states.MaxFailedAttempts, stallWhy(detail)))
+	case strings.Contains(detail, lifecycle.WakeStall):
+		return need("no_session", "Woke but didn't start", fmt.Sprintf("It was woken %d times and no session started: %s.", states.MaxFailedAttempts, stallWhy(detail)))
+	}
+	return nil
+}
+
+// stallWhy is the reason that ends a start or wake stall's detail, after "<n> <words>: ", without its closing full stop.
+func stallWhy(detail string) string {
+	_, why, _ := strings.Cut(detail, ": ")
+	return strings.TrimRight(strings.TrimSpace(why), ".")
 }

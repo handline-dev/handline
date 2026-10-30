@@ -63,8 +63,9 @@ describe('my turn', () => {
     await until(() => cards().some((c) => c.dataset.kind === 'dialog'), 'the dialog card');
     const dialog = cards().find((c) => c.dataset.kind === 'dialog')!;
     expect(dialog.textContent).toContain('Trust this folder?');
+    expect(dialog.querySelector('.font-mono')).toBeNull(); // plain text, not the code box of an approval
     const names = [...dialog.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent);
-    expect(names).toContain('Open terminal');
+    expect(names).toContain('Open the terminal');
     expect(names).not.toContain('Allow'); // the answer is the terminal; the rest only name or open the agent
     expect(box.querySelector('.rail-nav')!.textContent).toMatch(/Requests\d+/);
   });

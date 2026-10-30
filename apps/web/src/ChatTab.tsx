@@ -247,6 +247,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     if (grew > 0 && !windowed) scroll.added(grew);
   }, [entries.length, tail, windowed]); // eslint-disable-line react-hooks/exhaustive-deps
   const bottom = () => scroll.bottom();
+  const cardUp = !!(detail.needs_you || detail.has_dialog) && !detail.prompt; // the needs-you card above the composer narrows the stream
+  useLayoutEffect(() => scroll.resized(), [cardUp]); // eslint-disable-line react-hooks/exhaustive-deps
   // Sending always shows the message: the sent row is at the bottom, whatever the person had scrolled to.
   useLayoutEffect(() => {
     const e = entries.at(-1);
@@ -371,7 +373,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
                 {drawn ? <HrCards agent={agent} /> : null}
                 {drawn && restartAt < 0 ? <HandoffCard detail={detail} items={chat.items} /> : null}
-                {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
                 {drawn ? <HeldCard detail={detail} /> : null}
                 {drawn ? <BlockedCard detail={detail} /> : null}
                 {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
@@ -387,6 +388,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           <div className="cards px-3">
             <PromptSlot agent={agent} prompt={detail.prompt} />
           </div>
+          {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
           <Compose
             key={agent}
             agent={agent}

@@ -2,8 +2,9 @@
 // beside the open item. A row only opens the item; the answer is given in the detail, which ends with its answers and nothing after them.
 import { ChevronRight, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
-import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
+import { APPROVED, VERBS, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
+import { classify, sentence, useAgents, useMyTurn, useVerbRun, useWrite } from '@handline/app-data';
+import { WORKTREE_SAID, dueText, factsOf, label, memberOf, sourceFull, sourceWord } from '#src/requestsText.ts';
 import { useKeepPlace } from '#src/useKeepPlace.ts';
 import { Fold } from '#src/Fold.tsx';
 import { NewTask } from '#src/NewTask.tsx';
@@ -59,67 +60,8 @@ const GROUPS: Group[] = ['Allow', 'Decide', 'Review', 'Do by hand'];
 const groupOf = (c: Card): Group =>
   c.review ? 'Review' : c.kind === 'approval' ? 'Allow' : c.kind === 'decision' ? 'Decide' : 'Do by hand';
 
-/** Where an item came from: the word the list shows, and the words the open item's chip carries. */
-const sourceWord = (c: Card): string =>
-  c.memo != null ? 'Comment' : c.task != null ? 'Task' : c.kind === 'machine' ? 'Machine' : 'Session';
-const sourceFull = (c: Card): string =>
-  c.task != null
-    ? `${sourceWord(c)} T${c.task}`
-    : c.kind === 'machine'
-      ? 'Machine'
-      : `Session ${(c.from ?? c.agent ?? '').split('.').pop()}`;
-
 /** Outside the component: the compiler reads an assignment to `location` in a handler as a mutation of a value it owns. */
 const goHash = (to: string) => void (location.hash = to);
-
-function dueText(due: number, now: number): string {
-  const s = Math.round((due - now) / 1000);
-  const t =
-    Math.abs(s) < 3600
-      ? `${Math.max(1, Math.round(Math.abs(s) / 60))}m`
-      : Math.abs(s) < 86400
-        ? `${Math.round(Math.abs(s) / 3600)}h`
-        : `${Math.round(Math.abs(s) / 86400)}d`;
-  return s >= 0 ? `due in ${t}` : `${t} overdue`;
-}
-
-function label(a: CardAction): string {
-  switch (a.type) {
-    case 'answer':
-      return 'Reply';
-    case 'allow':
-      return 'Allow';
-    case 'deny':
-      return 'Deny';
-    case 'done':
-    case 'done_task':
-      return 'Done';
-    case 'worktree':
-      return { keep: 'Keep it', save: 'Save to a branch, then remove', force: 'Remove anyway' }[a.answer];
-    case 'approve':
-      return 'Approve';
-    case 'ask_change':
-    case 'change':
-      return 'Ask for change';
-    case 'reply':
-      return a.label;
-    case 'open':
-      return 'Open';
-    case 'terminal':
-      return 'Open terminal';
-    case 'read':
-      return 'Mark read';
-  }
-}
-
-const memberOf = (detail: string) => /^Member: (.+)$/m.exec(detail)?.[1]?.trim() ?? 'the member';
-/** A worktree-removal body ends with how to close the task by number; the buttons do that. */
-const factsOf = (detail: string) => detail.split(/\n+Member: /)[0] ?? detail;
-const WORKTREE_SAID = {
-  keep: (m: string) => `${m}'s worktree stays`,
-  save: (m: string) => `Saved to a rescue branch; ${m}'s worktree removed`,
-  force: (m: string) => `${m}'s worktree removed with its files`,
-};
 
 /** The open item: its header, the ask, then the answers and nothing after them. The source chip is the one way to open the item itself. */
 function CardDetail({
@@ -139,6 +81,7 @@ function CardDetail({
   const read = useWrite('inbox.mark_read');
   const [change, setChange] = useState(false);
   const [sure, setSure] = useState(false);
+  const verb = useVerbRun(card.agent ?? '');
   const [asking, setAsking] = useState(false);
   const [text, setText] = useState('');
   // The daemon's own words for a refused write; the buttons stay usable.
@@ -190,6 +133,8 @@ function CardDetail({
         return card.task != null ? goTasks(card.task) : goHash(a.to);
       case 'terminal':
         return goTerminal(a.agent);
+      case 'retry':
+        return verb(VERBS.clear_stall);
       case 'read':
         return holdWrites('Marked read', [['inbox.mark_read', { ids: [a.id] }]]);
     }
@@ -242,7 +187,7 @@ function CardDetail({
       {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       <Answer
         kind={groupOf(card)}
-        code={card.kind === 'approval' || card.kind === 'dialog'}
+        code={card.kind === 'approval'}
         ask={
           card.detail ? (
             <Fold note={wt ? factsOf(card.detail) : card.detail} long={card.task != null && noteIsLong(card.detail)}>

@@ -19,6 +19,7 @@ import { Icon } from '#src/ui/index.ts';
 import { Button } from '#src/ds/Button.tsx';
 import { ExternalLink, Terminal } from 'lucide-react';
 import { Notice } from '#src/ds/Chat.tsx';
+import { StateMark } from '#src/ds/StateMark.tsx';
 import { goTeam } from '#src/route.ts';
 import { AgentGauges, GaugeLine } from '#src/AgentGauges.tsx';
 import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
@@ -172,34 +173,80 @@ export function HrCards({ agent }: { agent: string }) {
   );
 }
 
-const NEEDS: Record<string, string> = {
-  permission: 'Needs you',
-  question: 'Asked you a question',
-  usage: 'Out of usage',
-  dialog: 'Waiting on a dialog',
+/** The grey line that stays when a daemon stall is solved, by the title it had. */
+const SOLVED: Record<string, string> = {
+  'Waiting for folder trust': 'Folder trust answered',
+  'Stuck at a start-up dialog': 'Start-up dialog answered',
+  'Stuck at a dialog': 'Dialog answered',
+  "Won't start": 'Started again',
+  "Woke but didn't start": 'Started',
 };
 
-/** What the agent waits on a person for, with how long and a way to its terminal; gone when the daemon stops saying it. */
+/** The daemon stall `title` this agent is under (null for none), and once it ends, which one it was and when: kept only for the agent it was seen on. */
+export function useSolvedStall(agent: string, title: string | null): { title: string; at: string } | null {
+  const [solved, setSolved] = useState<{ agent: string; title: string; at: string } | null>(null);
+  const [seen, setSeen] = useState<{ agent: string; title: string } | null>(null);
+  if (title && (seen?.agent !== agent || seen.title !== title)) setSeen({ agent, title });
+  if (title && solved) setSolved(null);
+  if (!title && seen) {
+    if (seen.agent === agent) setSolved({ ...seen, at: new Date().toISOString() });
+    setSeen(null);
+  }
+  return !title && solved?.agent === agent ? solved : null;
+}
+
+/** What the agent waits on a person for; a daemon stall that clears leaves one grey line, so the person sees it was solved. */
 export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   // A daemon that reads the screen sets has_dialog and serves no needs_you: the card still says it, with the daemon's own line.
   const need =
     detail.needs_you ??
-    (detail.has_dialog ? { kind: 'dialog', since: detail.state_since, text: detail.state_detail || null, source: 'screen' } : null);
+    (detail.has_dialog
+      ? { kind: 'dialog', since: detail.state_since, title: 'Waiting at a dialog', text: detail.state_detail || null, source: 'screen' }
+      : null);
   const openTerminal = useOpenTerminal(detail);
-  if (!need) return null;
+  const run = useVerbRun(detail.name);
+  const now = useNow();
+  const solved = useSolvedStall(detail.name, need?.source === 'daemon' && SOLVED[need.title] ? need.title : null);
+  if (!need) {
+    return solved ? (
+      <div>
+        <div className="mx-3 mb-2 max-w-[680px]">
+          <div className="card-solved flex items-center gap-3 text-meta text-ink-2" data-kind="solved" role="status">
+            <hr className="m-0 h-px flex-1 border-0 bg-line" />
+            <span>
+              {SOLVED[solved.title]} · {ago(solved.at, now)}
+            </span>
+            <hr className="m-0 h-px flex-1 border-0 bg-line" />
+          </div>
+        </div>
+      </div>
+    ) : null;
+  }
   const reachable = detail.structured || !!detail.terminal;
+  const again = need.kind === 'start_failed' || need.kind === 'no_session';
+  // The outer div is the chat's column (every child of the chat is centred at its width); the inner one has the composer's edges.
   return (
-    <Notice
-      icon={<Icon name="blocked" label="Needs you" />}
-      className="card-needs"
-      data-kind="needs_you"
-      data-need={need.kind}
-      actions={<Button iconOnly size="s" icon={Terminal} label="Open terminal" disabled={!reachable} onClick={openTerminal} />}
-    >
-      <strong>{NEEDS[need.kind] ?? NEEDS.dialog}</strong>
-      {need.text ? <span className="muted"> · {need.text}</span> : null}
-      <span className="muted"> · {ago(need.since)}</span>
-    </Notice>
+    <div>
+      <div className="mx-3 mb-2 max-w-[680px]">
+        <div
+          className="card-needs flex flex-col items-start gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-2"
+          data-kind="needs_you"
+          data-need={need.kind}
+        >
+          <div className="flex items-center gap-2">
+            <StateMark state="alarm" label="Needs you" />
+            <strong className="text-ink">{need.title}</strong>
+            <span className="muted">· {ago(need.since)}</span>
+          </div>
+          {need.text ? <span>{need.text}</span> : null}
+          {again ? (
+            <Button kind="primary" size="s" label="Try again" onClick={() => run(VERBS.clear_stall)} />
+          ) : (
+            <Button kind="primary" size="s" icon={Terminal} label="Open the terminal" disabled={!reachable} onClick={openTerminal} />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
