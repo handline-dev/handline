@@ -1,5 +1,5 @@
 // The two-agent split: an agent row dragged onto the right half opens it beside (?beside= in the URL), onto the left half switches that pane;
-// Back undoes a drop; keys reach only the half last clicked; a window too narrow refuses.
+// the URL alone decides the halves (a reload or Back shows what it names); keys reach only the half last clicked; a window too narrow refuses.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -37,9 +37,9 @@ afterEach(async () => {
   box?.remove();
   location.hash = '';
 });
-async function mount() {
+async function mount(hash = `#/agents/${A}`) {
   const store = new Store(setup().client);
-  location.hash = `#/agents/${A}`;
+  location.hash = hash;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
@@ -80,6 +80,15 @@ describe('the split by drag', () => {
     await dragOnto(B, 'right');
     await until(() => halves().length === 2, 'the second half');
     expect(location.hash).toBe(`#/agents/${encodeURIComponent(A)}?beside=${encodeURIComponent(B)}`);
+  });
+
+  it('shows both halves for a URL loaded with ?beside=, and one again when the URL returns to the agent alone', async () => {
+    await mount(`#/agents/${A}?beside=${encodeURIComponent(B)}`);
+    await until(() => halves().length === 2, 'both halves');
+    expect($('[data-half="right"]')!.textContent).toContain(B);
+    // What Back does: the hash returns to the entry before the drop. (happy-dom does not walk history, so the move is made by hand.)
+    await act(async () => void (location.hash = `#/agents/${A}`));
+    await until(() => halves().length === 1, 'one agent again');
   });
 
   it('switches the left pane on a drop on the left half and keeps the second agent', async () => {

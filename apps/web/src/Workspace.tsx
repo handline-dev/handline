@@ -51,7 +51,6 @@ export interface WorkspaceCtx {
   canSplit: (group: string) => boolean;
   /** The groups render as one strip (a narrow window): a drop can only reorder or merge, never split. */
   merged: boolean;
-  /** Set on the second half of a two-agent split: closes the split. */
   closeSplit?: () => void;
   dragging: string | null;
   setDragging: (tab: string | null) => void;
