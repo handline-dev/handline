@@ -149,8 +149,6 @@ export function VerbMenu(props: {
   );
 }
 
-/** A list row's menu: a right-click on the row opens it at the cursor, the ⋯ button handed to `children` opens it under the button.
- *  A press outside closes it, so a second row's menu opening closes the first. */
 /** Open the task and copy where it is, ahead of the verbs: the mouse path to what the keys do. */
 function PlaceItems({ id }: { id: number }) {
   return (
@@ -172,6 +170,8 @@ function PlaceItems({ id }: { id: number }) {
   );
 }
 
+/** A list row's menu: a right-click on the row opens it at the cursor, the ⋯ button handed to `children` opens it under the button.
+ *  A press outside closes it, so a second row's menu opening closes the first. */
 export function RowMenu(props: {
   tasks: Task[];
   me: string;

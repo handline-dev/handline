@@ -250,6 +250,12 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
   );
 }
 
+const copyPath = (path: string) =>
+  void navigator.clipboard?.writeText(path).then(
+    () => showPill('Path copied'),
+    () => showPill('Could not copy the path'),
+  );
+
 /** The bar's + and Split for `group`. */
 export function PaneActions({ group }: { group: Group }) {
   const { agent, detail, apply, canSplit } = useWorkspace();
@@ -263,7 +269,10 @@ export function PaneActions({ group }: { group: Group }) {
     },
     !!shell('openInApps'),
   );
-  const openIn = (app: 'vscode' | 'terminal' | 'claude') => void shell('openIn')?.openIn!({ app, agent });
+  const openIn = async (app: 'vscode' | 'terminal' | 'claude') => {
+    const r = await shell('openIn')?.openIn!({ app, agent });
+    if (r && !r.ok) showPill(r.message);
+  };
   return (
     <>
       <MenuButton size="sm" label="Open in" name="Open in" align="end" trigger="Open in" className="shell:[-webkit-app-region:no-drag]">
@@ -273,21 +282,21 @@ export function PaneActions({ group }: { group: Group }) {
           </MenuItem>
         ) : null}
         {apps?.includes('claude') ? (
-          <MenuItem icon="terminal" onSelect={() => openIn('claude')}>
+          <MenuItem icon="terminal" onSelect={() => void openIn('claude')}>
             Claude Code in Terminal
           </MenuItem>
         ) : null}
         {apps?.includes('vscode') ? (
-          <MenuItem icon="edit" onSelect={() => openIn('vscode')}>
+          <MenuItem icon="edit" onSelect={() => void openIn('vscode')}>
             VS Code
           </MenuItem>
         ) : null}
         {apps?.includes('terminal') ? (
-          <MenuItem icon="terminal" onSelect={() => openIn('terminal')}>
+          <MenuItem icon="terminal" onSelect={() => void openIn('terminal')}>
             Terminal
           </MenuItem>
         ) : null}
-        <MenuItem icon="reference" onSelect={() => void navigator.clipboard?.writeText(detail.cwd)}>
+        <MenuItem icon="reference" onSelect={() => copyPath(detail.cwd)}>
           Copy path
         </MenuItem>
       </MenuButton>

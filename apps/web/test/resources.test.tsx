@@ -69,6 +69,15 @@ describe('system resources', () => {
     await until(() => text(box.querySelector('.limit-said')).includes('Load limit: 200%'), 'the line after the change');
     await act(async () => void [...box.querySelectorAll<HTMLElement>('.limit-said button')].find((b) => text(b) === 'Undo')!.click());
     await until(() => limit() === 150, 'the limit back');
+    const field = box.querySelector<HTMLInputElement>('[aria-label="Limit"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, '300');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
+    expect(limit()).toBe(150); // typing saves nothing until the field is left
+    await act(async () => void field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    await until(() => limit() === 300, 'the typed limit after blur');
   });
 
   it('the admin view lists agents heaviest first with Stop behind a menu on each row and a totals line', async () => {

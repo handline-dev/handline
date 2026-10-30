@@ -2,7 +2,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { dateTime, searchSnippet, taskRef } from '@handline/app-core';
-import type { AgentView } from '@handline/client';
 import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
 import { canCapture, requestCapture } from '#src/Capture.tsx';
 import { goAgent, goMessage, goNew, goTasks, goTeam } from '#src/route.ts';
@@ -34,11 +33,11 @@ const PAGES: [string, IconName, () => void][] = [
 ];
 
 /** What the empty box lists, by heading: the agents and tasks opened last, then the commands with their keys and the pages. Another heading's rows (what waits on the person) go in front of these. */
-function emptyState(all: Hit[], agents: AgentView[], tasks: { id: number }[]): Hit[] {
+function emptyState(all: Hit[]): Hit[] {
   const byKey = new Map(all.map((h) => [h.key, h]));
   const recent = recents()
     .map((r) => byKey.get(r.kind === 'agent' ? `a:${r.id}` : `t:${r.id}`))
-    .filter((h): h is Hit => !!h && (agents.length > 0 || tasks.length > 0))
+    .filter((h): h is Hit => !!h)
     .slice(0, 5)
     .map((h) => ({ ...h, key: `r:${h.key}`, group: 'Recent' }));
   const commands = COMMANDS.map((c): Hit => ({
@@ -95,7 +94,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
         run: () => goMessage(agent, m.id),
       };
     });
-    if (!needle) return emptyState(all, agents, tasks);
+    if (!needle) return emptyState(all);
     return [...all.filter((h) => h.label.toLowerCase().includes(needle)).slice(0, 12), ...messages];
   }, [q, agentData, taskData, found, messageQuery]);
   const go = (h: Hit | undefined) => {

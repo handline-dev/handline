@@ -15,7 +15,6 @@ import { TeamSeal } from '#src/TeamSeal.tsx';
 import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
 import { View } from '#src/View.tsx';
 
-/** The machine-wide cap stays in General; the other load limits are Advanced. */
 const PARTS = [
   { id: 'set-concurrency', label: 'Concurrency' },
   { id: 'set-closing', label: 'Closing windows' },
@@ -27,6 +26,7 @@ const PARTS = [
   { id: 'set-advanced', label: 'Advanced' },
 ];
 
+/** The machine-wide cap stays in General; the other load limits are Advanced. */
 const isHostCap = (f: { setting: string }) => f.setting === 'host_active_cap';
 
 export function SettingsPage({ storage }: { storage: KV | null }) {

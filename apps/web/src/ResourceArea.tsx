@@ -13,7 +13,7 @@ import {
   type PageSettings,
 } from '@handline/app-core';
 import type { Resources } from '@handline/client';
-import { useSettings, useStatus, useWrite } from '@handline/app-data';
+import { classify, sentence, useSettings, useStatus, useWrite } from '@handline/app-data';
 import { Coffee, Cpu, HardDrive, Layers, MemoryStick, TriangleAlert } from 'lucide-react';
 import { MenuButton, MenuCheckItem, Popup, STRIP_ITEM } from '#src/ui/index.ts';
 
@@ -118,7 +118,7 @@ export function ResourceArea() {
 type Which = 'load' | 'memory' | 'slots';
 const GB = 2 ** 30;
 
-/** A limit edited in place: − and + (or a typed number), the effect in one line, and 0 for off where the daemon allows it. Saves on every change; the notice has Undo. */
+/** A limit edited in place: − and + (or a typed number), the effect in one line, and 0 for off where the daemon allows it. A typed number is saved on blur or Enter; the notice has Undo. */
 function Stepper({
   value,
   min,
@@ -138,6 +138,7 @@ function Stepper({
   onChange: (n: number) => void;
 }) {
   const set = (n: number) => onChange(Math.max(min, Math.round(n)));
+  const commit = (typed: string) => typed !== '' && Number(typed) !== value && set(Number(typed));
   return (
     <div className="limit-editor flex flex-col gap-1.5 rounded-sm bg-surface p-2 text-md" data-limit-editor>
       <span className="flex items-center gap-2">
@@ -155,9 +156,11 @@ function Stepper({
             type="number"
             aria-label="Limit"
             className="h-7 w-16 border-0 bg-transparent text-center tabular-nums text-ink"
-            value={value}
+            key={value}
+            defaultValue={value}
             min={min}
-            onChange={(e) => e.target.value !== '' && set(Number(e.target.value))}
+            onBlur={(e) => commit(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === 'Enter' && commit(e.currentTarget.value)}
           />
           <button
             type="button"
@@ -246,7 +249,7 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
   const { rows } = useRows(r);
   const save = useWrite('settings.set');
   const [editing, setEditing] = useState<Which | null>(openAt);
-  const [said, setSaid] = useState<{ text: string; undo: () => void } | null>(null);
+  const [said, setSaid] = useState<{ text: string; undo?: () => void; refused?: boolean } | null>(null);
   useEffect(() => {
     if (!said) return;
     const t = setTimeout(() => setSaid(null), 8000);
@@ -254,10 +257,17 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
   }, [said]);
   const m = r.machine;
   const toggle = (w: Which) => setEditing(editing === w ? null : w);
-  /** Saves at once and says so, with Undo to the value before. */
+  /** Says so once the daemon has taken it, with Undo to the value before; a refusal says why instead. */
   const change = (what: string, text: string, key: keyof Limits, to: number, was: number) => {
-    save.mutate({ changes: { [key]: to } satisfies PageSettings });
-    setSaid({ text: `${what} limit: ${text}`, undo: () => save.mutate({ changes: { [key]: was } satisfies PageSettings }) });
+    save.mutate(
+      { changes: { [key]: to } satisfies PageSettings },
+      {
+        onSuccess: () =>
+          setSaid({ text: `${what} limit: ${text}`, undo: () => save.mutate({ changes: { [key]: was } satisfies PageSettings }) }),
+        onError: (e) =>
+          setSaid({ text: `${what} limit not changed: ${sentence(classify(e)) || 'no answer from the daemon'}`, refused: true }),
+      },
+    );
   };
   const totalGb = m.ram_total_bytes / GB;
   const floorGb = Math.round((m.ram_total_bytes * limits.ram_free_min_pct) / 100 / GB);
@@ -363,15 +373,20 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
         ))}
       </ul>
       {said ? (
-        <div className="limit-said flex items-center justify-between gap-2 rounded-sm bg-raised px-2 py-1.5 text-sm" role="status">
+        <div
+          className="limit-said flex items-center justify-between gap-2 rounded-sm bg-raised px-2 py-1.5 text-sm"
+          role={said.refused ? 'alert' : 'status'}
+        >
           {said.text}
-          <button
-            type="button"
-            className="cursor-pointer border-0 bg-transparent p-0 text-sm text-acc-ink"
-            onClick={() => (said.undo(), setSaid(null))}
-          >
-            Undo
-          </button>
+          {said.undo ? (
+            <button
+              type="button"
+              className="cursor-pointer border-0 bg-transparent p-0 text-sm text-acc-ink"
+              onClick={() => (said.undo?.(), setSaid(null))}
+            >
+              Undo
+            </button>
+          ) : null}
         </div>
       ) : null}
       <a className="mt-1 text-sm" href="#/machine">

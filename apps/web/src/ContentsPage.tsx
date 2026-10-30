@@ -1,15 +1,16 @@
 // The frame of a long page: a contents list at the left (sticky, marks the group in view), the content 640 wide beside it, flush left.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export type Part = { id: string; label: string };
 
 /** The part whose section is the first one in view while the page scrolls. */
 function useInView(parts: readonly Part[]): string {
   const [on, setOn] = useState(parts[0]?.id ?? '');
+  const watch = useRef<IntersectionObserver | null>(null);
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return;
     const seen = new Set<string>();
-    const watch = new IntersectionObserver(
+    watch.current = new IntersectionObserver(
       (hits) => {
         for (const h of hits) {
           if (h.isIntersecting) seen.add(h.target.id);
@@ -20,12 +21,18 @@ function useInView(parts: readonly Part[]): string {
       },
       { rootMargin: '0px 0px -70% 0px' },
     );
+    return () => {
+      watch.current?.disconnect();
+      watch.current = null;
+    };
+  }, [parts]);
+  // Sections can mount after the page does (a settings page waits for its read); observing one already watched changes nothing.
+  useEffect(() => {
     for (const p of parts) {
       const el = document.getElementById(p.id);
-      if (el) watch.observe(el);
+      if (el) watch.current?.observe(el);
     }
-    return () => watch.disconnect();
-  }, [parts]);
+  });
   return on;
 }
 
