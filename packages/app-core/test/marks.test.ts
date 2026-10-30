@@ -113,9 +113,9 @@ test('Undo takes back the last mark, and always steps back one gesture; it does 
   assert.equal(marksReducer(s, { type: 'undo' }).marks.length, 1);
 });
 
-test('Clear drops every mark and the history but keeps the sizes of the picture', () => {
-  const s = marksReducer(run({ type: 'scale', slop: 20, radius: 40 }, ...gesture([10, 10], [10, 10])), { type: 'clear' });
-  assert.deepEqual([s.marks.length, s.past.length, s.next, s.slop, s.radius], [0, 0, 1, 20, 40]);
+test('clear drops every mark and its undo steps in one action', () => {
+  const s = run(...gesture([10, 10], [10, 10]), ...gesture([50, 50], [50, 50]), { type: 'clear' });
+  assert.deepEqual([s.marks.length, s.past.length, s.open], [0, 0, null]);
 });
 
 test('a cancelled gesture leaves nothing, and the sizes follow the picture', () => {

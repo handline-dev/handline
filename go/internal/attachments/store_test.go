@@ -117,7 +117,7 @@ func TestWrongOffsetSaysWhatTheDaemonHolds(t *testing.T) {
 
 func TestTypeIsCheckedByTheFirstBytes(t *testing.T) {
 	s, _, q := testStore(t)
-	_, err := s.Put(q, PutIn{Name: "a.png", Mime: "image/svg+xml", Bytes: 5, Data: []byte("<svg>")})
+	_, err := s.Put(q, PutIn{Name: "a.png", Mime: "not a type", Bytes: 5, Data: []byte("<svg>")})
 	wantErr(t, err, "bad_request", "mime", "")
 	_, err = s.Put(q, PutIn{Name: "a.png", Mime: "image/png", Bytes: 5, Data: []byte("hello")})
 	wantErr(t, err, "bad_request", "data", "")
@@ -449,6 +449,72 @@ func TestAJpegTurnedByItsExifIsSizedAsItIsDrawn(t *testing.T) {
 		info := putAll(t, s, q, "photo.jpg", "image/jpeg", jpegWithOrientation(t, 40, 30, c.o, c.pad), 100000)
 		if info.Width != c.want[0] || info.Height != c.want[1] {
 			t.Errorf("orientation %d, pad %d: %dx%d, want %dx%d", c.o, c.pad, info.Width, info.Height, c.want[0], c.want[1])
+		}
+	}
+}
+
+// Any file is kept as sent, under the type the client gave, stored with an ending from its name, and told to the agent by the same line.
+func TestAnyFileIsKeptAsSentAndToldByTheSamePathLine(t *testing.T) {
+	s, _, q := testStore(t)
+	pdf := []byte("%PDF-1.4 not an image")
+	for _, c := range []struct{ name, mime, ending string }{
+		{"spec.PDF", "application/pdf", ".pdf"}, {"notes", "text/plain", ".bin"}, {"run.sh;x", "application/x-sh", ".bin"},
+		{"a.verylongending", "application/zip", ".bin"}, {"fake.png", "image/svg+xml", ".bin"}, {"fake.JPEG", "application/pdf", ".bin"},
+	} {
+		in := putAll(t, s, q, c.name, c.mime, pdf, 7)
+		if in.Mime != c.mime || in.Width != 0 || !strings.HasSuffix(s.Path(*in), c.ending) {
+			t.Fatalf("%+v at %s", in, s.Path(*in))
+		}
+		got, err := s.Get(in.ID, true, 0)
+		if err != nil || got.Mime != c.mime || got.Bytes != int64(len(pdf)) {
+			t.Fatalf("a thumb of a file is the file: %+v %v", got, err)
+		}
+		if st, err := os.Stat(s.Path(*in)); err != nil || st.Mode().Perm() != 0o600 {
+			t.Fatalf("a file is never executable: %v %v", st, err)
+		}
+	}
+	in := putAll(t, s, q, "spec.pdf", "application/pdf", pdf, 100)
+	line := s.line(1, *in)
+	if want := "[image 1: " + s.Path(*in) + " (application/pdf, 21 B)]"; line != want {
+		t.Fatalf("%q, want %q", line, want)
+	}
+	// an image that says so is still checked
+	_, err := s.Put(q, PutIn{Name: "a.png", Mime: "image/png", Bytes: 5, Data: []byte("hello")})
+	wantErr(t, err, "bad_request", "data", "")
+}
+
+// A file that is not checked as an image is never stored with an image ending, never thumbed or sized, even when its bytes are a PNG.
+func TestAFileOfOtherTypeIsNeitherThumbedNorSizedEvenIfItsBytesAreAPicture(t *testing.T) {
+	s, _, q := testStore(t)
+	b := pngOf(3, 2)
+	in := putAll(t, s, q, "pic.dat", "application/octet-stream", b, 100)
+	if in.Width != 0 || in.Height != 0 {
+		t.Fatalf("sized: %+v", in)
+	}
+	g, err := s.Get(in.ID, true, 0)
+	if err != nil || g.Mime != "application/octet-stream" || g.Bytes != int64(len(b)) {
+		t.Fatalf("the thumb of a file is the file: %+v %v", g, err)
+	}
+	long := "application/" + strings.Repeat("x", 88)
+	if _, err := s.Put(q, PutIn{Name: "a", Mime: long, Bytes: 1, Data: []byte("x")}); err != nil {
+		t.Fatalf("100 characters: %v", err)
+	}
+	_, err = s.Put(q, PutIn{Name: "a", Mime: long + "x", Bytes: 1, Data: []byte("x")})
+	wantErr(t, err, "bad_request", "mime", "")
+}
+
+// A tool picks image and PDF handling by a file's ending, so an ending is taken from a name only for what was checked.
+func TestAnImageOrPdfEndingIsKeptOnlyForBytesThatAreThat(t *testing.T) {
+	s, _, q := testStore(t)
+	cases := [][3]string{ // name, bytes, the ending it is stored with
+		{"a.pdf", "hello", ".bin"}, {"a.PDF", "%PDF-1.7 x", ".pdf"}, {"a.jpg", "hello", ".bin"}, {"a.gif", "hello", ".bin"},
+		{"a.webp", "hello", ".bin"}, {"a.jpeg", "hello", ".bin"}, {"a.png", "hello", ".bin"}, {"a.txt", "hello", ".txt"},
+	}
+	for _, c := range cases {
+		in := putAll(t, s, q, c[0], "application/octet-stream", []byte(c[1]), 100)
+		got, err := s.Lookup(in.ID) // the ending is kept with the file
+		if p := s.Path(got); err != nil || !strings.HasSuffix(p, c[2]) {
+			t.Errorf("%s %q at %s (%v), want %s", c[0], c[1], p, err, c[2])
 		}
 	}
 }

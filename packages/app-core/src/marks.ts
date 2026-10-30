@@ -99,7 +99,7 @@ export function marksReducer(s: MarksState, a: MarksAction): MarksState {
     case 'cancel':
       return { ...s, draft: null };
     case 'clear':
-      return { ...initialMarks(), slop: s.slop, radius: s.radius };
+      return { ...s, marks: [], past: [], draft: null, open: null };
     case 'memo':
       return { ...s, marks: s.marks.map((m) => (m.id === a.id ? { ...m, text: a.text } : m)) };
     case 'open':

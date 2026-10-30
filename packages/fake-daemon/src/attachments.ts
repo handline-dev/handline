@@ -2,7 +2,7 @@
 // Image bytes live here only; the replay store (replies, events) holds a digest or the Attachment, never the data.
 import { createHash, randomBytes } from 'node:crypto';
 import type { Attachment, ImagePart, MemoFile, TextPart } from '@handline/contract';
-import { badRequest, Failure, invalidParams, refused } from '#src/errors.ts';
+import { Failure, invalidParams, refused } from '#src/errors.ts';
 
 // These mirror the contract's x-attachments limits (kept in prose there; app-data holds the client's copy).
 export const CHUNK = 512 * 1024;
@@ -11,7 +11,7 @@ export const MAX_PER_MESSAGE = 6;
 const MAX_OPEN = 20;
 const MAX_UNSENT = 100 * 1024 * 1024;
 
-type Mime = Attachment['mime'];
+type Mime = string;
 const MAGIC: [Mime, number[]][] = [
   ['image/png', [0x89, 0x50, 0x4e, 0x47]],
   ['image/jpeg', [0xff, 0xd8, 0xff]],
@@ -19,6 +19,8 @@ const MAGIC: [Mime, number[]][] = [
   ['image/webp', [0x52, 0x49, 0x46, 0x46]],
 ];
 const typeOf = (b: Buffer): Mime | undefined => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0];
+/** A type/subtype, as Attachment.mime says. */
+const MIME = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/;
 const newId = () => randomBytes(8).toString('hex');
 
 /** The ids a text names, in order: `![caption](attachment:ID)` and nothing else (x-attachments, texts). */
@@ -55,21 +57,22 @@ export class FakeAttachments {
   memoFile(id: string): MemoFile {
     const f = this.files.get(id);
     if (!f) throw new Failure('not_found', 'That file is gone.');
-    return { id, kind: (f.mime as string) === 'text/markdown' ? 'markdown' : 'image', name: f.name, mime: f.mime, bytes: f.bytes };
+    return { id, kind: f.mime === 'text/markdown' ? 'markdown' : 'image', name: f.name, mime: f.mime as MemoFile['mime'], bytes: f.bytes };
   }
 
   put(p: Record<string, unknown>): { upload: string; received: number; attachment?: Attachment } {
     const { name, mime, bytes, data } = p as { name: string; mime: Mime; bytes: number; data: string };
     const offset = typeof p.offset === 'number' ? p.offset : 0;
-    if (!MAGIC.some(([m]) => m === mime)) throw badRequest('Only PNG, JPEG, GIF and WebP images.', 'mime');
-    if (!Number.isInteger(bytes) || bytes < 1) throw badRequest('bytes is the whole file size', 'bytes');
-    if (bytes > MAX_IMAGE) throw refused('limit', 'An image is at most 10 MiB.');
+    if (typeof mime !== 'string' || mime.length > 100 || !MIME.test(mime))
+      throw invalidParams('mime is a type such as application/pdf.', 'mime');
+    if (!Number.isInteger(bytes) || bytes < 1) throw invalidParams('bytes is the whole file size', 'bytes');
+    if (bytes > MAX_IMAGE) throw refused('limit', 'A file is at most 10 MiB.');
     const chunk = Buffer.from(data, 'base64');
-    if (chunk.length > CHUNK) throw badRequest('A chunk is at most 512 KiB of file.', 'data');
+    if (chunk.length > CHUNK) throw invalidParams('A chunk is at most 512 KiB of file.', 'data');
     let id = p.upload as string | undefined;
     let up: Upload | undefined;
     if (id === undefined) {
-      if (offset !== 0) throw badRequest('The first chunk starts at 0.', 'offset');
+      if (offset !== 0) throw invalidParams('The first chunk starts at 0.', 'offset');
       if (this.uploads.size >= MAX_OPEN) throw refused('limit', 'Too many uploads are open.');
       if (this.unsent() + bytes > MAX_UNSENT) throw refused('limit', 'Too many unsent images.');
       id = newId();
@@ -79,14 +82,18 @@ export class FakeAttachments {
       up = this.uploads.get(id);
       if (!up) throw new Failure('not_found', 'That upload is unknown or expired.');
       if (offset !== up.received)
-        throw new Failure('bad_request', 'offset is not what the daemon holds.', { field: 'offset', received: up.received });
+        throw Object.assign(
+          new Failure('bad_request', 'offset is not what the daemon holds.', { field: 'offset', received: up.received }),
+          { rpc: -32602 },
+        );
     }
     up.parts.push(chunk);
     up.received += chunk.length;
     if (up.received < up.bytes) return { upload: id, received: up.received };
     this.uploads.delete(id);
     const all = Buffer.concat(up.parts);
-    if (all.length !== up.bytes || typeOf(all) !== up.mime) throw badRequest('The file is not the type it says.', 'data');
+    if (all.length !== up.bytes || (MAGIC.some(([m]) => m === up.mime) && typeOf(all) !== up.mime))
+      throw invalidParams('The file is not the type it says.', 'data');
     const attachment: Attachment = { id: newId(), name: up.name, mime: up.mime, bytes: up.bytes };
     this.files.set(attachment.id, { ...attachment, data: all, sent: false });
     return { upload: id, received: up.received, attachment };
@@ -123,11 +130,11 @@ export class FakeAttachments {
    */
   message = (body: string, ids: unknown, task: unknown): { attachments: Attachment[]; parts?: (TextPart | ImagePart)[] } => {
     if (ids !== undefined && (!Array.isArray(ids) || !ids.length || ids.length > MAX_PER_MESSAGE || task !== undefined))
-      throw badRequest('attachments is 1 to 6 attachment ids, and not with a task.', 'attachments');
+      throw invalidParams('attachments is 1 to 6 attachment ids, and not with a task.', 'attachments');
     const named = refs(body);
     const extra = [...new Set(((ids ?? []) as unknown[]).map(String))].filter((id) => !named.includes(id));
     if (extra.length && new Set([...named, ...extra]).size > MAX_PER_MESSAGE)
-      throw badRequest('At most 6 images to a message.', 'attachments');
+      throw invalidParams('At most 6 images to a message.', 'attachments');
     this.check(body, '', 'body', false, () => new Set());
     for (const id of extra) this.checkId(id, 'attachments');
     for (const id of extra) this.files.get(id)!.sent = true;
@@ -179,7 +186,11 @@ export class FakeAttachments {
       if (!f) out.push({ image: { id: m[2]! }, caption: m[1]!, gone: true });
       else {
         const { data: _d, sent: _s, ...image } = f;
-        out.push({ image, caption: m[1]!, ...(agent ? { path: `/fake-daemon/attachments/${f.id}.${f.mime.slice(6)}` } : {}) });
+        out.push({
+          image,
+          caption: m[1]!,
+          ...(agent ? { path: `/fake-daemon/attachments/${f.id}.${f.mime.startsWith('image/') ? f.mime.slice(6) : 'bin'}` } : {}),
+        });
       }
     }
     if (!out.length) return undefined;
