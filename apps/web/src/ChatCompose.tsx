@@ -168,7 +168,7 @@ export function Compose(props: {
     <div ref={wrap} className="compose-wrap flex flex-col" onPaste={canAttach.ok ? pasteImages(att.add) : undefined}>
       {over && pane
         ? createPortal(
-            <span className="drop-cover pointer-events-none absolute inset-0 z-20 grid place-items-center border-2 border-dashed border-acc bg-surface/80 text-md text-ink-2">
+            <span className="drop-cover pointer-events-none absolute inset-0 z-20 mx-0! max-w-none! grid place-items-center border-2 border-dashed border-acc bg-surface/80 text-md text-ink-2">
               Drop to attach
             </span>,
             pane,
