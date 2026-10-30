@@ -172,8 +172,8 @@ function handleDevices(origin: string): void {
 }
 
 /** The shell's own connection to the daemon. */
-const shellClient = (): DaemonClient =>
-  new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey, founder: !outsideHome() });
+const shellClient = (remote: Remote | null): DaemonClient =>
+  new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey, founder: !remote && !outsideHome() });
 
 /** On every connect, a daemon restarted by an update included, the tray learns which build it now is. */
 function watchVersion(client: DaemonClient, link: Link): void {
@@ -335,7 +335,7 @@ if (!app.requestSingleInstanceLock({ background })) {
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
     // The shell's own calls (an agent's worktree, the badge) are the founder's: hello carries the key from the protected store, as pairing does.
-    const client = shellClient();
+    const client = shellClient(remote);
     // Follow-main mode (pnpm app): the app runs from its own checkout of main and offers to restart when main moves.
     const upgradeTo = upgrader(client, remote);
     const following = env('FOLLOW')

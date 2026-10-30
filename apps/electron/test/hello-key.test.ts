@@ -58,7 +58,7 @@ test('a hello that is not the founder is retried until the key is found, then th
   let key: string | null = null;
   const { roles, client } = founderDaemon(() => key, 'k1');
   setTimeout(() => (key = 'k1'), 30);
-  for (;;) {
+  for (let tries = 0; tries < 100; tries++) {
     try {
       await client.start(); // launch retries a start that fails, as main.ts does
       break;
