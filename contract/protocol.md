@@ -75,7 +75,7 @@ One file per group, generated from `spec/<group>.json`; field types are in `prot
 - [core](gen/core.md): 16 methods
 - [accounts](gen/accounts.md): 11 methods
 - [agents](gen/agents.md): 30 methods
-- [chat](gen/chat.md): 25 methods
+- [chat](gen/chat.md): 26 methods
 - [devices](gen/devices.md): 5 methods
 - [repos](gen/repos.md): 8 methods
 - [tasks](gen/tasks.md): 37 methods
@@ -161,9 +161,9 @@ The `hr` topic: hr.raised: a proposal was raised (state open); one event per pro
 | `accounts` | `account.changed` (Account) | `accounts.list` |
 | `agents` | `agent.changed` (AgentView), `agent.removed` ({name}), `agent.control` (TimelineEntry) | `agents.list` |
 | `inbox` | `inbox.added` (InboxItem), `inbox.changed` (InboxItem) | `inbox.list` |
-| `tasks` | `task.changed` (Task) | `tasks.list` |
+| `tasks` | `task.changed` (Task), `attachment.removed` (AttachmentRemoved) | `tasks.list` |
 | `notifications` | `task_done` ({task, task_title?, result?, reporter?, from_founder?}), `prompt_asked` (Prompt), `stall` ({agent}), `account_out` ({account}), `disk_low` ({free_bytes, total_bytes}) | `events.feed` |
-| `chat` | `chat.message` (ChatMessage), `chat.transcript` (TranscriptItem), `chat.working` (Working) | `chat.transcript` |
+| `chat` | `chat.message` (ChatMessage), `chat.transcript` (TranscriptItem), `chat.working` (Working), `attachment.removed` (AttachmentRemoved) | `chat.transcript` |
 | `operations` | `operation.progress` (Operation) | `operation.get` |
 | `devices` | `device.paired` (Device), `device.revoked` ({device}) | `devices.list` |
 | `hr` | `hr.raised` ({proposal}), `hr.settled` ({proposal}) | `hr.list` |

@@ -1,0 +1,582 @@
+{
+ "fixtures": [
+  {
+   "name": "attachment.remove.deletes_it_everywhere_it_is_named",
+   "spec": "attachment.remove",
+   "about": "An image a message and a task comment name: a dry run counts 2 and keeps it; the remove deletes it, both reads say gone and removed, attachment.get and a new text naming it are not_found, attachment.removed goes on chat and tasks, and a second remove is accepted with 0.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "chat",
+        "tasks"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-rm-1"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "see ![the button](attachment:{{aid}})",
+       "request_id": "conf-rm-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$save": "rid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo whose comment has a picture",
+       "body": "no picture here",
+       "request_id": "conf-rm-3"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.comment.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "still ![the button](attachment:{{aid}})",
+       "request_id": "conf-rm-4"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "attachment.remove",
+      "params": {
+       "id": "{{aid}}",
+       "dry_run": true,
+       "request_id": "conf-rm-5"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      },
+      "removed_from": 2
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "attachment.get",
+      "params": {
+       "id": "{{aid}}"
+      }
+     },
+     "result": {
+      "mime": "image/png",
+      "bytes": 70,
+      "done": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "attachment.remove",
+      "params": {
+       "id": "{{aid}}",
+       "request_id": "conf-rm-6"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      },
+      "removed_from": 2
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "chat",
+        "type": "attachment.removed",
+        "data": {
+         "id": "{{aid}}"
+        }
+       }
+      },
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "tasks",
+        "type": "attachment.removed",
+        "data": {
+         "id": "{{aid}}"
+        }
+       }
+      }
+     ],
+     "notices_any_order": true
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "id": "{{rid}}",
+        "parts": [
+         {
+          "text": "see "
+         },
+         {
+          "image": {
+           "id": "{{aid}}",
+           "name": {
+            "$absent": true
+           }
+          },
+          "caption": "the button",
+          "gone": true,
+          "removed": true
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "memos": {
+       "$contains": {
+        "text": "still ![the button](attachment:{{aid}})",
+        "parts": [
+         {
+          "text": "still "
+         },
+         {
+          "image": {
+           "id": "{{aid}}",
+           "name": {
+            "$absent": true
+           }
+          },
+          "caption": "the button",
+          "gone": true,
+          "removed": true
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 12,
+      "method": "attachment.get",
+      "params": {
+       "id": "{{aid}}"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "attachment"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 13,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "again ![the button](attachment:{{aid}})",
+       "request_id": "conf-rm-7"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "attachment"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 14,
+      "method": "attachment.remove",
+      "params": {
+       "id": "{{aid}}",
+       "request_id": "conf-rm-8"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "removed_from": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.remove.one_place_is_said_in_the_singular",
+   "spec": "attachment.remove",
+   "about": "An image one message names: the remove says it was deleted from 1 place.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-rm-30"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "see ![the button](attachment:{{aid}})",
+       "request_id": "conf-rm-31"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$save": "rid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "attachment.remove",
+      "params": {
+       "id": "{{aid}}",
+       "request_id": "conf-rm-32"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": "Deleted from 1 place.",
+      "removed_from": 1
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.remove.dry_run_not_a_boolean_is_bad_request",
+   "spec": "attachment.remove",
+   "about": "dry_run is true or false; anything else is bad_request on dry_run and nothing is removed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-rm-20"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "attachment.remove",
+      "params": {
+       "id": "{{aid}}",
+       "dry_run": "yes",
+       "request_id": "conf-rm-21"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "dry_run"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "attachment.get",
+      "params": {
+       "id": "{{aid}}"
+      }
+     },
+     "result": {
+      "mime": "image/png",
+      "done": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.remove.an_image_never_put_is_not_found",
+   "spec": "attachment.remove",
+   "about": "An id the daemon never held is not_found, what attachment.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.remove",
+      "params": {
+       "id": "0123456789abcdef",
+       "request_id": "conf-rm-9"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "attachment"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.remove.a_malformed_id_is_bad_request",
+   "spec": "attachment.remove",
+   "about": "An id that is not 16 hex characters is bad_request naming id.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.remove",
+      "params": {
+       "id": "../x",
+       "request_id": "conf-rm-10"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.remove.an_agent_is_refused",
+   "spec": "attachment.remove",
+   "about": "Only the founder removes: an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.remove",
+      "params": {
+       "id": "0123456789abcdef",
+       "request_id": "conf-rm-12"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
