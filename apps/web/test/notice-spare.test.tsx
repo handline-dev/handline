@@ -2,7 +2,7 @@
 // Start button; Start and the X answer the task.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { applySeeds } from '@handline/fake-daemon/seeds';
 import { setup } from '@handline/fake-daemon/helpers';
@@ -35,8 +35,8 @@ const open = (s: ReturnType<typeof setup>) => {
 };
 const spare = () => $('.notice-spare');
 
-async function mount(agent: string, s = setup()) {
-  location.hash = `#/agents/${agent}`;
+async function mount(agent: string, s = setup(), hash = `#/agents/${agent}`) {
+  location.hash = hash;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
@@ -44,6 +44,7 @@ async function mount(agent: string, s = setup()) {
   });
 }
 afterEach(async () => {
+  vi.restoreAllMocks();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -64,6 +65,39 @@ describe('the weekly-loss notice', () => {
     expect(text(spare())).toContain('architect');
     expect(text(spare())).not.toContain('handline.architect');
     expect(button('Start 4 tasks')).toBeDefined();
+  });
+
+  const rect = (top: number, bottom: number, left: number, right: number) =>
+    ({ top, bottom, left, right, width: right - left, height: bottom - top, x: left, y: top }) as DOMRect;
+  const layout = () =>
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.classList.contains('compose-wrap')) return rect(700, 780, 300, 1380);
+      if (this.classList.contains('toasts')) return rect(0, 100, 1000, 1380);
+      return this.querySelector?.('.toasts') ? rect(860, 880, 1000, 1400) : rect(0, 0, 0, 0);
+    });
+
+  it('keeps the stack where it is when no composer is under it', async () => {
+    layout();
+    const s = setup();
+    open(s);
+    await mount(ARCH, s, '#/tasks');
+    await until(spare, 'the notice');
+    await act(async () => void (await new Promise((r) => requestAnimationFrame(r)))); // a frame: the observers have measured
+    expect($('.toasts')!.style.marginBottom).toBe('');
+  });
+
+  it("lifts the stack above a chat's composer, also one that opens while the card is up", async () => {
+    layout();
+    const s = setup();
+    open(s);
+    await mount(ARCH, s, '#/tasks');
+    await until(spare, 'the notice');
+    expect($('.toasts')!.style.marginBottom).toBe('');
+    const late = document.body.appendChild(document.createElement('div'));
+    late.className = 'compose-wrap';
+    // the bar is at 860 and the composer starts at 700: the stack's foot is 8px above the composer
+    await until(() => $('.toasts')!.style.marginBottom === '168px', 'the lift');
+    late.remove();
   });
 
   it('Start answers the task and the notice goes; the X goes without starting', async () => {
