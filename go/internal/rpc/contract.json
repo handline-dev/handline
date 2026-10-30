@@ -153,6 +153,9 @@
  "files.list": {
   "role": "member"
  },
+ "for_you.list": {
+  "role": "member"
+ },
  "hello": {
   "role": "anonymous"
  },
