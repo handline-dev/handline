@@ -156,6 +156,8 @@ describe('settings: handoff prompt and cache expiry', () => {
     expect(nav.map((b) => b.textContent)).toEqual(['Notifications', 'Work', 'Appearance', 'Devices', 'Always answer', 'This computer']);
     expect(nav.every((b) => b.querySelector('svg'))).toBe(true);
     expect([...document.querySelectorAll('.settings-body h3.shead')].every((h) => h.querySelector('svg'))).toBe(true);
+    expect(nav[0]!.getAttribute('aria-current')).toBe('location'); // a page that does not scroll is not at its end
+    expect(nav.at(-1)!.getAttribute('aria-current')).toBeNull();
     expect(prompt()).toBeNull();
   });
 

@@ -46,13 +46,20 @@ export function ContentsPage({ parts, children }: { parts: readonly Part[]; chil
   useEffect(() => {
     const scroller = box.current?.closest('section');
     if (!scroller) return;
-    const look = () => setAtEnd(scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2);
+    // A page that does not scroll (yet: its rows may still be loading) is not at its end.
+    const look = () =>
+      setAtEnd(
+        scroller.scrollHeight > scroller.clientHeight + 2 && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2,
+      );
+    const grown = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(look);
+    if (box.current) grown?.observe(box.current);
     const drop = () => setClicked(null);
     look();
     scroller.addEventListener('scroll', look);
     scroller.addEventListener('wheel', drop);
     scroller.addEventListener('touchmove', drop);
     return () => {
+      grown?.disconnect();
       scroller.removeEventListener('scroll', look);
       scroller.removeEventListener('wheel', drop);
       scroller.removeEventListener('touchmove', drop);
