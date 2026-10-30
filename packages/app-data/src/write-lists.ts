@@ -24,5 +24,5 @@ export const NOT_FROM_UI = [
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',
-  'attachment.remove', // until the image viewer's delete calls it (web T7340, phone T7341)
+  'attachment.remove', // until the image viewer's delete calls it
 ] as const;
