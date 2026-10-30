@@ -42,9 +42,16 @@ export function Devices() {
             <SettingsRow answer as="li" key={d.id} data-device={d.id}>
               <Icon name={d.connected ? 'agent' : 'waiting'} size={16} label={d.connected ? 'Connected' : 'Not connected'} />
               <RowTitle plain className="[overflow-wrap:anywhere]">
-                {d.name} <span className="muted">{d.connected ? 'connected' : d.last_seen ? `seen ${ago(d.last_seen)} ago` : 'never seen'}</span>
+                {d.name}{' '}
+                <span className="muted">{d.connected ? 'connected' : d.last_seen ? `seen ${ago(d.last_seen)} ago` : 'never seen'}</span>
               </RowTitle>
-              <Button icon="dismiss" label={`Revoke ${d.name}`} disabled={!!off} title={off} onClick={() => setAsking({ id: d.id, name: d.name })} />
+              <Button
+                icon="dismiss"
+                label={`Revoke ${d.name}`}
+                disabled={!!off}
+                title={off}
+                onClick={() => setAsking({ id: d.id, name: d.name })}
+              />
             </SettingsRow>
           ))}
         </SettingsCard>

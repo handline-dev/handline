@@ -33,7 +33,16 @@ export function PreviewAsk({ agent, shot, onClose }: { agent: string; shot: Blob
       onClose={onClose}
       full
       action={{ label: 'Send', keys: '⌘↵', onClick: () => void send(), disabled: sending }}
-      bar={<Textarea rows={1} aria-label="Question" placeholder="What should change here?" className="min-w-0 flex-1" value={note} onChange={(e) => setNote(e.target.value)} />}
+      bar={
+        <Textarea
+          rows={1}
+          aria-label="Question"
+          placeholder="What should change here?"
+          className="min-w-0 flex-1"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      }
     >
       <Annotator image={shot} onChange={(b, m) => (setMarked(b), setMarks(m))} />
       {problem ? (

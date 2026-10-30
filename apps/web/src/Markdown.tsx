@@ -1,7 +1,8 @@
 // Markdown for chat messages: headings, bullet and numbered lists, **bold**, `code` and fenced code. No HTML is read: every piece is a
 // React text node or element. The text between the marks goes through RichText, so paths and T<N> and #N stay links.
 import type { ReactNode } from 'react';
-import { CommandCard, isShell } from '#src/CommandCard.tsx';
+import type { CommandRun } from '@handline/client';
+import { CommandCard, isShell, type BlockRef } from '#src/CommandCard.tsx';
 import { RichText } from '#src/RichText.tsx';
 
 type Block =
@@ -72,15 +73,31 @@ function Inline({ text, agent }: { text: string; agent?: string }) {
   return <>{parts}</>;
 }
 
+const runOf = (m: { id: number; runs?: CommandRun[] }, index: number): BlockRef => ({
+  message: m.id,
+  index,
+  run: m.runs?.find((r) => r.block === `${m.id}:${index}`),
+});
+
 const HEADINGS = ['text-[1.15em]', 'text-[1.08em]', 'text-[1em]', 'text-[1em]'];
 
-export function Markdown({ text, agent }: { text: string; agent?: string }) {
+/** `message` is set where the blocks can be run: `first` counts the command blocks of the message's earlier parts. */
+export function Markdown({
+  text,
+  agent,
+  message,
+}: {
+  text: string;
+  agent?: string;
+  message?: { id: number; runs?: CommandRun[]; first?: number };
+}) {
+  let index = message?.first ?? 0;
   const inline = (t: string) => <Inline text={t} agent={agent} />;
   return (
     <>
       {parseBlocks(text).map((b, i) =>
         b.kind === 'code' && isShell(b.lang) ? (
-          <CommandCard key={i} text={b.text} agent={agent} />
+          <CommandCard key={i} text={b.text} agent={agent} block={message ? runOf(message, index++) : undefined} />
         ) : b.kind === 'code' ? (
           <pre key={i} className={`${CODE} my-1 block overflow-x-auto whitespace-pre p-2 first:mt-0 last:mb-0`}>
             <code>
