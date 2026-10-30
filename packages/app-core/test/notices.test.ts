@@ -224,6 +224,10 @@ test('a kept notice changes in place: one row, its toast back on screen when sho
   n.keep('update', 'info', 'Updating Handline…', { busy: true, step: 'Building (2 of 3)', fraction: 0.66 }, true);
   assert.equal(n.list().length, 1);
   assert.equal(n.list()[0]!.live?.step, 'Building (2 of 3)');
+  const before = n.list()[0]!;
+  n.keep('update', 'info', 'Updating Handline…', { busy: true, step: 'Building (3 of 3)' }, true);
+  assert.notEqual(n.list()[0], before); // a new object, so a toast on screen is drawn again
+  assert.equal(n.list()[0]!.id, before.id);
   const ready = n.keep(
     'update',
     'need',

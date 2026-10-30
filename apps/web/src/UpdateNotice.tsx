@@ -30,12 +30,22 @@ export function UpdateNotice() {
             KEY,
             'need',
             'Handline is ready to restart',
-            { actions: [restart, { label: 'Later', run: () => press('later') }] },
+            {
+              mark: 'restart',
+              step: 'Agents keep working; open chats reconnect.',
+              actions: [restart, { label: 'Later', run: () => press('later') }],
+            },
             show,
           );
           break;
         case 'later':
-          store.notices.keep(KEY, 'need', 'Handline is ready to restart', { actions: [restart] }, false);
+          store.notices.keep(
+            KEY,
+            'need',
+            'Handline is ready to restart',
+            { mark: 'restart', step: 'Agents keep working; open chats reconnect.', actions: [restart] },
+            false,
+          );
           break;
         case 'failed':
           store.notices.keep(

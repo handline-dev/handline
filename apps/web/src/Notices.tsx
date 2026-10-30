@@ -110,19 +110,21 @@ function Row({ n, onOpened }: { n: Notice; onOpened: () => void }) {
       : about?.task != null
         ? [about.agent, `T${about.task} done`, about.result].filter(Boolean).join(' · ')
         : null;
-  const [icon, tone] = MARK[n.level];
+  const [icon, level] = MARK[n.level];
+  const tone = n.live?.mark === 'restart' ? 'text-acc-ink' : level;
   const go = targetOf(n) !== null;
   if (n.live)
     return (
       <div className="notice-row flex items-center gap-2 px-3 py-1.5 text-md text-ink" data-notice>
         <span className={`flex flex-none ${tone}`}>
-          <Icon name={icon} size={16} aria-hidden />
+          <Icon name={n.live.mark === 'restart' ? 'retry' : icon} size={16} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
           <span className={`block truncate ${n.read ? '' : 'font-semibold'}`}>{head}</span>
           {n.live.step ? <span className="block truncate text-xs text-ink-3">{n.live.step}</span> : null}
         </span>
         <Actions n={n} />
+        <time className="flex-none text-xs text-ink-3">{clockTime(new Date(n.at).toISOString())}</time>
       </div>
     );
   return (
@@ -195,7 +197,8 @@ function Actions({ n }: { n: Notice }) {
 function Toast({ n }: { n: Notice }) {
   const store = useStore();
   const [more, setMore] = useState(false);
-  const [icon, tone] = MARK[n.level];
+  const [icon, level] = MARK[n.level];
+  const tone = n.live?.mark === 'restart' ? 'text-acc-ink' : level; // a ready update is the restart mark in the accent, not a warning
   const go = targetOf(n) !== null;
   const live = n.live;
   const sub = live ? live.step : secondLine(n);
@@ -210,7 +213,7 @@ function Toast({ n }: { n: Notice }) {
     >
       <span className={`mt-0.5 flex flex-none ${tone}`}>
         <Icon
-          name={live?.busy ? 'working' : icon}
+          name={live?.busy ? 'working' : live?.mark === 'restart' ? 'retry' : icon}
           size={16}
           aria-hidden
           className={live?.busy ? 'animate-spin motion-reduce:animate-none' : undefined}

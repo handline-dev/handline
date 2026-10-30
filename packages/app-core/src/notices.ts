@@ -28,6 +28,8 @@ export interface Notice {
 }
 export interface Live {
   busy?: boolean;
+  /** The restart mark instead of the level's own (a ready update is not a warning). */
+  mark?: 'restart';
   step?: string;
   fraction?: number;
   /** `stay`: pressing it leaves the toast up (Details); any other button reads the notice and closes the toast. */
@@ -177,18 +179,12 @@ export class Notices {
    */
   keep(key: string, level: NoticeLevel, text: string, live: Live, show: boolean): Notice {
     const at = this.now();
-    const n = this.all.find((x) => x.key === key) ?? {
-      id: this.nextId++,
-      level,
-      text,
-      at,
-      count: 1,
-      read: false,
-      lane: 'system' as const,
-      key,
-    };
-    Object.assign(n, { level, text, live, at, read: false });
-    this.all = [n, ...this.all.filter((x) => x !== n)].slice(0, MAX_LIST);
+    const old = this.all.find((x) => x.key === key);
+    // A new object each time: a toast already on screen is drawn again with the new title, line and buttons.
+    const n: Notice = old
+      ? { ...old, level, text, live, at, read: false }
+      : { id: this.nextId++, level, text, at, count: 1, read: false, lane: 'system', key, live };
+    this.all = [n, ...this.all.filter((x) => x !== old)].slice(0, MAX_LIST);
     this.left.delete(n.id);
     if (show) this.onScreen.set(n.id, null);
     else this.onScreen.delete(n.id);

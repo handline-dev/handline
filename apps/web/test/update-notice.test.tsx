@@ -66,4 +66,30 @@ describe('the update notice', () => {
     await act(async () => send(view({ phase: 'idle' })));
     expect(toast()).toBe('');
   });
+
+  it('a toast left open follows the phase: the title, the line and the buttons are replaced, never kept from the one before', async () => {
+    let send: (v: ShellUpdate) => void = () => undefined;
+    (window as { handline?: unknown }).handline = {
+      api: 1,
+      onUpdate: (cb: (v: ShellUpdate) => void) => ((send = cb), () => undefined),
+      updateAct: async () => ({ ok: true }),
+    };
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => root!.render(<App store={new Store(setup().client)} daemon="test" storage={null} />));
+    const toast = () => box.querySelector('.toasts')?.textContent ?? '';
+    const buttons = () => [...box.querySelectorAll('.toasts .toast button')].map((b) => b.textContent).filter((t) => t && t !== '');
+    await act(async () => send(view({ phase: 'preparing', step: 'Building (1 of 3)', fraction: 0.3 })));
+    expect(toast()).toContain('Updating Handline…');
+    await act(async () => send(view({ phase: 'ready' })));
+    expect(toast()).toContain('Handline is ready to restart');
+    expect(toast()).toContain('Agents keep working; open chats reconnect.');
+    expect(toast()).not.toContain('Updating Handline…');
+    expect(buttons()).toEqual(['Restart now', 'Later']);
+    await act(async () => send(view({ phase: 'failed', reason: 'The build stopped: pnpm exited with 1.' })));
+    expect(toast()).toContain('Handline was not updated');
+    expect(toast()).toContain('The build stopped: pnpm exited with 1.');
+    expect(toast()).not.toContain('ready to restart');
+    expect(buttons()).toEqual(['Try again', 'Details']);
+  });
 });
