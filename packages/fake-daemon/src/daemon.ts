@@ -278,6 +278,7 @@ export class FakeDaemon {
         actor,
         script: this.script,
         transcript: this.transcript,
+        chat: this.chat,
         agent,
         byTerminal: (id) => byTerminal(new Map([...this.sessions, ...this.script.shells]), id),
         iso: () => this.iso(),
