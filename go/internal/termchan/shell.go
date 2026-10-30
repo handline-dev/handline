@@ -91,18 +91,18 @@ func (e *Env) shellOpen(_ *rpc.Conn, params map[string]any) (any, error) {
 	if !ok {
 		return nil, rpc.Refused("the terminal host ("+e.Backend().Name()+") cannot open a shell", "unsupported", "")
 	}
-	if running { // a rerun closes the window its block had
+	ended := e.PaneRuns()
+	if running { // a rerun closes the window its block had, if that window is still the run's (pane ids start over with a tmux server)
 		prev, err := cmdruns.Of(e.DB, block.Message)
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range prev {
-			if h, ok := e.Backend().(term.Host); ok && r.Block == block.String() && e.shellOf(r.Terminal) == name {
+			if h, ok := e.Backend().(term.Host); ok && r.Block == block.String() && ended[r.Terminal].Tag == r.Tag() {
 				h.CloseTerminal(r.Terminal, true)
 			}
 		}
 	}
-	ended := e.PaneRuns()
 	open := 0
 	for h := range e.Backend().ListTerminals() {
 		if a, _ := host.PaneShell(h); a == name && !ended[h].Dead { // a window kept for a finished command is not a shell in use

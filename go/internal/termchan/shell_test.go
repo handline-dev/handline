@@ -197,8 +197,20 @@ func TestAFinishedRunsWindowIsNotAShellInUseAndARerunClosesItsOld(t *testing.T) 
 		return got.(map[string]any)["terminal"].(string)
 	}
 	first := open("5:0")
-	if again := open("5:0"); len(h.closed) != 1 || h.closed[0] != first || again == first {
+	h.ended[first] = term.PaneRun{Tag: cmdruns.Run{Block: "5:0", Started: cmdruns.Now()}.Tag()}
+	other := open("5:1")
+	h.ended[other] = term.PaneRun{Tag: cmdruns.Run{Block: "5:1", Started: cmdruns.Now()}.Tag()}
+	if again := open("5:0"); len(h.closed) != 1 || h.closed[0] != first || again == first || other == first {
 		t.Fatalf("a rerun of a block closes the window it had: %v", h.closed)
+	}
+	shell, _ := r.e.shellOpen(person("casey"), map[string]any{"agent": "ann"})
+	plain := shell.(map[string]any)["terminal"].(string)
+	cmdruns.Start(r.e.DB, cmdruns.Block{Message: 7, N: 0}, plain, cmdruns.Now()) // after a tmux restart a run row names a handle a plain shell now has
+	open("7:0")
+	for _, c := range h.closed {
+		if c == plain {
+			t.Fatalf("a rerun closed the plain shell that has the old handle: %v", h.closed)
+		}
 	}
 	for i := 0; i < MaxShells+2; i++ {
 		w := open("6:" + strconv.Itoa(i))

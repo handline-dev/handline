@@ -15,3 +15,11 @@ func TestPaneRunsOfNoServerIsEmptyNotUnknown(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+func TestSignalNumberReadsWhatEveryTmuxCallsASignal(t *testing.T) {
+	for in, want := range map[string]int{"int": 2, "INT": 2, "SIGINT": 2, "sigterm": 15, "2": 2, "15": 15, "interrupt": 2, "Terminated": 15, "": 0, "nonsense": 0} {
+		if got := signalNumber(in); got != want {
+			t.Errorf("%q: %d, want %d", in, got, want)
+		}
+	}
+}

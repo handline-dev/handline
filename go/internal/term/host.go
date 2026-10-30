@@ -4,7 +4,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/handline/handline/go/internal/paths"
 )
@@ -102,9 +105,22 @@ type PaneRun struct {
 	DeadTime int64 // unix seconds; 0 when tmux did not say
 }
 
-// signals are the numbers of the signals tmux names in pane_dead_signal; one not here reads as 128, still not a success.
-var signals = map[string]int{"hup": 1, "int": 2, "quit": 3, "ill": 4, "trap": 5, "abrt": 6, "bus": 7, "fpe": 8, "kill": 9, "usr1": 10, "segv": 11,
-	"usr2": 12, "pipe": 13, "alrm": 14, "term": 15}
+// signalNumber is the number of the signal pane_dead_signal names, as a number, a name with or without SIG in any case, or the system's
+// words for it ("interrupt"); 0 when it is none of these.
+func signalNumber(name string) int {
+	if n, err := strconv.Atoi(name); err == nil {
+		return n
+	}
+	if n := int(unix.SignalNum("SIG" + strings.TrimPrefix(strings.ToUpper(name), "SIG"))); n != 0 {
+		return n
+	}
+	for n := 1; n < 32; n++ {
+		if strings.EqualFold(syscall.Signal(n).String(), name) {
+			return n
+		}
+	}
+	return 0
+}
 
 // PaneRuns is every pane that carries a run tag, by handle; nil when tmux cannot say (a pane absent from a non-nil answer is gone).
 func (t Tmux) PaneRuns() map[string]PaneRun {
@@ -128,7 +144,7 @@ func (t Tmux) PaneRuns() map[string]PaneRun {
 		r.Status, _ = strconv.Atoi(f[3])
 		r.DeadTime, _ = strconv.ParseInt(f[4], 10, 64)
 		if f[5] != "" { // killed by a signal: tmux leaves the status empty and names the signal; a shell would say 128 plus its number
-			r.Status = 128 + signals[strings.ToLower(f[5])]
+			r.Status = 128 + signalNumber(f[5])
 		}
 		runs[f[0]] = r
 	}
