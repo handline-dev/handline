@@ -77,6 +77,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             seed_tool_items(con, output_agent)
             seed_session_start(con, output_agent)
             seed_workroom(home, con)
+            seed_files(home, con)
             seed_open_question(con, ask_agent)
             typing = seed_typing_gates(home, con)
             write_team(home, [*names.values(), output_agent, ask_agent, DOING_AGENT, AGENT, LEAD, *RETIRE, *ORDER.values(), *typing.values()])
@@ -84,7 +85,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
                     "ask_agent": ask_agent, "triggers_agent": names["idle"], "doing_agent": DOING_AGENT, "view_plain_agent": names["idle"], "retire_agent": RETIRE[0],
-                    "retire_parent": RETIRE[1], **WORKROOM, **typing, **order, "order_rename_to": "o.new"}
+                    "retire_parent": RETIRE[1], "files_agent": FILES_AGENT, **WORKROOM, **typing, **order, "order_rename_to": "o.new"}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
@@ -109,6 +110,26 @@ def seed_workroom(home: Path, con: sqlite3.Connection) -> None:
     (agent / "agent.yaml").write_text(f"role: seeded by conformance_fds\nrepo: {repo}\n")
     con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'idle', 0, ?)", (WORKROOM["create_parent"], str(repo)))
     WORKROOM["create_repo"] = WORKROOM["status_worktree"] = str(repo.resolve())
+
+
+# What files_list.json needs: an agent whose worktree holds these files. build/out.js is ignored, notes/todo.md untracked.
+FILES_AGENT = "f.files"
+FILES = {".gitignore": "build/\n", "README.md": "hello\n", "docs/domain.md": "x", "lib/main.go": "x", "main/run.sh": "x", "src/app/Main.tsx": "x",
+         "src/app/main_test.go": "x", "src/my_animation.ts": "x"}
+
+
+def seed_files(home: Path, con: sqlite3.Connection) -> None:
+    repo = home.parent / "filesroom"
+    for rel, text in FILES.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "first"]):
+        subprocess.run(["git", *args], cwd=repo, env=env, check=True)
+    for rel in ("notes/todo.md", "build/out.js"):
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text("x")
+    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'idle', 0, ?)", (FILES_AGENT, str(repo)))
 
 
 def seed_open_question(con: sqlite3.Connection, agent: str) -> None:

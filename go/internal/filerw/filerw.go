@@ -1,4 +1,5 @@
-// Package filerw is file.read and file.write: the founder reads and edits a text file in an agent's worktree.
+// Package filerw is file.read and file.write, where the founder reads and edits a text file in an agent's worktree, and files.list, the
+// worktree's files for the chat's @ menu.
 package filerw
 
 import (
@@ -30,8 +31,9 @@ type Env struct {
 	beforeReplace func()
 }
 
-// Register adds file.read and file.write: the founder's, which a paired device is.
+// Register adds file.read and file.write, the founder's (which a paired device is), and files.list, a member's.
 func Register(s *rpc.Server, e *Env) {
+	s.Register("files.list", rpc.Method{Role: "member", Handler: e.list})
 	s.Register("file.read", rpc.Method{Role: "founder", Handler: e.read})
 	s.Register("file.write", rpc.Method{Role: "founder", Write: true, Handler: e.write})
 }
@@ -64,19 +66,9 @@ func (e *Env) target(p map[string]any) (agent, rel string, root *os.Root, err er
 			return "", "", nil, bad("path has no .., empty or . part", "path")
 		}
 	}
-	st, err := db.GetAgentState(e.DB, agent)
+	wt, err := e.worktree(agent)
 	if err != nil {
 		return "", "", nil, err
-	}
-	wt := ""
-	if st != nil {
-		wt = st.Worktree.String
-	}
-	if i := strings.Index(wt, "::"); i >= 0 { // the column may hold `<repo>::<path>`
-		wt = wt[i+2:]
-	}
-	if wt == "" {
-		return "", "", nil, rpc.NotFoundError("no worktree for " + agent)
 	}
 	if root, err = os.OpenRoot(wt); err != nil {
 		return "", "", nil, rpc.NotFoundError("the worktree of " + agent + " is gone")
@@ -90,6 +82,25 @@ func (e *Env) target(p map[string]any) (agent, rel string, root *os.Root, err er
 		}
 	}
 	return agent, rel, root, nil
+}
+
+// worktree is the path of the agent's worktree, not_found when it records none.
+func (e *Env) worktree(agent string) (string, error) {
+	st, err := db.GetAgentState(e.DB, agent)
+	if err != nil {
+		return "", err
+	}
+	wt := ""
+	if st != nil {
+		wt = st.Worktree.String
+	}
+	if i := strings.Index(wt, "::"); i >= 0 { // the column may hold `<repo>::<path>`
+		wt = wt[i+2:]
+	}
+	if wt == "" {
+		return "", rpc.NotFoundError("no worktree for " + agent)
+	}
+	return wt, nil
 }
 
 // text is whether b, cut at a rune boundary when it was cut, is text a person edits.

@@ -1,10 +1,11 @@
 // A daemon error, sorted once into what a view should do about it (docs/turborepo-layout.md §8.3).
+import { heldFromData, type HeldWorktree } from '@handline/app-core';
 import { RpcError } from '@handline/client';
 
 export type Failure =
   | { kind: 'transport' } // nothing in the view: the connection banner speaks and a reconnect refetches
   | { kind: 'not_found'; message: string } // the view's empty state
-  | { kind: 'refused'; reason: string; hint?: string; gate?: string; task?: number } // `task`: with gate duplicate_title, the open task it repeats
+  | { kind: 'refused'; reason: string; hint?: string; gate?: string; task?: number; held?: HeldWorktree[] } // `task`: with gate duplicate_title, the open task it repeats; `held`: with gate dirty on agent.retire, the worktrees that hold work
   | { kind: 'not_served' } // an unknown method, or gate `unsupported`
   | { kind: 'busy'; retryAfterMs: number }
   | { kind: 'protocol'; message: string } // the whole app's fatal sentence, not a view error
@@ -30,6 +31,7 @@ export function classify(e: unknown): Failure {
             hint: e.hint,
             gate: e.gate,
             task: typeof e.data?.task === 'number' ? e.data.task : undefined,
+            held: e.gate === 'dirty' ? heldFromData(e.data) : undefined,
           };
     case 'bad_request':
       return e.data?.method ? { kind: 'not_served' } : { kind: 'other', message: e.message };
