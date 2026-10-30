@@ -161,6 +161,39 @@ func TestShellOpenWithACommandRunsItAndRecordsTheRunOfItsBlock(t *testing.T) {
 	}
 }
 
+// "r<item id>:<n>" runs a block of the agent's own reply item, kept under that item; another agent's reply, or no reply, is not_found
+// and opens no window.
+func TestShellOpenRunsABlockOfTheAgentsOwnReplyItem(t *testing.T) {
+	r, h, _ := shellRig(t)
+	for _, row := range []string{
+		`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('ann', 1, 's', NULL, 100, 'text', 1000, '{"text":"run it"}')`,
+		`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', 1, 's', NULL, 100, 'text', 2000, '{"text":"for bob"}')`,
+		`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('ann', 2, 's', NULL, 100, 'tool_use', 3000, '{}')`,
+	} {
+		if _, err := r.e.DB.Exec(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, block := range []string{"r2000:0", "r3000:0", "r9:0"} {
+		var re *rpc.Error
+		_, err := r.e.shellOpen(person("casey"), map[string]any{"agent": "ann", "command": "true", "block": block})
+		if !errors.As(err, &re) || re.Data["what"] != "item" || len(h.cwds) != 0 {
+			t.Fatalf("%s is not one of ann's replies: %v", block, err)
+		}
+	}
+	got, err := r.e.shellOpen(person("casey"), map[string]any{"agent": "ann", "command": "make", "block": "r1000:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := cmdruns.OfReply(r.e.DB, 1000)
+	if len(runs) != 1 || runs[0].Block != "r1000:1" || runs[0].Terminal != got.(map[string]any)["terminal"] || len(h.runs) != 1 {
+		t.Fatalf("%+v %q", runs, h.runs)
+	}
+	if msgs, _ := cmdruns.Of(r.e.DB, 1000); len(msgs) != 0 {
+		t.Fatalf("a reply's run is not message 1000's: %+v", msgs)
+	}
+}
+
 func TestShellOpenCommandAndBlockGoTogetherAndAreChecked(t *testing.T) {
 	r, h, _ := shellRig(t)
 	for _, c := range []struct {

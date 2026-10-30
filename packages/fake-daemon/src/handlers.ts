@@ -8,7 +8,7 @@ import { SETTINGS_HANDLERS } from '#src/settings.ts';
 import { withStructured } from '#src/structured-controls.ts';
 import type { FakeTranscript } from '#src/transcript.ts';
 import type { FakeChat } from '#src/chat.ts';
-import { runParams, startRun, stopRun } from '#src/runs.ts';
+import { replyOf, runParams, startRun, stopRun } from '#src/runs.ts';
 import { HR_HANDLERS, teamOf } from '#src/hr.ts';
 import { STRIP_HANDLERS } from '#src/strip.ts';
 import { DEBUG_HANDLERS } from '#src/debug.ts';
@@ -207,9 +207,10 @@ const BASE: Record<string, (h: Call) => unknown> = {
     if (typeof p.agent !== 'string') throw invalidParams('agent is required', 'agent');
     const run = runParams(p);
     const s = agent();
+    if (run) replyOf(chat, s.fx.name, run); // an item that is not this agent's reply is not_found before a window opens
     const terminal = `%sh${++script.shellCount}`;
     script.shells.set(terminal, { ...newSession(s.fx, iso()), handle: terminal, lines: ['$ '], hasTerminal: true, open: false });
-    if (run) startRun(chat, terminal, run, iso);
+    if (run) startRun(chat, s.fx.name, terminal, run, iso);
     return { agent: s.fx.name, terminal, cwd: `/fake/worktrees/${s.fx.name}`, host: 'fake' };
   },
   'shell.close': ({ p, script, chat }) => {

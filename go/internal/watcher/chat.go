@@ -130,7 +130,8 @@ func (c *Chat) tell(emit Emit, req *reads.ChatRequest) error {
 	return nil
 }
 
-// runs ends the runs their windows are done with, then says the message of each run that started or changed. The first look says nothing.
+// runs ends the runs their windows are done with, then says the message, or the reply item, of each run that started or changed. The first
+// look says nothing.
 func (c *Chat) runs(q *sql.DB, emit Emit) error {
 	if c.Panes != nil {
 		if err := cmdruns.Settle(q, c.Panes(), cmdruns.Now()); err != nil {
@@ -152,6 +153,18 @@ func (c *Chat) runs(q *sql.DB, emit Emit) error {
 		c.runSeen[r.Block] = now
 		block, _ := cmdruns.ParseBlock(r.Block)
 		if first || before == now {
+			continue
+		}
+		if block.Reply {
+			item, agent, ok, err := c.Reads.ReplyItem(block.Message)
+			if err != nil {
+				return err
+			}
+			if ok {
+				if err := c.say(emit, "chat.transcript", agent, item); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		req, err := pass.Get(block.Message)

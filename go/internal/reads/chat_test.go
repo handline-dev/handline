@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/attachments"
+	"github.com/handline/handline/go/internal/cmdruns"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -560,5 +561,39 @@ func TestChatLocateReadsTheToolsAroundTheMessage(t *testing.T) {
 	first, last := items[0].(map[string]any)["text"], items[len(items)-1].(map[string]any)["text"]
 	if len(items) != maxLimit || first != "at 1600" || last != "at 1799" || m["transcript_more_older"] != true || m["transcript_more_newer"] != true {
 		t.Fatalf("%d items, %v .. %v, older %v newer %v", len(items), first, last, m["transcript_more_older"], m["transcript_more_newer"])
+	}
+}
+
+// A reply item carries the runs of its command blocks; one with none has no runs, and a message's runs of the same id are not its.
+func TestChatTranscriptServesAReplysRuns(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for i, item := range []int64{1000, 1002} {
+		if _, err := e.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', ?, 's', NULL, 1000, 'text', ?, '{"text":"run it"}')`, i+1, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := cmdruns.Start(e.DB, cmdruns.Block{Message: 1000, N: 0, Reply: true}, "%4", 1000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cmdruns.Start(e.DB, cmdruns.Block{Message: 1002, N: 0}, "%5", 1000); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.chatTranscript(nil, map[string]any{"agent": "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replies := map[int64]map[string]any{}
+	for _, it := range got.(map[string]any)["items"].([]any) {
+		if m := it.(map[string]any); m["kind"] == "reply" {
+			replies[m["id"].(int64)] = m
+		}
+	}
+	runs, _ := replies[1000]["runs"].([]any)
+	if len(runs) != 1 || runs[0].(map[string]any)["block"] != "r1000:0" || runs[0].(map[string]any)["state"] != "running" {
+		t.Fatalf("%v", replies[1000])
+	}
+	if _, has := replies[1002]["runs"]; has {
+		t.Fatalf("message 1002's run is not reply 1002's: %v", replies[1002])
 	}
 }

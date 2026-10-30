@@ -87,6 +87,8 @@ export type TranscriptItem = {
   output?: string;
   /** For kind tool: how many lines the store cut from the end of the output (it keeps the start). 0 or absent when nothing was cut. */
   dropped_lines?: number;
+  /** Kind reply only: the runs of this reply's command blocks (shell.open block "r<id>:<n>"), one per block, oldest start first, as ChatMessage.runs. Absent when none was started. A start and an end send the item again as a chat.transcript event. */
+  runs?: CommandRun[];
   /** Prompt card; `open` says whether it can still be answered. */
   prompt?: Prompt;
   open?: boolean;
@@ -326,9 +328,9 @@ export type RequestRow = {
   [key: string]: unknown;
 };
 
-/** One run of a command block of a message (shell.open command and block): the last run only. */
+/** One run of a command block of a message or of an agent's reply (shell.open command and block): the last run only. */
 export type CommandRun = {
-  /** "<message id>:<n>", as shell.open took it. */
+  /** "<message id>:<n>" for a chat message's block or "r<item id>:<n>" for a reply item's, as shell.open took it. */
   block: string;
   /** The run's window, as terminal.attach takes it; gone once the window is closed. */
   terminal: string;

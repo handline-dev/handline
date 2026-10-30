@@ -268,3 +268,36 @@ func TestARunKeptBeforeTheFirstLookIsNotNews(t *testing.T) {
 	r.scan(c)
 	wantTypes(t, r.types())
 }
+
+// A run of a reply item's block starting and ending sends that item again as chat.transcript, to its agent, with its runs.
+func TestARunOfAReplysBlockIsTheItemSaidAgainWithItsRuns(t *testing.T) {
+	r := newChatRig(t)
+	exec(t, r.d, `INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', 1, 's', NULL, 100, 'text', 1000, '{"text":"run make"}')`)
+	started := cmdruns.Now() - 10
+	panes := map[string]term.PaneRun{}
+	c := r.chat()
+	c.Panes = func() map[string]term.PaneRun { return panes }
+	r.scan(c)
+	wantTypes(t, r.types())
+	run, err := cmdruns.Start(r.d, cmdruns.Block{Message: 1000, N: 0, Reply: true}, "%4", started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	panes["%4"] = term.PaneRun{Tag: run.Tag()}
+	r.scan(c)
+	wantTypes(t, r.types(), "chat.transcript:bob")
+	panes["%4"] = term.PaneRun{Tag: run.Tag(), Dead: true, Status: 0, DeadTime: started + 2}
+	r.scan(c)
+	wantTypes(t, r.types(), "chat.transcript:bob", "chat.transcript:bob")
+	var item struct {
+		ID   int64            `json:"id"`
+		Kind string           `json:"kind"`
+		Text string           `json:"text"`
+		Runs []map[string]any `json:"runs"`
+	}
+	rows := r.rows()
+	if json.Unmarshal(rows[1].Data, &item) != nil || item.ID != 1000 || item.Kind != "reply" || item.Text != "run make" || len(item.Runs) != 1 ||
+		item.Runs[0]["block"] != "r1000:0" || item.Runs[0]["state"] != "done" || item.Runs[0]["exit"] != float64(0) {
+		t.Fatalf("%s", rows[1].Data)
+	}
+}

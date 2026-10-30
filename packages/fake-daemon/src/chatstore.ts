@@ -65,6 +65,23 @@ export class ChatStore {
   running(terminal: string): (ChatMessage & { agent: string }) | undefined {
     return this.messages.find((m) => m.runs?.some((r) => r.terminal === terminal && r.state === 'running'));
   }
+  /** Agent's reply item with that id, as shell.open's "r<id>:<n>" names it. */
+  agentReply(agent: string, id: number): TranscriptItem | undefined {
+    return this.thread(agent).items.find((i) => i.id === id && i.kind === 'reply');
+  }
+  /** The reply item whose run in that window has not ended, with its agent. */
+  runningItem(terminal: string): { agent: string; item: TranscriptItem } | undefined {
+    for (const [agent, t] of this.threads) {
+      const item = t.items.find((i) => i.runs?.some((r) => r.terminal === terminal && r.state === 'running'));
+      if (item) return { agent, item };
+    }
+    return undefined;
+  }
+  /** Changes a transcript item and sends it again as chat.transcript. */
+  changeItem(agent: string, item: TranscriptItem, patch: Partial<TranscriptItem>) {
+    Object.assign(item, patch);
+    this.emit('chat.transcript', agent, item);
+  }
   change(m: ChatMessage & { agent: string }, patch: Partial<ChatMessage>) {
     Object.assign(m, patch, { state_at: this.now() });
     this.emit('chat.message', m.agent, this.view(m));

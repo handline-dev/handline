@@ -141,6 +141,31 @@ func Replies(db *sql.DB, agent string, limit int) ([]Reply, error) {
 	return out, rows.Err()
 }
 
+// ReplyByID is reply item id and the agent it is of; ok is false when there is no such reply.
+func ReplyByID(db *sql.DB, id int64) (r Reply, agent string, ok bool, err error) {
+	var body string
+	err = db.QueryRow("SELECT agent, at, body FROM transcript_events WHERE kind = 'text' AND item = ? ORDER BY seq DESC LIMIT 1", id).Scan(&agent, &r.At, &body)
+	if err == sql.ErrNoRows {
+		return r, "", false, nil
+	}
+	if err != nil {
+		return r, "", false, err
+	}
+	var b struct {
+		Text string `json:"text"`
+	}
+	json.Unmarshal([]byte(body), &b)
+	r.ID, r.Text = id, b.Text
+	return r, agent, true, nil
+}
+
+// IsReply is whether item id is one of agent's reply items (a text event with that item id).
+func IsReply(db *sql.DB, agent string, id int64) (bool, error) {
+	var n int
+	err := db.QueryRow("SELECT count(*) FROM transcript_events WHERE agent = ? AND kind = 'text' AND item = ?", agent, id).Scan(&n)
+	return n > 0, err
+}
+
 type Reply struct {
 	ID, At int64
 	Text   string

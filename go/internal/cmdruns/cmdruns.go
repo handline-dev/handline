@@ -1,10 +1,9 @@
-// Package cmdruns keeps the runs of a message's command blocks (shell.open with a command and a block): one row of the meta table per block, so
+// Package cmdruns keeps the runs of a message's or an agent reply's command blocks (shell.open with a command and a block): one row of the meta table per block, so
 // no migration. A run starts "running"; Settle ends it from what the terminal host says of its window.
 package cmdruns
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -20,23 +19,34 @@ const prefix = "run:"
 // keep is how long a run row stays after it ends.
 const keep = 30 * 24 * 3600
 
-var blockRE = regexp.MustCompile(`^([0-9]{1,18}):([0-9]{1,9})$`)
+var blockRE = regexp.MustCompile(`^(r?)([0-9]{1,18}):([0-9]{1,9})$`)
 
-// Block is a parsed "<message id>:<n>".
-type Block struct{ Message, N int64 }
+// Block is a parsed "<message id>:<n>", or "r<item id>:<n>" for the nth block of an agent's reply item (Reply true, Message the item id).
+type Block struct {
+	Message, N int64
+	Reply      bool
+}
 
-// ParseBlock reads "<message id>:<n>"; ok is false for any other text.
+// ParseBlock reads "<message id>:<n>" or "r<item id>:<n>"; ok is false for any other text.
 func ParseBlock(s string) (Block, bool) {
 	m := blockRE.FindStringSubmatch(s)
 	if m == nil {
 		return Block{}, false
 	}
-	msg, _ := strconv.ParseInt(m[1], 10, 64)
-	n, _ := strconv.ParseInt(m[2], 10, 64)
-	return Block{msg, n}, true
+	msg, _ := strconv.ParseInt(m[2], 10, 64)
+	n, _ := strconv.ParseInt(m[3], 10, 64)
+	return Block{Message: msg, N: n, Reply: m[1] == "r"}, true
 }
 
-func (b Block) String() string { return fmt.Sprintf("%d:%d", b.Message, b.N) }
+func (b Block) String() string { return b.owner() + ":" + strconv.FormatInt(b.N, 10) }
+
+// owner is the message id, or r and the reply item's id.
+func (b Block) owner() string {
+	if b.Reply {
+		return "r" + strconv.FormatInt(b.Message, 10)
+	}
+	return strconv.FormatInt(b.Message, 10)
+}
 
 // Run is one run as kept: State is running, done, failed or stopped; Exit is set once it is done or failed.
 type Run struct {
@@ -99,9 +109,30 @@ func read(q db.Q, where string, args ...any) ([]Run, error) {
 func All(q db.Q) ([]Run, error) { return read(q, prefix+"%") }
 
 // Of is the runs of message id, oldest start first.
-func Of(q db.Q, id int64) ([]Run, error) {
-	out, err := read(q, prefix+strconv.FormatInt(id, 10)+":%")
+func Of(q db.Q, id int64) ([]Run, error) { return OfBlocks(q, Block{Message: id}) }
+
+// OfReply is the runs of reply item id, oldest start first.
+func OfReply(q db.Q, id int64) ([]Run, error) { return OfBlocks(q, Block{Message: id, Reply: true}) }
+
+// OfBlocks is the runs of every block of b's message or reply item, oldest start first.
+func OfBlocks(q db.Q, b Block) ([]Run, error) {
+	out, err := read(q, prefix+b.owner()+":%")
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Started < out[j].Started })
+	return out, err
+}
+
+// Replies is the runs of every reply item that has one, by item id, each oldest start first.
+func Replies(q db.Q) (map[int64][]Run, error) {
+	all, err := read(q, prefix+"r%")
+	out := map[int64][]Run{}
+	for _, r := range all {
+		if b, ok := ParseBlock(r.Block); ok && b.Reply {
+			out[b.Message] = append(out[b.Message], r)
+		}
+	}
+	for _, runs := range out {
+		sort.SliceStable(runs, func(i, j int) bool { return runs[i].Started < runs[j].Started })
+	}
 	return out, err
 }
 
