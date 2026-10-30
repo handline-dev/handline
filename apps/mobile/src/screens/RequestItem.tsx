@@ -108,8 +108,11 @@ export function RequestItem(props: {
     }
   };
   const wt = card.actions.some((a) => a.type === 'worktree');
-  const main = card.actions.slice(0, card.primary).filter((a) => a.type !== 'answer' && a.type !== 'open');
-  const rest = card.actions.slice(card.primary).filter((a) => a.type !== 'answer');
+  const first = card.actions.slice(0, card.primary).filter((a) => a.type !== 'answer' && a.type !== 'open');
+  const others = card.actions.slice(card.primary).filter((a) => a.type !== 'answer');
+  // An item whose only first action is Open (a session at its limit) has its other answers as the buttons, not behind More.
+  const main = first.length ? first : others;
+  const rest = first.length ? others : [];
   const openAct = card.actions.slice(0, card.primary).find((a) => a.type === 'open');
   const answer = wt ? undefined : card.actions.find((a) => a.type === 'answer');
   const sendAnswer = () => {
