@@ -156,7 +156,9 @@ describe('my turn', () => {
     await until(() => reviewCard(9103), 'the review card');
     await click(button(reviewCard(9103)!, 'Approve'));
     expect(reviewCard(9103)).toBeUndefined();
-    await click([...document.querySelectorAll('button')].find((b) => label(b) === 'Undo'));
+    const undo = [...document.querySelectorAll('button')].find((b) => label(b) === 'Undo')!;
+    expect(undo.closest('[role=status]')!.className).toContain('pointer-events-auto'); // the toast sits in a pointer-events-none wrapper
+    await click(undo);
     await until(() => reviewCard(9103), 'the card back');
     await act(async () => void window.dispatchEvent(new Event('pagehide')));
     await wait(50);
