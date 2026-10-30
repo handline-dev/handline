@@ -67,7 +67,7 @@ describe('the task page', () => {
     expect(chips[0]!.className).toContain('text-wait');
     expect(chips[0]!.querySelector('svg')).not.toBeNull();
     await act(async () => void (location.hash = '#/tasks/1688')); // local-ref-ok: a task nothing blocks
-    await until(() => $('article[aria-label="Task T1688"]') && !$('[data-waiting-on]'), 'the unblocked task');
+    await until(() => $('article[aria-label="Task T1688"]') && !$('[data-waiting-on]'), 'the unblocked task'); // local-ref-ok
     expect(text($('article.tdetail'))).not.toContain('Blocked');
   });
 
