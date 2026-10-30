@@ -58,7 +58,7 @@ export function TaskDetail({
           <PageTitle className="flex min-w-0 flex-1 items-baseline gap-1.5">
             <span className="flex-none">{taskRef(id)}</span>
             {q.data ? (
-              <span className="title-slot min-w-0 flex-1 [&>[role=button]]:truncate">
+              <span className="title-slot min-w-0 flex-1 [&>[role=button]]:block [&>[role=button]]:truncate">
                 <TitleEdit bar t={q.data} />
               </span>
             ) : null}
