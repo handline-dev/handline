@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Dimensions, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 import type { Store } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { useMyTurn } from '@handline/app-data';
+import { useInbox, useTasks } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { History, HistoryProvider, useHistoryValue } from '#src/history.tsx';
@@ -99,14 +99,14 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   const swipe = useBack(props.history);
   useAgentEntry(props.store);
   const open = useSelector((s) => s.page?.agent ?? null);
-  const mine = useMyTurn();
+  const read = [useInbox().isPending, useTasks({}).isPending];
   const turn = useWaiting();
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', props.startOn ?? 'agents');
   // The app opens on Requests when anything waits on the person, on Agents when nothing does: decided once, when the first read is in,
-  // unless an agent's page was left open or a tab was already picked.
+  // when what waits is all read (the inbox and the tasks), unless an agent's page was left open or a tab was already picked.
   const decided = useRef(!!props.startOn);
   useEffect(() => {
-    if (decided.current || mine.loading) return;
+    if (decided.current || read.some(Boolean)) return;
     decided.current = true;
     if (turn > 0 && !open && tab === 'agents') setTab('requests');
   });
