@@ -70,4 +70,48 @@ describe('the working indicator', () => {
     s.daemon.chat.setWorking(ARCH, false);
     await until(() => box.querySelector('.ran')?.textContent?.startsWith('Ran 2 commands'), 'the folded line');
   });
+
+  async function mountWithTurn(s: ReturnType<typeof setup>) {
+    s.daemon.chat.setWorking(ARCH, true);
+    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Read', text: 'a.ts' });
+    location.hash = `#/agents/${ARCH}`;
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
+    });
+    await until(() => box.querySelector('.working'), 'the live line');
+  }
+
+  it('Stop interrupts the turn: the daemon is asked and the line goes', async () => {
+    const s = setup();
+    await mountWithTurn(s);
+    const stop = [...box.querySelectorAll<HTMLButtonElement>('.working-slot button')].find((b) => b.textContent === 'Stop')!;
+    await act(async () => stop.click());
+    const got = () => s.daemon.sessions.get(ARCH)!.received.some((r) => r.kind === 'key' && r.value === 'esc');
+    await until(got, 'session.interrupt reaching the daemon');
+  });
+
+  it('names the task after the turn when the agent holds one', async () => {
+    const s = setup();
+    const held = s.daemon.sessions.get(ARCH)!.fx.task!;
+    await mountWithTurn(s);
+    s.daemon.chat.setWorking(ARCH, false);
+    await until(() => box.querySelector('.ran')?.textContent?.includes(` · T${held.id}`), 'the task on the folded line');
+  });
+
+  it('names no task after the turn when the agent holds none', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    const held = fx.task;
+    fx.task = null;
+    try {
+      await mountWithTurn(s);
+      s.daemon.chat.setWorking(ARCH, false);
+      await until(() => box.querySelector('.ran'), 'the folded line');
+      expect(box.querySelector('.ran')!.textContent).not.toMatch(/T\d/);
+    } finally {
+      fx.task = held;
+    }
+  });
 });
