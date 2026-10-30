@@ -45,9 +45,9 @@ test('the preview is the exact box the split takes: half of the pane, the strip 
 
 test('a task dragged out of a list opens as its own pane on the edge it lands on, and is not opened twice', () => {
   const ws = defaultWorkspace();
-  const split = splitNew(ws, 'tasks', { task: 7, pinned: true }, 'g1', 'right')!;
+  const split = splitNew(ws, 'tasks', { task: 7, pinned: 1 }, 'g1', 'right')!;
   assert.equal(groupsOf(split.root).length, 2);
   assert.ok(split.tabs['tasks:7']);
   assert.equal(groupsOf(split.root).find((g) => g.tabs.includes('tasks:7'))?.id, split.active);
-  assert.equal(splitNew(split, 'tasks', { task: 7, pinned: true }, 'g1', 'left')!.tabs['tasks:7'], split.tabs['tasks:7']);
+  assert.equal(splitNew(split, 'tasks', { task: 7, pinned: 1 }, 'g1', 'left')!.tabs['tasks:7'], split.tabs['tasks:7']);
 });

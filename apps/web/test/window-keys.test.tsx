@@ -1,7 +1,7 @@
 // The window keys: ⌘T opens a new tab beside Chat, ⌘W closes it, ⌘\ splits the pane and ⌘1 / ⌘2 focus a pane.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
