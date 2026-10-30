@@ -1,6 +1,7 @@
 // Requests answers that wait before they are sent, so Undo is real.
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@handline/app-react';
+import { classify, sentence } from '@handline/app-data';
 import { Button } from '#src/ui/index.ts';
 
 const HOLD_MS = 5000;
@@ -32,30 +33,31 @@ const keep = (change: (all: Record<string, HeldStep[]>) => void) => {
 
 /**
  * Answers that wait HOLD_MS before they are sent, so Undo is real: a held card is off the list at once, and a held answer is sent when the
- * window closes or the page goes away. A refused answer puts its card back.
+ * window closes or the page goes away. The toast says what happened once the daemon has answered; a refused answer puts its card back and says why.
  */
-export function useHeldAnswers() {
+export function useHeldAnswers(say: (line: string) => void) {
   const [away, setAway] = useState<string[]>([]);
   const [last, setLast] = useState<{ key: string; line: string } | null>(null);
   const store = useStore();
-  const waiting = useRef(new Map<string, { send: () => Promise<unknown>; timer: ReturnType<typeof setTimeout> }>());
+  const waiting = useRef(new Map<string, { send: () => Promise<unknown>; done: string; timer: ReturnType<typeof setTimeout> }>());
   const back = (key: string) => setAway((a) => a.filter((k) => k !== key));
   const fire = (key: string) => {
     const w = waiting.current.get(key);
     if (!w) return;
     clearTimeout(w.timer);
     waiting.current.delete(key);
+    setLast((l) => (l?.key === key ? null : l));
     w.send().then(
-      () => keep((all) => delete all[key]),
-      () => (keep((all) => delete all[key]), back(key)),
+      () => (keep((all) => delete all[key]), say(w.done)),
+      (e: unknown) => (keep((all) => delete all[key]), back(key), say(sentence(classify(e)))),
     );
   };
   /** `steps` are what `send` writes; they are kept until the daemon has answered, so a reload inside the hold loses nothing. */
-  const hold = (key: string, line: string, steps: HeldStep[], send: () => Promise<unknown>) => {
+  const hold = (key: string, done: string, steps: HeldStep[], send: () => Promise<unknown>) => {
     keep((all) => (all[key] = steps));
     setAway((a) => [...a, key]);
-    setLast({ key, line });
-    waiting.current.set(key, { send, timer: setTimeout(() => (fire(key), setLast((l) => (l?.key === key ? null : l))), HOLD_MS) });
+    setLast({ key, line: 'Sends in 5 s' });
+    waiting.current.set(key, { send, done, timer: setTimeout(() => fire(key), HOLD_MS) });
   };
   const undo = (key: string) => {
     const w = waiting.current.get(key);

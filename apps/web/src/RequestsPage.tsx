@@ -315,7 +315,8 @@ function CardDetail({
 
 export function RequestsPage() {
   const all = useMyTurn();
-  const held = useHeldAnswers();
+  const [said, setSaid] = useState('');
+  const held = useHeldAnswers(setSaid);
   const cards = all.cards.filter((c) => !held.away.includes(c.key));
   const { loading } = all;
   const agents = useAgents();
@@ -323,7 +324,6 @@ export function RequestsPage() {
   const now = useNow();
   const [pick, setPick] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
-  const [said, setSaid] = useState('');
   useEffect(() => {
     if (!said) return;
     const t = setTimeout(() => setSaid(''), 6000);
