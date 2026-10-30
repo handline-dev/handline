@@ -1,10 +1,10 @@
+import { UpdateNotice } from '#src/UpdateNotice.tsx';
 // The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (what happened, newest first), and the short results stacked above it.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import { useTasks, useWrite } from '@handline/app-data';
 import { Button, Icon, Popup } from '#src/ui/index.ts';
-import { composers } from '#src/ui/composers.ts';
 
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
 
@@ -35,6 +35,7 @@ export function NoticeBell() {
   const [open, setOpen] = useState(false);
   return (
     <span className="relative inline-flex">
+      <UpdateNotice />
       <Toasts hidden={open} />
       <button
         type="button"
@@ -106,8 +107,23 @@ function Row({ n, onOpened }: { n: Notice; onOpened: () => void }) {
       : about?.task != null
         ? [about.agent, `T${about.task} done`, about.result].filter(Boolean).join(' · ')
         : null;
-  const [icon, tone] = MARK[n.level];
+  const [icon, level] = MARK[n.level];
+  const tone = n.live?.mark === 'restart' ? 'text-acc-ink' : level;
   const go = targetOf(n) !== null;
+  if (n.live)
+    return (
+      <div className="notice-row flex items-center gap-2 px-3 py-1.5 text-md text-ink" data-notice>
+        <span className={`flex flex-none ${tone}`}>
+          <Icon name={n.live.mark === 'restart' ? 'retry' : icon} size={16} aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className={`block truncate ${n.read ? '' : 'font-semibold'}`}>{head}</span>
+          {n.live.step ? <span className="block truncate text-xs text-ink-3">{n.live.step}</span> : null}
+        </span>
+        <Actions n={n} />
+        <time className="flex-none text-xs text-ink-3">{clockTime(new Date(n.at).toISOString())}</time>
+      </div>
+    );
   return (
     <button
       type="button"
@@ -152,13 +168,16 @@ const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['
 const MAX_TOASTS = 3;
 const CHIP = 'bg-raised! tint';
 
+import { UpdateNotice } from '#src/UpdateNotice.tsx';
 /** One toast: the same inset on every side, the status icon with a bold title and a short second line, then its buttons flush right: the main one filled, the rest grey chips. */
 function Toast({ n }: { n: Notice }) {
   const store = useStore();
   const [more, setMore] = useState(false);
-  const [icon, tone] = MARK[n.level];
+  const [icon, level] = MARK[n.level];
+  const tone = n.live?.mark === 'restart' ? 'text-acc-ink' : level; // a ready update is the restart mark in the accent, not a warning
   const go = targetOf(n) !== null;
-  const sub = secondLine(n);
+  const live = n.live;
+  const sub = live ? live.step : secondLine(n);
   const long = !!n.details;
   return (
     <div
@@ -169,12 +188,29 @@ function Toast({ n }: { n: Notice }) {
       onBlur={() => store.notices.release(n.id, 'focus')}
     >
       <span className={`mt-0.5 flex flex-none ${tone}`}>
-        <Icon name={icon} size={16} aria-hidden />
+        <Icon
+          name={live?.busy ? 'working' : live?.mark === 'restart' ? 'retry' : icon}
+          size={16}
+          aria-hidden
+          className={live?.busy ? 'animate-spin motion-reduce:animate-none' : undefined}
+        />
       </span>
       <div className="grid min-w-0 flex-1 gap-1">
         <span className="font-semibold">{lineOf(n)}</span>
         {sub ? <span className="text-ink-2">{sub}</span> : null}
+        {live?.fraction != null && live.busy ? (
+          <span
+            className="h-1 overflow-hidden rounded-full bg-raised"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(live.fraction * 100)}
+          >
+            <span className="block h-full bg-acc transition-[width]" style={{ width: `${Math.round(live.fraction * 100)}%` }} />
+          </span>
+        ) : null}
         {more && n.details ? <span className="whitespace-pre-wrap text-xs text-ink-3">{n.details}</span> : null}
+import { UpdateNotice } from '#src/UpdateNotice.tsx';
         {go || n.retry || long ? (
           <span className="mt-0.5 flex flex-wrap justify-end gap-1.5">
             {go ? (
@@ -214,51 +250,10 @@ function Toast({ n }: { n: Notice }) {
   );
 }
 
-/** Lifts the stack above any chat composer it would cover, so Send stays reachable; re-fits as the window, the stack or the set of composers changes. */
-function useClearOfComposers(count: number) {
-  const ref = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let rows: Element[] = [];
-    const fit = () => {
-      el.style.transform = '';
-      const at = el.getBoundingClientRect();
-      let lift = 0;
-      for (const row of rows) {
-        const r = row.getBoundingClientRect();
-        if (r.width && r.left < at.right && r.right > at.left && r.top < at.bottom) lift = Math.max(lift, at.bottom - r.top + 8);
-      }
-      if (lift) el.style.transform = `translateY(-${lift}px)`;
-    };
-    const resize = new ResizeObserver(fit);
-    resize.observe(document.body);
-    resize.observe(el);
-    // A composer that mounts or unmounts later (navigation, a closed split pane) is not a resize of anything watched.
-    const sync = () => {
-      const now = composers.list();
-      if (now.length === rows.length && now.every((r, i) => r === rows[i])) return;
-      for (const r of rows) resize.unobserve(r);
-      rows = now;
-      for (const r of rows) resize.observe(r);
-      fit();
-    };
-    const unsubscribe = composers.subscribe(sync);
-    sync();
-    fit();
-    return () => {
-      resize.disconnect();
-      unsubscribe();
-    };
-  }, [count]);
-  return ref;
-}
-
 function Toasts({ hidden }: { hidden: boolean }) {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
   const spare = useSpareNotices();
-  const stack = useClearOfComposers(hidden ? 0 : toasts.length + spare.length);
   useAway((away) => store.notices.setAway(away));
   // Escape closes the toast the focus is in, else the newest one.
   const first = toasts[0]?.id;
@@ -275,6 +270,7 @@ function Toasts({ hidden }: { hidden: boolean }) {
   }, [first, hidden, store]);
   if ((!toasts.length && !spare.length) || hidden) return null;
   return (
+import { UpdateNotice } from '#src/UpdateNotice.tsx';
     <div
       ref={stack}
       className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5"

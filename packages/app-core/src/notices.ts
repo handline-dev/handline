@@ -21,6 +21,19 @@ export interface Notice {
   details?: string;
   /** Asks again what failed (a failure line's "Try again"). */
   retry?: () => void;
+  /** A notice one source keeps current under this key (the update): `Notices.keep` changes it in place. */
+  key?: string;
+  /** What the kept notice shows beyond its line: a spinner, the step it is on, how far along (0 to 1), and its buttons. */
+  live?: Live;
+}
+export interface Live {
+  busy?: boolean;
+  /** The restart mark instead of the level's own (a ready update is not a warning). */
+  mark?: 'restart';
+  step?: string;
+  fraction?: number;
+  /** `stay`: pressing it leaves the toast up (Details); any other button reads the notice and closes the toast. */
+  actions?: { label: string; run: () => void; primary?: boolean; stay?: boolean }[];
 }
 export interface NoticeAbout {
   agent?: string;
@@ -158,6 +171,32 @@ export class Notices {
     this.sync();
     this.emit();
     return n;
+  }
+
+  /**
+   * The notice a source keeps current under `key`: the first call adds it, later calls change its line, level and `live` part in place, so
+   * the list has one row for it. `show` puts its toast on screen (it stays until closed); without it the row stays in the list, unread.
+   */
+  keep(key: string, level: NoticeLevel, text: string, live: Live, show: boolean): Notice {
+    const at = this.now();
+    const old = this.all.find((x) => x.key === key);
+    // A new object each time: a toast already on screen is drawn again with the new title, line and buttons.
+    const n: Notice = old
+      ? { ...old, level, text, live, at, read: false }
+      : { id: this.nextId++, level, text, at, count: 1, read: false, lane: 'system', key, live };
+    this.all = [n, ...this.all.filter((x) => x !== old)].slice(0, MAX_LIST);
+    this.left.delete(n.id);
+    if (show) this.onScreen.set(n.id, null);
+    else this.onScreen.delete(n.id);
+    this.emit();
+    return n;
+  }
+  /** Takes a kept notice away, from the screen and the list. */
+  drop(key: string): void {
+    const n = this.all.find((x) => x.key === key);
+    if (!n) return;
+    this.all = this.all.filter((x) => x !== n);
+    this.close(n.id);
   }
 
   /** Stops or starts each news clock by who holds it; a stopped one remembers what it had left. */

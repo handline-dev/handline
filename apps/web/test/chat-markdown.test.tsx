@@ -68,4 +68,40 @@ describe('Markdown in a chat message', () => {
     expect(body.querySelector('img, script, pre b')).toBeNull();
     expect(body.textContent).toContain('<img src=x onerror=alert(1)>');
   });
+  it('a shell fence is a command card: Copy, a reason when risky, the last run, and Run asks first', async () => {
+    const s = setup();
+    const id = s.daemon.chat.seed(ARCH, {
+      from: ARCH,
+      to: 'human',
+      body: 'Try:\n```bash\ntrue\n```\nand\n```bash\nrm -rf build\n```\n```ts\nlet x\n```',
+    });
+    s.daemon.chat.change(s.daemon.chat.find(id), {
+      runs: [{ block: `${id}:0`, terminal: '%sh9', started_at: new Date().toISOString(), state: 'done', exit: 0, seconds: 3 }],
+    });
+    location.hash = `#/agents/${ARCH}`;
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
+    });
+    const wait = async (cond: () => unknown) => {
+      for (let i = 0; i < 300 && !cond(); i++) await act(async () => void (await new Promise((r) => setTimeout(r, 10))));
+    };
+    await wait(() => box.querySelector('.command-card'));
+    const cards = [...box.querySelectorAll<HTMLElement>('.command-card')];
+    expect(cards.map((c) => c.querySelector('code')?.textContent)).toEqual(['true', 'rm -rf build']);
+    expect(cards[0]!.querySelector('[data-run]')?.textContent).toBe('✓ Done · exit 0 · 3sOpen output');
+    expect(cards[0]!.textContent).not.toContain('Deletes files');
+    expect(cards[1]!.textContent).toContain('Deletes files for good.');
+    expect([...box.querySelectorAll('pre')].filter((p) => !p.closest('.command-card')).length).toBe(1);
+    const button = (c: HTMLElement, label: string) =>
+      [...c.querySelectorAll<HTMLButtonElement>('button')].find((b) => (b.title || b.getAttribute('aria-label') || '').startsWith(label));
+    await act(async () => button(cards[1]!, 'Run in ')!.click());
+    expect(cards[1]!.querySelector('[role=alertdialog]')?.textContent).toMatch(/It runs on .* as you\./);
+    await act(async () => button(cards[1]!.querySelector<HTMLElement>('[role=alertdialog]')!, 'Run')!.click());
+    const runs = async () => (await s.client.call('chat.messages', { agent: ARCH, scope: 'mine' })).messages.find((m) => m.id === id)?.runs;
+    for (let i = 0; i < 100 && !(await runs())?.some((r) => r.block === `${id}:1`); i++)
+      await act(async () => void (await new Promise((r) => setTimeout(r, 10))));
+    expect((await runs())?.find((r) => r.block === `${id}:1`)?.state).toBe('running');
+  });
 });

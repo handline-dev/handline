@@ -2,19 +2,23 @@
 // is interpreted (no HTML, no images, no links followed), so a file from an agent can only show text.
 import { Fragment, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
+import { isCommandLang } from '@handline/app-core';
 import { font, radius, space } from '@handline/tokens';
+import { CommandCard } from '#src/screens/CommandCard.tsx';
 import { usePalette } from '#src/theme.ts';
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'item'; mark: string; text: string }
   | { kind: 'quote' | 'paragraph'; text: string }
-  | { kind: 'code'; text: string };
+  // `command`: its place among the message's command blocks (sh, bash, shell), counted from 0; absent for any other fence.
+  | { kind: 'code'; text: string; lang: string; command?: number };
 
 export function blocks(md: string, breaks = false): Block[] {
   const out: Block[] = [];
   const lines = md.replace(/\r\n?/g, '\n').split('\n');
   let para: string[] = [];
+  let commands = 0;
   const flush = () => {
     if (para.length) out.push({ kind: 'paragraph', text: para.join(breaks ? '\n' : ' ') });
     para = [];
@@ -23,9 +27,10 @@ export function blocks(md: string, breaks = false): Block[] {
     const l = lines[i]!;
     if (/^```/.test(l)) {
       flush();
+      const lang = l.slice(3).trim();
       const code: string[] = [];
       for (i++; i < lines.length && !/^```/.test(lines[i]!); i++) code.push(lines[i]!);
-      out.push({ kind: 'code', text: code.join('\n') });
+      out.push({ kind: 'code', text: code.join('\n'), lang, ...(isCommandLang(lang) ? { command: commands++ } : {}) });
       continue;
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(l);
@@ -58,7 +63,7 @@ function Inline({ text, plain }: { text: string; plain?: Plain }) {
     <>
       {parts.map((p, i) =>
         p.startsWith('`') ? (
-          <Text key={i} style={{ fontFamily: 'monospace', backgroundColor: c.line }}>
+          <Text key={i} style={{ fontFamily: 'Menlo', backgroundColor: c.line }}>
             {p.slice(1, -1)}
           </Text>
         ) : p.startsWith('**') ? (
@@ -86,20 +91,25 @@ export function Markdown({
   breaks,
   plain,
   selectable,
+  cards,
 }: {
   text: string;
   testID?: string;
   breaks?: boolean;
   plain?: Plain;
   selectable?: boolean;
+  /** Command fences are cards with Copy and Run (a chat message or a comment), not plain code. */
+  cards?: boolean;
 }) {
   const c = usePalette();
   return (
     <View testID={testID} style={{ gap: space.sm }}>
       {blocks(text, breaks).map((b, i) =>
-        b.kind === 'code' ? (
+        b.kind === 'code' && b.command !== undefined && cards ? (
+          <CommandCard key={i} text={b.text} index={b.command} />
+        ) : b.kind === 'code' ? (
           <View key={i} style={{ backgroundColor: c.line, borderRadius: radius.m, padding: space.sm }}>
-            <Text selectable={selectable} style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.sm }}>
+            <Text selectable={selectable} style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.sm }}>
               {b.text}
             </Text>
           </View>

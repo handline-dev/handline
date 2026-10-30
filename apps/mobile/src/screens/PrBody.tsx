@@ -63,5 +63,5 @@ export function PrBody({
     parts.push(s.slice(at));
     return parts;
   };
-  return <Markdown testID={testID ?? `body-${id}`} text={body} breaks={breaks} plain={plain} selectable={selectable} />;
+  return <Markdown testID={testID ?? `body-${id}`} text={body} breaks={breaks} plain={plain} selectable={selectable} cards />;
 }

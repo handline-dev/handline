@@ -1,5 +1,5 @@
 // window.handline as the page sees it, made from the preload's ipcRenderer (docs/electron-bridge.md §2). Calls return a result and never throw.
-import type { NavigateTo, ShellApi } from '@handline/app-core';
+import type { NavigateTo, ShellApi, ShellUpdate } from '@handline/app-core';
 import { CHANNELS } from '#src/bridge.ts';
 
 export interface Ipc {
@@ -21,6 +21,13 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
   ipc.on(CHANNELS.fullScreen, (_e, on) => {
     full = on === true;
     fullListeners.forEach((f) => f(full));
+  });
+  // The shell sends the update state on every change; the last one is kept for the first listener.
+  let update: ShellUpdate | null = null;
+  const updateListeners = new Set<(v: ShellUpdate) => void>();
+  ipc.on(CHANNELS.update, (_e, v) => {
+    update = v as ShellUpdate;
+    updateListeners.forEach((f) => f(update!));
   });
   const call = async <R>(channel: string, arg?: unknown): Promise<R> => {
     try {
@@ -55,6 +62,13 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
     checkUpdate: () => call(CHANNELS.checkUpdate),
     build: () => call(CHANNELS.build),
     restartDaemon: () => call(CHANNELS.restartDaemon),
+    update: () => call(CHANNELS.update),
+    updateAct: (what) => call(CHANNELS.updateAct, what),
+    onUpdate(cb) {
+      updateListeners.add(cb);
+      if (update) cb(update);
+      return () => void updateListeners.delete(cb);
+    },
     cli: () => call(CHANNELS.cli),
     linkCli: () => call(CHANNELS.linkCli),
     phone: () => call(CHANNELS.phone),

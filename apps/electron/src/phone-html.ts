@@ -1,6 +1,8 @@
 // The window that shows a phone the one-time pairing QR. Static: the QR is an inline SVG and there is no script.
 import qrcode from 'qrcode-generator';
-import { escapeHtml } from '#src/popover-html.ts';
+
+export const escapeHtml = (s: string): string =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 /** The link as an SVG QR; the page's colours decide light or dark. */
 export function qrSvg(uri: string): string {

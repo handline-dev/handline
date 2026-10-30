@@ -1,6 +1,5 @@
 // The bordered text controls outside a Field: Input and Textarea on the canvas, NativeSelect and the compact bar input on the panel.
 import type { ComponentProps } from 'react';
-import { registerComposer } from '#src/ui/composers.ts';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const FIELD = 'rounded-sm border border-line bg-panel text-ink';
@@ -30,11 +29,5 @@ export function NativeSelect({ className, ...rest }: ComponentProps<'select'>) {
 
 /** The composer under a chat: a rounded surface with the message box over a bar of tools and the send button — tone on tone, no border, no shadow. */
 export function ComposeRow({ className, ...rest }: ComponentProps<'div'>) {
-  return (
-    <div
-      {...rest}
-      ref={registerComposer}
-      className={join('compose-row relative mx-3 mb-3 max-w-[680px] rounded-lg bg-surface px-4 py-3', className)}
-    />
-  );
+  return <div {...rest} className={join('compose-row relative mx-3 mb-3 max-w-[680px] rounded-lg bg-surface px-4 py-3', className)} />;
 }
