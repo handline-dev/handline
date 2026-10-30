@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { copied } from '#test/clipboard-stub.ts';
 import { $, mount, press, until, pickTab } from '#test/harness.tsx';
-import { COPIED_MS } from '../src/screens/CommandCard.tsx';
+import { COPIED_MS } from '#src/screens/CommandCard.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const AUD = 'handline.auditor';
