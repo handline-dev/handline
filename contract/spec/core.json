@@ -1768,12 +1768,6 @@
       "default": 5,
       "description": "Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses."
      },
-     "host_simulator_hold": {
-      "type": "integer",
-      "minimum": 0,
-      "default": 1,
-      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine (a booted iOS simulator device, or the qemu an Android emulator runs on); 0 does not. Held the same way as a load limit (status reason load), by the same rules."
-     },
      "pacing": {
       "type": "boolean",
       "default": true,
@@ -2062,18 +2056,6 @@
        }
       ],
       "description": "Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses. null removes the key (back to the default)."
-     },
-     "host_simulator_hold": {
-      "oneOf": [
-       {
-        "type": "integer",
-        "minimum": 0
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine; 0 does not. null removes the key (back to the default)."
      },
      "pacing": {
       "oneOf": [

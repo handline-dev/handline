@@ -39,7 +39,7 @@ xcrun simctl io booted screenshot shot.png        # a screenshot without a windo
 emulator -avd <name> -no-window -no-audio &       # Android, the same way
 ```
 
-Start them for the check and stop them when it ends: a simulator or emulator left running costs a core (one sat idle for six days at 60-70% CPU), and the daemon holds new agent work while one runs. `tools/phone-sim.sh` does both and shows the state:
+Start them for the check and stop them when it ends: a simulator or emulator left running costs a core (one sat idle for six days at 60-70% CPU). `tools/phone-sim.sh` does both and shows the state:
 
 ```
 tools/phone-sim.sh status                   # what is running now, "none" when nothing is

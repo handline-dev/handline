@@ -2,7 +2,6 @@ package sysres
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -141,31 +140,4 @@ func TestSampleReadsTheRealProcessTable(t *testing.T) {
 		t.Fatalf("%v", s.Latest())
 	}
 	t.Logf("one sample took %v", took)
-}
-
-func TestADeviceSimulatorIsFoundByTheNameOfItsCommandAndLookAlikesAreNot(t *testing.T) {
-	const ps = "%s\n  1 0 0.0 100 /sbin/launchd\n"
-	for _, c := range []struct{ line, want string }{
-		{" 50 1 0.0 900 /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator", ""},
-		{" 51 1 1.0 900 /Library/Developer/CoreSimulator/Volumes/iOS/RuntimeRoot/sbin/launchd_sim", "iOS simulator"},
-		{" 52 1 60.0 900 /Users/ron/Library/Android/sdk/emulator/emulator", ""},
-		{" 53 52 67.0 900 /Users/ron/Library/Android/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64", "Android emulator"},
-		{" 54 1 0.0 900 /Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/XPCServices/com.apple.CoreSimulator.CoreSimulatorService", ""},
-		{" 55 1 0.0 900 /Applications/SimulatorTrampoline", ""},
-		{" 56 1 0.0 900 /usr/bin/emulator-notes", ""},
-		{" 57 1 0.0 900 /usr/local/bin/qemu-img", ""},
-		{" 58 1 0.0 900 /Applications/My Tools/Simulator Helper", ""},
-	} {
-		if got := deviceSimulator(parsePS(fmt.Sprintf(ps, c.line))); got != c.want {
-			t.Errorf("%s: %q, want %q", c.line, got, c.want)
-		}
-	}
-	s := &Sampler{Home: "/", PS: func() (string, error) {
-		return fmt.Sprintf(ps, " 53 52 67.0 900 /sdk/emulator/qemu/qemu-system-aarch64"), nil
-	},
-		Panes: func() map[string]int { return nil }, Machine: fixed(Machine{})}
-	s.Sample(1)
-	if m := s.LatestMachine(); m == nil || m.Simulator != "Android emulator" {
-		t.Errorf("a sample carries it: %+v", m)
-	}
 }
