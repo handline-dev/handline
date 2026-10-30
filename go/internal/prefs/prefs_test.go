@@ -156,7 +156,7 @@ func TestADeferralIsOverWhenItsTimeIsOrItsTaskIsNotOpen(t *testing.T) {
 		over bool
 	}{
 		{Later{Until: "2026-11-01T00:00:01Z"}, false},
-		{Later{Until: "2099-11-01T00:00:00Z"}, true},
+		{Later{Until: "2026-11-01T00:00:00Z"}, true},
 		{Later{Until: "garbled"}, true},
 		{Later{AfterTask: 5}, false},
 		{Later{AfterTask: 6}, true},
