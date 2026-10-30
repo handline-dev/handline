@@ -178,6 +178,9 @@ func (s *Store) FileMap(in Info, withPath bool) map[string]any {
 	m := map[string]any{"id": in.ID, "kind": kind, "name": in.Name, "mime": in.Mime, "bytes": in.Bytes}
 	if _, err := s.Lookup(in.ID); err != nil {
 		m["gone"] = true
+		if s.Removed(in.ID) {
+			m["removed"] = true
+		}
 	} else if withPath {
 		m["path"] = s.Path(in)
 	}

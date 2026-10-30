@@ -39,9 +39,33 @@ interface Stored extends Attachment {
 export class FakeAttachments {
   private uploads = new Map<string, Upload>();
   private files = new Map<string, Stored>();
+  /** Ids the founder removed (attachment.remove): reads say gone and removed. */
+  private removed = new Set<string>();
   /** Ids a test or the daemon's clock has let go of: attachment.get answers not_found. */
   expire(id: string) {
     this.files.delete(id);
+  }
+
+  /**
+   * attachment.remove's check and, unless dry, the removal: false when id was removed already. A malformed id is bad_request, one never
+   * put not_found.
+   */
+  remove(id: unknown, dry: boolean): boolean {
+    if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw invalidParams('id is an attachment id', 'id');
+    if (this.removed.has(id)) return false;
+    if (!this.files.has(id)) throw new Failure('not_found', `no image ${id}`, { what: 'attachment', name: id });
+    if (!dry) {
+      this.files.delete(id);
+      this.removed.add(id);
+    }
+    return true;
+  }
+
+  /** An image part or memo file of a removed id, as reads give it; anything else as it is. */
+  marked<T extends ImagePart | MemoFile | TextPart>(x: T): T {
+    const id = 'image' in x ? x.image.id : 'id' in x ? x.id : undefined;
+    if (id === undefined || !this.removed.has(id)) return x;
+    return 'image' in x ? ({ image: { id }, caption: x.caption, gone: true, removed: true } as T) : ({ ...x, gone: true, removed: true } as T);
   }
 
   /** A file a memo carries (an image or Markdown), kept as the daemon keeps one; a test passes the returned id as task.comment.add `files`. */
@@ -104,7 +128,7 @@ export class FakeAttachments {
   /** The thumbnail is the original here (no image library): tests use images small enough for one reply. */
   get(p: Record<string, unknown>) {
     const f = this.files.get(String(p.id));
-    if (!f) throw new Failure('not_found', 'That image is gone.');
+    if (!f) throw new Failure('not_found', 'That image is gone.', { what: 'attachment', name: String(p.id) });
     const thumb = p.thumb === true;
     const offset = thumb ? 0 : typeof p.offset === 'number' ? p.offset : 0;
     const end = Math.min(f.data.length, offset + (thumb ? 256 * 1024 : CHUNK));
@@ -176,7 +200,7 @@ export class FakeAttachments {
       if (m.index > at) out.push({ text: text.slice(at, m.index) });
       at = m.index + m[0].length;
       const f = this.files.get(m[2]!);
-      if (!f) out.push({ image: { id: m[2]! }, caption: m[1]!, gone: true });
+      if (!f) out.push(this.marked({ image: { id: m[2]! }, caption: m[1]!, gone: true }));
       else {
         const { data: _d, sent: _s, ...image } = f;
         out.push({ image, caption: m[1]!, ...(agent ? { path: `/fake-daemon/attachments/${f.id}.${f.mime.slice(6)}` } : {}) });

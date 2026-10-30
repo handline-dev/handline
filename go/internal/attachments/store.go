@@ -95,7 +95,7 @@ type upload struct {
 }
 
 func (s *Store) ensure() error {
-	for _, d := range []string{s.Dir, s.sub("uploads"), s.sub("meta"), s.sub("thumbs")} {
+	for _, d := range []string{s.Dir, s.sub("uploads"), s.sub("meta"), s.sub("thumbs"), s.sub("removed")} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return err
 		}

@@ -101,6 +101,17 @@ export function seedChat(chat: FakeChat, at: string): void {
   chat.seed(A, { from: me, to: A, body: 'Draft the web chat tab plan.', at: ago(50), landing: 'delivered' });
   chat.seed(A, { from: me, to: A, body: 'Use the contract fixtures.', at: ago(30), landing: 'delivered' });
   chat.seed(A, { from: me, to: A, body: 'Hold that, scope changed.', at: ago(20), landing: 'withdrawn' });
+  // A picture the founder deleted (attachment.remove): the row draws "Photo deleted" without a call.
+  const deleted = 'd0d0d0d0d0d0d0d0';
+  chat.seed(A, {
+    from: A,
+    to: me,
+    body: `The old layout: ![before](attachment:${deleted})`,
+    at: ago(25),
+    landing: 'delivered',
+    attachments: [{ id: deleted, name: 'before.png', mime: 'image/png', bytes: 2048 }],
+    parts: [{ text: 'The old layout: ' }, { image: { id: deleted }, caption: 'before', gone: true, removed: true }],
+  });
   chat.seed(A, { from: me, to: A, body: 'Also add the list of gaps.', at: ago(5), landing: 'typed', landed_at: null, delivered_at: null });
   chat.seed(A, {
     from: A,

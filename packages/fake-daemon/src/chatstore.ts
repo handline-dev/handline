@@ -1,5 +1,6 @@
 // The fake daemon's chat messages and transcripts: what chat.messages, chat.transcript and the finders answer, and the one place a message changes.
-import type { ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
+import type { ChatMessage, ImagePart, Landing, TextPart, TranscriptItem, Working } from '@handline/contract';
+import { refs } from '#src/attachments.ts';
 import { searchHits } from '#src/chat-search.ts';
 
 export type Emit = (
@@ -63,6 +64,14 @@ export class ChatStore {
   change(m: ChatMessage & { agent: string }, patch: Partial<ChatMessage>) {
     Object.assign(m, patch, { state_at: this.now() });
     this.emit('chat.message', m.agent, this.view(m));
+  }
+  /** How many messages name image id or were sent with it: attachment.remove's count. */
+  naming(id: string): number {
+    return this.messages.filter((m) => refs(m.body).includes(id) || m.attachments?.some((a) => a.id === id)).length;
+  }
+  /** Every stored part through mark, so one of an image the founder removed reads gone and removed. */
+  remark(mark: (part: TextPart | ImagePart) => TextPart | ImagePart): void {
+    for (const m of this.messages) if (m.parts) m.parts = m.parts.map(mark);
   }
   protected view({ agent: _agent, ...m }: ChatMessage & { agent: string }): ChatMessage {
     return { ...m, tasks: [...m.tasks] };
