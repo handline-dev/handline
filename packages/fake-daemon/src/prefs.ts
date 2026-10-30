@@ -11,7 +11,7 @@ export interface PrefsHost {
 }
 
 export class FakePrefs {
-  private nav: NavPrefs = { pins: [], unread_only: false, hidden: [], layout: 'tree', collapsed: [], order: [] };
+  private nav: NavPrefs = { pins: [], unread_only: false, hidden: [], layout: 'tree', collapsed: [], order: [], later: {} };
   private host: PrefsHost;
 
   constructor(host: PrefsHost) {
@@ -57,7 +57,12 @@ export class FakePrefs {
 
   /** The change goes to every device on the prefs topic. */
   private store(nav: NavPrefsChanges): void {
-    this.nav = { ...this.nav, ...nav };
+    const { later, ...rest } = nav;
+    const merged = { ...this.nav.later };
+    for (const [k, v] of Object.entries(later ?? {}))
+      if (v === null) delete merged[k];
+      else merged[k] = v;
+    this.nav = { ...this.nav, ...rest, ...(later && { later: merged }) };
     this.host.emit('prefs', 'prefs.changed', { data: this.get() as unknown as Record<string, unknown> });
   }
 }

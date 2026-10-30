@@ -1,6 +1,6 @@
 // The person's nav prefs (the daemon's, on every device) and this device's open tabs (this app run only).
 import { useRef, useSyncExternalStore } from 'react';
-import { movePin, navDock, navOf, togglePin, withOpen, type DockItem, type OpenTab } from '@handline/app-core';
+import { movePin, navDock, navOf, togglePin, withOpen, type DockItem, type LaterAt, type OpenTab } from '@handline/app-core';
 import { useQueryClient } from '@tanstack/react-query';
 import type { NavPrefs, NavPrefsChanges, Prefs } from '@handline/client';
 import { useData } from '#src/provider.ts';
@@ -74,4 +74,10 @@ export function useNavDock(): { pinned: DockItem[]; open: DockItem[] } {
   const agents = useAgents().data?.agents ?? [];
   const worktrees = useWorktrees().data?.worktrees ?? [];
   return navDock(agents, useNav().nav.pins, useOpenTabs().tabs, worktrees);
+}
+
+/** Puts an item of Requests off, or returns it: `at` null clears the entry. The daemon merges `later` entry by entry, so two devices lose nothing. */
+export function useLater(): (key: string, at: LaterAt | null) => void {
+  const set = useWrite('prefs.set');
+  return (key, at) => set.mutate({ changes: { nav: { later: { [key]: at } } } } as never);
 }
