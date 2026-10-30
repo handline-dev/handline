@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/stream"
@@ -69,5 +70,39 @@ func TestAReadThatFailsAfterTheFirstRowSaysNothing(t *testing.T) {
 	}
 	if got, _ := l.Since(0, []string{"agents", "notifications"}, "", 100); len(got) != 0 {
 		t.Fatalf("a failed read said %d things: %+v", len(got), got[0])
+	}
+}
+
+// A card the daemon raised is a stall although the view says waiting: the notice is titled by the card and carries its title and text.
+// A card from the agent's own session is no stall, and a card that stays is told once.
+func TestAStallNoticeIsTitledByTheDaemonsCard(t *testing.T) {
+	d, l := rig(t)
+	card := func(source string) string {
+		return `{"name":"bob","state":"waiting","needs_you":{"kind":"dialog","since":"x","title":"Stuck at a dialog","text":"it came back","source":"` + source + `"}}`
+	}
+	exec(t, d, "INSERT INTO agent_view(agent, view, updated) VALUES('bob', ?, 0)", view("running"))
+	a := &Agents{}
+	emit := func(e stream.Entry) (*stream.Event, error) { return l.Append(e) }
+	stalls := func() []*stream.Event {
+		got, err := l.Since(0, []string{"notifications"}, "", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	a.Scan(d, emit)
+	exec(t, d, "UPDATE agent_view SET view = ? WHERE agent = 'bob'", card("session"))
+	if a.Scan(d, emit); len(stalls()) != 0 {
+		t.Fatalf("a session's own card is no stall: %+v", stalls())
+	}
+	exec(t, d, "UPDATE agent_view SET view = ? WHERE agent = 'bob'", card("daemon"))
+	a.Scan(d, emit)
+	got := stalls()
+	if len(got) != 1 || *got[0].Title != "bob: Stuck at a dialog" || string(got[0].Data) != `{"agent":"bob","text":"it came back","title":"Stuck at a dialog"}` {
+		t.Fatalf("%+v", got)
+	}
+	exec(t, d, "UPDATE agent_view SET view = ? WHERE agent = 'bob'", strings.Replace(card("daemon"), "it came back", "again", 1))
+	if a.Scan(d, emit); len(stalls()) != 1 {
+		t.Fatal("a card that stays is told once")
 	}
 }

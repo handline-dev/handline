@@ -11,7 +11,12 @@ import (
 	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/supervisor"
 )
+
+// titles is the card's title for a need the agent's session or a hook reports, by its kind.
+var titles = map[string]string{"permission": "Waiting for your OK", "question": "Asked you a question", "usage": "Usage limit: choose what to do",
+	"dialog": "Waiting at a dialog"}
 
 // movedOn is whether the agent's own turn went on past the prompt the wait file names (session.WaitOf's second path): it asked, reported or
 // committed after the prompt was raised, so the prompt was answered. A wait that names no event is left showing rather than guessed at.
@@ -46,13 +51,19 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 		if err != nil || row == nil || (row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
 			return nil
 		}
-		// The daemon's own record of an agent waiting on a person: a start-up dialog it will not answer, an agent it could not heal. One card
-		// for the event, and it goes when the dialog closes or the trouble does.
-		if row.State == states.Stalled && strings.Contains(row.Detail.String, lifecycle.DialogStall) {
-			return &agentview.NeedsYou{Kind: "dialog", Source: "daemon", Since: row.Updated, Text: row.Detail.String}
+		// The daemon's own record of an agent waiting on a person: a start-up dialog it will not answer, a dialog it cannot get past, an
+		// agent it could not heal. One card for the event, and it goes when the dialog closes or the trouble does.
+		if row.State == states.Stalled {
+			if detail := row.Detail.String; strings.Contains(detail, lifecycle.DialogStall) {
+				text := strings.TrimSpace("Nothing was typed into it: only a person can answer it. " + lifecycle.DialogReason(detail))
+				return &agentview.NeedsYou{Kind: "dialog", Source: "daemon", Since: row.Updated, Title: "Stuck at a start-up dialog", Text: text}
+			} else if why, ok := strings.CutPrefix(detail, supervisor.DialogStall+": "); ok {
+				return &agentview.NeedsYou{Kind: "dialog", Source: "daemon", Since: row.Updated, Title: "Stuck at a dialog", Text: why}
+			}
 		}
 		if since, up := heal.CardUp(q, agent); up {
-			return &agentview.NeedsYou{Kind: "stuck", Source: "daemon", Since: since, Text: heal.CardText}
+			return &agentview.NeedsYou{Kind: "stuck", Source: "daemon", Since: since, Title: "Stuck after restarts",
+				Text: strings.TrimPrefix(heal.CardText, "stuck: ")}
 		}
 		var sess *sessionRec
 		if rec, _, found := p.terminalSession(agent, p.liveTerminals()); found == sessionFound {
@@ -64,7 +75,7 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 		w := hooks.ReadWait(home, agent)
 		// Claude Code saying nobody answered comes first; a question is left to its own card.
 		if since, ok := hooks.Notified(home, agent); notified && ok && w["tool"] != "AskUserQuestion" {
-			return &agentview.NeedsYou{Kind: "permission", Source: "notification", Since: since}
+			return &agentview.NeedsYou{Kind: "permission", Source: "notification", Since: since, Title: titles["permission"]}
 		}
 		if w != nil && row.State == states.Running && !movedOn(q, agent, w) {
 			since, _ := w["since"].(float64)
@@ -74,11 +85,12 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 			if tool == "AskUserQuestion" {
 				kind = "question"
 			}
-			return &agentview.NeedsYou{Kind: kind, Source: "hook", Since: int64(since), Text: strings.TrimSpace(tool + ": " + command)}
+			return &agentview.NeedsYou{Kind: kind, Source: "hook", Since: int64(since), Title: titles[kind], Text: strings.TrimSpace(tool + ": " + command)}
 		}
 		if sess != nil {
 			s := peerinbox.Session{Status: sess.Status, WaitingFor: sess.WaitingFor}
-			return &agentview.NeedsYou{Kind: s.NeedsKind(), Source: "session", Since: sess.UpdatedAt / 1000, Text: sess.WaitingFor}
+			kind := s.NeedsKind()
+			return &agentview.NeedsYou{Kind: kind, Source: "session", Since: sess.UpdatedAt / 1000, Title: titles[kind], Text: sess.WaitingFor}
 		}
 		return nil
 	}

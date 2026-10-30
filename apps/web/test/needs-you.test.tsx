@@ -46,7 +46,13 @@ describe('needs you', () => {
     const fx = s.daemon.sessions.get(ARCH)!.fx;
     keep = () => void (fx.view = undefined); // the fixture is shared by every setup
     fx.view = {
-      needs_you: { kind: 'usage', since: new Date(Date.now() - 5 * 60_000).toISOString(), text: 'Weekly limit reached', source: 'session' },
+      needs_you: {
+        kind: 'usage',
+        since: new Date(Date.now() - 5 * 60_000).toISOString(),
+        title: 'Usage limit: choose what to do',
+        text: 'Weekly limit reached',
+        source: 'session',
+      },
     };
     await mount(s);
     await until(() => card(), 'the card');
@@ -68,7 +74,9 @@ describe('needs you', () => {
     const s = setup();
     const a = s.daemon.sessions.get(ARCH)!;
     keep = () => void (a.fx.view = undefined);
-    a.fx.view = { needs_you: { kind: 'permission', since: new Date().toISOString(), text: null, source: 'hook' } };
+    a.fx.view = {
+      needs_you: { kind: 'permission', since: new Date().toISOString(), title: 'Waiting for your OK', text: null, source: 'hook' },
+    };
     (s.daemon as unknown as { script: { openPrompt(a: unknown): void } }).script.openPrompt(a);
     await mount(s);
     await wait(300);

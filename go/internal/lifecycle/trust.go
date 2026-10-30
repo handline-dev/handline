@@ -42,13 +42,22 @@ func (m *Manager) handleStartupDialog(agent, handle string) (handled, ok bool, w
 	return true, false, m.raiseDialogStall(agent, seen)
 }
 
+// dialogUntyped ends the fixed words of a start-up dialog stall's detail; what the screen showed follows it.
+const dialogUntyped = " - nothing was typed into it. "
+
+// DialogReason is what the screen showed, from the detail of a start-up dialog stall: the words after dialogUntyped, "" when there are none.
+func DialogReason(detail string) string {
+	_, reason, _ := strings.Cut(detail, dialogUntyped)
+	return reason
+}
+
 // raiseDialogStall: STALLED until the dialog is gone, which the sweep lifts when the screen is read clear. No task is made: the agent's
 // view says it waits on the founder (needs_you, kind dialog) for as long as the stall lasts, once however often it is met.
 func (m *Manager) raiseDialogStall(agent string, seen *term.Blocker) string {
 	if row := must(db.GetAgentState(m.Q, agent)); row != nil && row.State == states.Stalled && strings.Contains(row.Detail.String, DialogStall) {
 		return row.Detail.String
 	}
-	why := fmt.Sprintf("%s's terminal is showing a %s only a person answers - nothing was typed into it. %s", agent, DialogStall, seen.Reason())
+	why := fmt.Sprintf("%s's terminal is showing a %s only a person answers%s%s", agent, DialogStall, dialogUntyped, seen.Reason())
 	check(db.SetAgentState(m.Q, agent, states.Stalled, 0, clip300(why)))
 	m.Log("  %s: %s", agent, why)
 	return why
