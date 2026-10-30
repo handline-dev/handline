@@ -35,7 +35,8 @@ async function mount() {
   });
   await until(() => box.querySelector('.tverbs'), 'the actions');
   expect(box.querySelector('.thistory')).toBeNull(); // folded away until asked for
-  await click(box.querySelector('button[aria-label="History"]')!);
+  await click(box.querySelector('.tdetail-head button[aria-label="More"]')!);
+  await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent === 'History')!);
   await until(() => box.querySelector('.thistory'), 'the history');
   return s;
 }
