@@ -1,5 +1,5 @@
 // The floating layers, the only parts with a shadow: a menu of what you DO to the thing, a popover, and a toast.
-import type { LucideIcon } from 'lucide-react';
+import { CircleCheck, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 /** A menu or popover surface; `children` are PopItems, a separator, or a small panel. */
@@ -45,9 +45,10 @@ export function Toast({ children, action, onAction }: { children: ReactNode; act
   return (
     <div
       role="status"
-      className="pointer-events-auto inline-flex items-center gap-3 rounded-md bg-ink px-3.5 py-[9px] text-sm text-canvas shadow-[var(--shadow)]"
+      className="pointer-events-auto inline-flex max-w-[min(480px,calc(100vw-2rem))] items-center gap-2.5 rounded-md bg-ink px-3.5 py-[9px] text-sm text-canvas shadow-[var(--shadow)]"
     >
-      <span>{children}</span>
+      <CircleCheck width={15} height={15} strokeWidth={1.75} aria-hidden className="flex-none" />
+      <span className="min-w-0 truncate">{children}</span>
       {action ? (
         <button
           type="button"

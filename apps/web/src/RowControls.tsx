@@ -1,7 +1,7 @@
 // The ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button): Pin, Settings, Open in, the copies and the session verbs. No Start or Resume: the daemon wakes, parks, restarts and moves agents by itself, so the person is not shown those.
 import { asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { useAgentDetail, useVerbMark, useVerbRun } from '@handline/app-data';
+import { useAgentDetail, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import { useServed } from '#src/AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from '#src/ui/index.ts';
@@ -60,9 +60,17 @@ export function AgentMenu({
   const served = useServed();
   const canRetire = useSelector((s) => s.served).has('agent.retire');
   const busy = !!useVerbMark(agent);
+  const client = useSelector((s) => s.client);
+  const seen = useWrite('chat.seen', agent);
   const open = shell('openPath');
   if (!d) return null;
   const copy = (text: string) => void navigator.clipboard?.writeText(text);
+  // The newest message the agent wrote to the person: everything up to it leaves the unseen count.
+  const markRead = () =>
+    void client.call('chat.messages', { agent, scope: 'mine', limit: 20 }).then((page) => {
+      const up_to = page.messages.find((m) => m.from === agent && m.id > 0)?.id;
+      if (up_to) seen.mutate({ agent, up_to });
+    });
   const verbs = verbsOf(a, d).filter((v) => MENU_VERBS.includes(v.id) && served(v));
   return (
     <>
@@ -92,10 +100,15 @@ export function AgentMenu({
           Copy worktree name
         </MenuItem>
       ) : null}
-      {verbs.length ? <MenuSeparator /> : null}
+      {verbs.length || a.founder_unread ? <MenuSeparator /> : null}
+      {a.founder_unread ? (
+        <MenuItem icon="done" onSelect={markRead}>
+          Mark as read
+        </MenuItem>
+      ) : null}
       {verbs.map((v) => (
         <MenuItem key={v.id} icon={VERB_ICON[v.id]} disabled={busy} onSelect={() => (asks(v) ? onAsk(v) : run(v))}>
-          {v.label}
+          {v.id === 'interrupt' ? 'Stop this turn' : v.label}
         </MenuItem>
       ))}
       {canRetire ? (

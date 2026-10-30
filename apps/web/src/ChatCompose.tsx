@@ -11,6 +11,7 @@ import { VerbSheet } from '#src/AgentVerbs.tsx';
 import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
 import { useCan } from '#src/taskui.tsx';
 import { AttachChips, pasteImages, useAttachDraft, usePaneDrop } from '#src/ChatAttach.tsx';
+import { ModelMenu } from '#src/AgentPickers.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow, sendKey, Check } from '#src/ui/index.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { COMPOSER_BAR } from '#src/ds/Chat.tsx';
@@ -257,6 +258,8 @@ export function Compose(props: {
               <Check checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
             </label>
           ) : null}
+          <span className="mr-auto" />
+          <ModelMenu detail={detail} />
           <Button
             className={`compose-send self-center rounded-full${cmd ? ' !bg-[var(--cmd)]' : ''}`}
             variant="solid"

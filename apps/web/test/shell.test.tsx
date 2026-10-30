@@ -109,7 +109,7 @@ describe('with the shell', () => {
     s.daemon.dropConnections(); // the rows are read again
     await until(() => row().querySelector('.row-main')?.getAttribute('title')?.includes('running'), 'the row running', 600);
     await act(async () => void row().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
-    const item = [...document.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Interrupt') as HTMLElement;
+    const item = [...document.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Stop this turn') as HTMLElement;
     s.daemon.knobs.latency(400);
     await act(async () => void item.click());
     await until(() => sh.log.unsent.at(-1) === true, 'unsent while the write is in flight');

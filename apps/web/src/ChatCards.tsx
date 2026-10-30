@@ -35,7 +35,16 @@ const until = (iso: string | null, now: number): number | null => {
 
 /** One line under the composer: the model and account (menus), the task, the branch (dropped when the line is tight), and the context and
  *  prompt cache in words. */
-export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to?: 'chat' | 'terminal' }) {
+export function ChatStrip({
+  detail,
+  to = 'terminal',
+  model = true,
+}: {
+  detail: AgentDetail;
+  to?: 'chat' | 'terminal';
+  /** The model menu: a chat has it in its composer instead. */
+  model?: boolean;
+}) {
   const cache = until(detail.cache_until, useNow(30_000));
   const strip = useAgentStrip(detail.name).data;
   const ctxPct = detail.ctx_pct ?? strip?.ctx_pct;
@@ -63,7 +72,7 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
         </span>
       ) : null}
       <AccountMenu detail={detail} />
-      <ModelMenu detail={detail} />
+      {model ? <ModelMenu detail={detail} /> : null}
       <ViewSwitch to={to} />
     </div>
   );

@@ -555,7 +555,7 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     const t = await mount(ARCH);
     await until(() => $('.chat-strip'), 'the strip');
     expect($('.chat-strip .ui-state')).toBeNull(); // no spinner at the start; the head says the state
-    expect(text($('.chat-strip'))).toContain('opus');
+    expect(text($('.compose-wrap'))).toContain('opus'); // the model menu is in the composer
     expect($('.chat-strip a')).toBeNull(); // the task is on the sidebar row
     expect($('.chat-banner')).toBeNull();
     void t;

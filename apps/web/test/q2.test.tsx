@@ -116,7 +116,7 @@ describe('writes', () => {
     await act(
       async () => void $(`[data-agent="${AUD}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
     );
-    return [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b) === 'Interrupt')!;
+    return [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b) === 'Stop this turn')!;
   };
 
   it('Interrupt is a pending mark while the daemon works, and nothing else changes until the daemon says so', async () => {

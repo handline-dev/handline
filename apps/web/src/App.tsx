@@ -153,7 +153,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
         {railOpen ? (
           <>
-            <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
+            <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} onSearch={() => setPalette(true)} />
             <div
               className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-acc max-[760px]:hidden"
               role="separator"

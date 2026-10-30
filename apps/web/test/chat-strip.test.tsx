@@ -41,7 +41,7 @@ afterEach(async () => {
   box?.remove();
   location.hash = '';
 });
-const chip = (name: string) => $(`.chat-strip [title^="${name}"]`)!;
+const chip = (name: string) => $(`.chat-strip [title^="${name}"], .compose-wrap [title^="${name}"]`)!;
 
 describe('the chat strip', () => {
   it('says the context in percent and opens its details with the used tokens and the cache', async () => {
