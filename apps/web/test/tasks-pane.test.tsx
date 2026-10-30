@@ -206,6 +206,30 @@ describe('a narrow Tasks list (detail panel open)', () => {
   });
 });
 
+describe('the task page ... menu', () => {
+  const names = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((i) => txt(i));
+  it('lists Copy link, Copy number, the sub-task, wait and duplicate verbs, History, then the verbs that end it, with Discard last', async () => {
+    await open('#/tasks/1688');
+    await until(() => $('.tdetail-head'), 'the head');
+    await click($('.tdetail-head button[aria-label="More"]'));
+    const list = names();
+    expect(list.slice(0, 6)).toEqual(['Copy link', 'Copy number', 'Add sub-task', 'Wait on another task…', 'Duplicate', 'History']);
+    expect(list.at(-1)).toBe('Discard');
+    expect(list).toContain('Cancel task');
+    expect(list).not.toContain('Assign');
+    expect(list).not.toContain('Comment');
+  });
+
+  it('a closed task has no Cancel, Discard or Add sub-task', async () => {
+    await open('#/tasks/1650');
+    await until(() => $('.tdetail-head'), 'the head');
+    await click($('.tdetail-head button[aria-label="More"]'));
+    const list = names();
+    expect(list).toContain('Duplicate');
+    for (const gone of ['Cancel task', 'Discard', 'Add sub-task']) expect(list).not.toContain(gone);
+  });
+});
+
 describe('the task page', () => {
   it('says on one line what the task waits on and what waits on it, with the Graph', async () => {
     await open('#/tasks/1688');

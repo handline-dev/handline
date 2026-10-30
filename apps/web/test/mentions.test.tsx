@@ -59,6 +59,20 @@ describe('writing a comment and mentioning an agent', () => {
     await until(() => text($('section[aria-label="Activity"]')).includes('sent with the keys'), 'the comment');
   });
 
+  it('the Comment button sits inside the comment box with the editor, and a click on it sends', async () => {
+    const s = setup();
+    s.daemon.tasks.verbs = true;
+    await mount('#/tasks/1688', s);
+    await until(() => $('.body-editor'), 'the comment editor');
+    await act(async () => void [...box.querySelectorAll('button')].find((b) => b.textContent === 'Source')!.click());
+    await typeInto($('textarea[aria-label="Comment"]') as HTMLTextAreaElement, 'sent with the button');
+    const send = box.querySelector<HTMLButtonElement>('button[title="Comment"]')!;
+    const one = send.closest('[title^="@agent asks"]')!; // the one box: the hint is its tooltip
+    expect(one.contains($('textarea[aria-label="Comment"]'))).toBe(true);
+    await act(async () => void send.click());
+    await until(() => text($('section[aria-label="Activity"]')).includes('sent with the button'), 'the comment');
+  });
+
   it('@ in the chat box lists agents and a pick puts the name in', async () => {
     await mount('#/agents/handline.architect');
     await until(() => $('textarea.compose'), 'the message box');
