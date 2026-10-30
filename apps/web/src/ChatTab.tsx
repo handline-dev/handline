@@ -375,7 +375,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 {drawn ? <HeldCard detail={detail} /> : null}
                 {drawn ? <BlockedCard detail={detail} /> : null}
                 {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
-                <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
+                <LiveLine agent={agent} detail={detail} working={chat.working} messages={chat.messages} items={chat.items} />
               </div>
             </div>
             {windowed ? (

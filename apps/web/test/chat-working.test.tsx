@@ -45,7 +45,8 @@ describe('the working indicator', () => {
     expect(box.querySelector('.working')).toBeNull();
     s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'rebase the pane branch' });
     s.daemon.chat.setWorking(ARCH, true, 'Finding large disk users');
-    await until(() => box.querySelector('.working')?.getAttribute('title')?.includes('now: Finding large disk users'), 'the indicator');
+    await until(() => box.querySelector('.working')?.getAttribute('title')?.includes('Finding large disk users · '), 'the indicator');
+    expect(box.textContent).toContain('Stop');
     s.daemon.chat.setWorking(ARCH, false);
     await until(() => box.querySelector('.working') === null, 'the indicator gone');
   });
@@ -62,11 +63,68 @@ describe('the working indicator', () => {
       root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
     });
     await until(() => box.querySelector('textarea.compose'), 'the chat');
-    await until(() => box.querySelector('.working')?.textContent?.includes('2 commands · now: Read a.ts'), 'the live line');
+    await until(() => box.querySelector('.working')?.textContent?.includes('Reading a.ts · '), 'the live line');
     expect(box.querySelector('[data-testid="turn-steps"]')).toBeNull();
     await act(async () => box.querySelector<HTMLButtonElement>('.working')!.click());
     expect(box.querySelectorAll('[data-testid="turn-steps"] [data-kind="tool"]').length).toBe(2);
     s.daemon.chat.setWorking(ARCH, false);
-    await until(() => box.querySelector('.ran')?.textContent === 'Ran 2 commands', 'the folded line');
+    await until(() => box.querySelector('.ran')?.textContent?.startsWith('Ran 2 commands'), 'the folded line');
+  });
+
+  async function mountWithTurn(s: ReturnType<typeof setup>) {
+    s.daemon.chat.setWorking(ARCH, true);
+    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Read', text: 'a.ts' });
+    location.hash = `#/agents/${ARCH}`;
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
+    });
+    await until(() => box.querySelector('.working'), 'the live line');
+  }
+
+  it('Stop interrupts the turn: the daemon is asked and the line goes', async () => {
+    const s = setup();
+    await mountWithTurn(s);
+    const stop = [...box.querySelectorAll<HTMLButtonElement>('.working-slot button')].find((b) => b.textContent === 'Stop')!;
+    await act(async () => stop.click());
+    const got = () => s.daemon.sessions.get(ARCH)!.received.some((r) => r.kind === 'key' && r.value === 'esc');
+    await until(got, 'session.interrupt reaching the daemon');
+  });
+
+  it('names the task on the running line, before Stop, when the agent holds one', async () => {
+    const s = setup();
+    const held = s.daemon.sessions.get(ARCH)!.fx.task!;
+    await mountWithTurn(s);
+    expect(box.querySelector('.working')!.textContent).toMatch(new RegExp(`· T${held.id}$`));
+    s.daemon.chat.setWorking(ARCH, false);
+    await until(() => box.querySelector('.ran'), 'the folded line');
+    expect(box.querySelector('.ran')!.textContent).not.toMatch(/T\d/);
+  });
+
+  it('names no task on the running line when the agent holds none', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    const held = fx.task;
+    fx.task = null;
+    try {
+      await mountWithTurn(s);
+      expect(box.querySelector('.working')!.textContent).not.toMatch(/T\d/);
+    } finally {
+      fx.task = held;
+    }
+  });
+
+  it('a Bash call is named by the words its command starts with', async () => {
+    const s = setup();
+    s.daemon.chat.setWorking(ARCH, true);
+    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'hl task new --assign x "do it"' });
+    location.hash = `#/agents/${ARCH}`;
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
+    });
+    await until(() => box.querySelector('.working')?.textContent?.startsWith('Running hl task new · '), 'the command name');
   });
 });

@@ -401,6 +401,12 @@ export function turnSummary(messages: ChatMessage[], items: TranscriptItem[], ru
   return { steps, count: tools.length, last: end ? [end.tool, end.text].filter(Boolean).join(' ') : null };
 }
 
+/** `45s` or `1m 12s` for a turn that began at `since`; `0s` when it has no start. */
+export function turnElapsed(since: string | null, now = Date.now()): string {
+  const s = since ? Math.max(0, Math.floor((now - Date.parse(since)) / 1000)) : 0;
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
 /** `12m` for a turn that began at `since`, `<1m` before the first minute. */
 export function turnMinutes(since: string | null, now = Date.now()): string {
   const m = since ? Math.floor((now - Date.parse(since)) / 60_000) : 0;
