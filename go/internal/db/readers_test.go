@@ -203,6 +203,12 @@ func TestSingleValueReads(t *testing.T) {
 	if _, ok, _ := LastActivity(q, "nobody"); ok {
 		t.Fatal("activity for nobody")
 	}
+	if _, ok, err := LastEventTS(q, "nobody", "Stop"); ok || err != nil {
+		t.Fatal("no row is not found, not an error", err)
+	}
+	if _, ok, err := LastAccountActivity(q, "none"); ok || err != nil {
+		t.Fatal("no row is not found, not an error", err)
+	}
 
 	rid := ask(t, q, "a", "b", "x", "ask")
 	say := ask(t, q, "a", "b", "psst", "say")

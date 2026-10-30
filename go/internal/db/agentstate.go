@@ -312,9 +312,12 @@ func marks(n int) string {
 	return s
 }
 
+// maxInt reads one integer: a MAX() or a LIMIT 1 query; no row or NULL is not ok.
 func maxInt(q Q, query string, args ...any) (int64, bool, error) {
 	var n sql.NullInt64
-	if err := q.QueryRow(query, args...).Scan(&n); err != nil {
+	if err := q.QueryRow(query, args...).Scan(&n); err == sql.ErrNoRows {
+		return 0, false, nil
+	} else if err != nil {
 		return 0, false, err
 	}
 	return n.Int64, n.Valid, nil
@@ -343,14 +346,15 @@ func LastActivityID(q Q, agent string, kinds []string) (int64, bool, error) {
 	return maxInt(q, "SELECT MAX(id) FROM events WHERE agent = ? AND kind IN ("+marks(len(kinds))+")", kindArgs([]any{agent}, kinds)...)
 }
 
-// LastAccountActivity is db.last_account_activity: when a session on the account last took a turn.
+// LastAccountActivity is db.last_account_activity: when a session on the account last took a turn. The newest row by id, not MAX(ts):
+// events has no account index, so it walks back from the newest row and stops at the first match (+kind keeps the kind index out).
 func LastAccountActivity(q Q, account string) (int64, bool, error) {
-	return maxInt(q, "SELECT MAX(ts) FROM events WHERE account = ? AND kind IN ('UserPromptSubmit', 'Stop', 'StopFailure', 'PostCompact', 'SessionStart')", account)
+	return maxInt(q, "SELECT ts FROM events WHERE account = ? AND +kind IN ('UserPromptSubmit', 'Stop', 'StopFailure', 'PostCompact', 'SessionStart') ORDER BY id DESC LIMIT 1", account)
 }
 
-// LastEventTS is db.last_event_ts.
+// LastEventTS is db.last_event_ts: the ts of the newest such row by id, which events_agent_id finds without reading the agent's history.
 func LastEventTS(q Q, agent, kind string) (int64, bool, error) {
-	return maxInt(q, "SELECT MAX(ts) FROM events WHERE agent = ? AND kind = ?", agent, kind)
+	return maxInt(q, "SELECT ts FROM events WHERE agent = ? AND kind = ? ORDER BY id DESC LIMIT 1", agent, kind)
 }
 
 // LastEventOfTS is when the agent's latest event of any of kinds was.
@@ -359,7 +363,7 @@ func LastEventOfTS(q Q, agent string, kinds []string) (int64, bool, error) {
 	for _, k := range kinds {
 		args = append(args, k)
 	}
-	return maxInt(q, "SELECT MAX(ts) FROM events WHERE agent = ? AND kind IN (?"+strings.Repeat(", ?", len(kinds)-1)+")", args...)
+	return maxInt(q, "SELECT ts FROM events WHERE agent = ? AND kind IN (?"+strings.Repeat(", ?", len(kinds)-1)+") ORDER BY id DESC LIMIT 1", args...)
 }
 
 // LastSessionStartTS is when the agent's latest kept session start (hl launch, just before it becomes claude) was.
