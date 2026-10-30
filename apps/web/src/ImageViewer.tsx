@@ -1,17 +1,28 @@
 // The one enlarged view of a picture: dimmed scrim, zoom (ViewerStage.tsx) and, under a PhotoNotes place, marking what to change.
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { initialMarks, keptMarks, marksReducer, marksToShapes } from '@handline/app-core';
-import { sentence, classify, useAttachmentUrl, useWrite } from '@handline/app-data';
+import { sentence, classify, isRemoved, useAttachmentUrl, useWrite } from '@handline/app-data';
 import { useHello } from '@handline/app-react';
 import { marked } from '#src/Annotate.tsx';
 import { notesText, useNotesPlace } from '#src/PhotoNotes.tsx';
 import { ViewerStage } from '#src/ViewerStage.tsx';
 import { Button, Icon } from '#src/ui/index.ts';
+import { KeepPhotos } from '#src/keepPhotos.ts';
 
 export type Picture = { id?: string; url?: string; name: string };
 
+/** Pictures this session saw deleted are not stepped to. */
 export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Picture[]; start?: number; onClose: () => void }) {
+  const [shown] = useState(() => {
+    const list = pictures.filter((p) => !(p.id && isRemoved(p.id)));
+    return { list: list.length ? list : pictures, start: Math.max(0, list.indexOf(pictures[start]!)) };
+  });
+  return <Viewer pictures={shown.list} start={shown.start} onClose={onClose} />;
+}
+
+function Viewer({ pictures, start, onClose }: { pictures: Picture[]; start: number; onClose: () => void }) {
   const [at, setAt] = useState(Math.min(start, pictures.length - 1));
+  const keep = useContext(KeepPhotos);
   const pic = pictures[at];
   const place = useNotesPlace();
   const full = useAttachmentUrl(pic?.id ?? '', false);
@@ -104,7 +115,7 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
             Fit
           </button>
         ) : null}
-        {url && !marking ? <PhotoMenu url={url} name={pic.name} id={pic.id} onDeleted={onClose} /> : null}
+        {url && !marking ? <PhotoMenu url={url} name={pic.name} id={keep ? undefined : pic.id} onDeleted={onClose} /> : null}
         <button type="button" className="inline-flex items-center gap-1 border-0 bg-transparent text-white" onClick={() => leave('close')}>
           <Icon name="close" size={14} aria-hidden />
           Close
@@ -248,7 +259,7 @@ function PhotoMenu({ url, name, id, onDeleted }: { url: string; name: string; id
             {places === 0 ? null : `It disappears from ${places} ${places === 1 ? 'place' : 'places'}. This cannot be undone.`}
           </span>
           <span className="flex justify-end gap-2">
-            <Button size="sm" label="Cancel" onClick={() => setPlaces(null)} />
+            <Button size="sm" label="Cancel" className="!text-ink" onClick={() => setPlaces(null)} />
             <Button size="sm" variant="solid" label="Delete" className="!bg-bad" onClick={() => void del()} />
           </span>
         </div>
@@ -258,7 +269,7 @@ function PhotoMenu({ url, name, id, onDeleted }: { url: string; name: string; id
           <button type="button" role="menuitem" className={item} onClick={() => void copy().catch(() => undefined)}>
             Copy photo
           </button>
-          <a role="menuitem" className={`${item} no-underline`} href={url} download={name} onClick={() => setOpen(false)}>
+          <a role="menuitem" className={`${item} !text-ink !no-underline`} href={url} download={name} onClick={() => setOpen(false)}>
             Save photo
           </a>
           {founder && id ? (

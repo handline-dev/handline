@@ -22,6 +22,7 @@ import { TimeLine } from '#src/TaskTime.tsx';
 import { Activity } from '#src/TaskActivity.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
+import { KeepPhotos } from '#src/keepPhotos.ts';
 import { View } from '#src/View.tsx';
 import { typing } from '#src/typing.ts';
 
@@ -331,22 +332,24 @@ function Brief({ t, can }: { t: Detail; can: boolean }) {
   const long = t.body.length > 280 || t.body.split('\n').length > 4;
   return (
     <div className="tbody-text mt-3">
-      <Inline can={can} label="Description" input={(close) => <BodyInline t={t} onClose={close} />}>
-        {t.body ? (
-          <>
-            <div className={long && !more ? 'line-clamp-4' : undefined}>
-              <Markdown text={t.body} />
-            </div>
-            {long ? (
-              <button type="button" className="border-0 bg-transparent p-0 text-acc-ink" onClick={() => setMore(!more)}>
-                {more ? 'Show less' : 'Show more'}
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <span className="muted">Add a description</span>
-        )}
-      </Inline>
+      <KeepPhotos.Provider value>
+        <Inline can={can} label="Description" input={(close) => <BodyInline t={t} onClose={close} />}>
+          {t.body ? (
+            <>
+              <div className={long && !more ? 'line-clamp-4' : undefined}>
+                <Markdown text={t.body} />
+              </div>
+              {long ? (
+                <button type="button" className="border-0 bg-transparent p-0 text-acc-ink" onClick={() => setMore(!more)}>
+                  {more ? 'Show less' : 'Show more'}
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <span className="muted">Add a description</span>
+          )}
+        </Inline>
+      </KeepPhotos.Provider>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
+import { markRemoved } from '@handline/app-data';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
 
@@ -117,6 +118,20 @@ describe('the photo viewer', () => {
     );
     await until(() => !$('.image-viewer'), 'the viewer closed');
     await until(() => box.querySelector('.msg .attachment.gone')?.textContent?.includes('Photo deleted'), 'the row says so');
+  });
+
+  it('does not step to a photo it saw deleted', async () => {
+    const s = setup();
+    const [first] = seed(s);
+    await mount(s);
+    await until(() => box.querySelector('.msg .attachment img'), 'the pictures');
+    await act(async () => markRemoved(first!.id));
+    await until(() => box.querySelector('.msg .attachment.gone'), 'the first one blank');
+    await click(box.querySelector('.msg button.attachment')!);
+    await until(() => $('.image-viewer img'), 'the viewer');
+    expect($('.image-viewer')!.textContent).not.toContain(' of ');
+    expect($('.image-viewer [aria-label="Previous picture"]')).toBeNull();
+    expect($('.image-viewer [aria-label="Next picture"]')).toBeNull();
   });
 
   it('offers Copy, Save and Delete under More', async () => {

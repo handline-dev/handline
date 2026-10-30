@@ -139,6 +139,8 @@ const urlOf = (call: Call, id: string, thumb: boolean): Promise<string | null> =
 
 const removedIds = new Set<string>();
 const onRemoved = new Set<(id: string) => void>();
+/** Whether this session saw the image deleted. */
+export const isRemoved = (id: string): boolean => removedIds.has(id);
 /** The founder deleted this image: what draws it from the cache goes blank at once and says it was deleted. */
 export function markRemoved(id: string): void {
   removedIds.add(id);
