@@ -18,6 +18,7 @@ export const FIT: View = { s: 1, x: 0, y: 0 };
 
 export const MAX_ZOOM = 8;
 const TAP_MS = 300;
+const DOUBLE_MS = 400;
 const SLOP = 8;
 const LEAVE = 120;
 const STEP = 60;
@@ -156,7 +157,8 @@ class Gesture {
   /** A second tap near the first goes between fit and 100 percent, around the tap. */
   private tap(p: Pt) {
     const last = this.lastTap;
-    const twice = Date.now() - last.t < TAP_MS && Math.hypot(p.x - last.x, p.y - last.y) < 40;
+    // From the first lift to the second touch-down.
+    const twice = this.t0 - last.t < DOUBLE_MS && Math.hypot(p.x - last.x, p.y - last.y) < 40;
     this.lastTap = twice ? { t: 0, x: 0, y: 0 } : { t: Date.now(), x: p.x, y: p.y };
     if (!twice) return;
     if (this.view.s > 1) return this.set(FIT);

@@ -25,7 +25,7 @@ export type SendMarks = (words: string, attachments: string[]) => void;
 const MAX_SIDE = 2048;
 const GONE = 'This image is no longer kept.';
 const FAILED = 'This image could not be loaded.';
-const SCRIM = 0.9;
+const SCRIM = 0.96;
 
 interface Where {
   pictures: Shot[];
@@ -305,7 +305,7 @@ function Arrow(props: { side: 'left' | 'right'; label: string; onPress: () => vo
         width: 36,
         height: 36,
         borderRadius: 18,
-        backgroundColor: 'rgba(255,255,255,0.18)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
         alignItems: 'center',
         justifyContent: 'center',
       }}
