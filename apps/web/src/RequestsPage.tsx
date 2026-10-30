@@ -1,7 +1,8 @@
 // The Requests page (#/requests): everything that waits on the person, grouped by what they must do (Allow, Decide, Review, Do by hand), as a list
 // beside the open item. A row only opens the item; the answer is given in the detail, which ends with its answers and nothing after them.
 import { ChevronRight, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useKeepPlace } from '#src/useKeepPlace.ts';
+import { useEffect, useState } from 'react';
 import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
 import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
 import { Fold } from '#src/Fold.tsx';
@@ -339,13 +340,7 @@ export function RequestsPage() {
   // The list reads in its groups, so j and k walk the cards in that order.
   const ordered = GROUPS.flatMap((g) => cards.filter((c) => groupOf(c) === g));
   const sel = cards.find((c) => c.key === pick) ?? (wide ? ordered[0] : undefined);
-  // The picked card leaves (allowed, held): the pick passes to the card that moved up into its place, not to the top one.
-  const at = useRef(0);
-  useEffect(() => {
-    const i = ordered.findIndex((c) => c.key === pick);
-    if (i >= 0) at.current = i;
-    else if (pick !== null && wide) setPick(ordered[Math.min(at.current, ordered.length - 1)]?.key ?? null);
-  });
+  useKeepPlace(ordered, pick, setPick, wide);
   useScreenKeys('On Requests', REQUEST_KEYS);
   useKey((k) => {
     if (k !== 'j' && k !== 'k') return false;
