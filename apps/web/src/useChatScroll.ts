@@ -120,8 +120,9 @@ export function useChatScroll({
       if (!box) return;
       const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR;
       // Our own jump raises its scroll event a frame later; lines that grew meanwhile (a picture's height) make that look like leaving the bottom, so the follow is kept and renewed.
-      if (!atBottom && !intent.current && placed.current !== null && Math.abs(box.scrollTop - placed.current) <= 1) {
-        placed.current = null;
+      const mine = placed.current;
+      placed.current = null; // one event per jump
+      if (!atBottom && !intent.current && mine !== null && Math.abs(box.scrollTop - mine) <= 1) {
         if (state.current.mode === 'follow') dispatch({ type: 'grew' });
         return;
       }
