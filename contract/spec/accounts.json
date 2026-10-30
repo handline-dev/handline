@@ -900,6 +900,70 @@
      "runway",
      "cost_per_day"
     ]
+   },
+   "Retro": {
+    "type": "object",
+    "description": "The cost of one founder's task: its wall time, and the tokens spent inside the doing windows of every task in its subtree, per agent.",
+    "properties": {
+     "task": {
+      "type": "integer"
+     },
+     "wall_seconds": {
+      "type": "integer",
+      "description": "From the task's creation to its done or discard time; to now while it is open."
+     },
+     "tokens": {
+      "type": "integer",
+      "description": "All agents together: inp, cc, cr and out (thinking is a part of out)."
+     },
+     "cost": {
+      "type": "number",
+      "description": "USD at list price, all agents together."
+     },
+     "agents": {
+      "type": "array",
+      "description": "One row per agent that was doing a task of the subtree, most tokens first, ties by agent.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "agent": {
+         "type": "string"
+        },
+        "doing_seconds": {
+         "type": "integer",
+         "description": "Time it held tasks of the subtree in doing, waits on a blocker included."
+        },
+        "tokens": {
+         "type": "integer"
+        },
+        "cost": {
+         "type": "number"
+        },
+        "tasks": {
+         "type": "array",
+         "items": {
+          "type": "integer"
+         },
+         "description": "The subtree tasks it did, by id."
+        }
+       },
+       "required": [
+        "agent",
+        "doing_seconds",
+        "tokens",
+        "cost",
+        "tasks"
+       ]
+      }
+     }
+    },
+    "required": [
+     "task",
+     "wall_seconds",
+     "tokens",
+     "cost",
+     "agents"
+    ]
    }
   }
  },
@@ -1537,6 +1601,38 @@
    "x-write": false,
    "x-since": 1,
    "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "stats.retro",
+   "summary": "What a founder's task cost: wall time, and tokens per agent from the doing windows of its subtree.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Retro"
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "description": "A read only. The subtree is the task and every task opened under it, to any depth. A doing window of a task runs from the moment its holder began it (task_begin or task_self_start) to the first of: done, discard, release, handoff to another agent, or the holder beginning another task. A holder has at most one open window, so its windows never overlap; doing_seconds is time the agent held the task in doing, waits on a blocker included. A call of token_calls counts to an agent when its ts is after a window's begin and up to its end (as in stats.get) in one of that agent's windows and its cwd is in that agent's worktree. Calls outside every window are not counted. A task that is not found is `not_found`; a task that is not a founder's task (its reporter is not human) is `bad_request`.",
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
     {
      "$ref": "#/components/errors/bad_request"
     }

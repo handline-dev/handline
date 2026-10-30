@@ -71,7 +71,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 One file per group, generated from `spec/<group>.json`; field types are in `protocol.ts`.
 
 - [core](gen/core.md): 17 methods
-- [accounts](gen/accounts.md): 11 methods
+- [accounts](gen/accounts.md): 12 methods
 - [agents](gen/agents.md): 30 methods
 - [chat](gen/chat.md): 26 methods
 - [devices](gen/devices.md): 5 methods

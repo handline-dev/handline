@@ -16,6 +16,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `account.remove` | founder | yes | `account`, `dry_run?`, `confirm?`, `request_id` | `Accepted & {would_remove, plan}` | `refused`, `not_found`, `bad_request` |  |
 | `stats.get` | member |  | `window` | `Stats` | `bad_request` |  |
 | `stats.outlook` | member |  | `range`, `agent?` | `Outlook` | `bad_request` |  |
+| `stats.retro` | member |  | `task` | `Retro` | `not_found`, `bad_request` |  |
 
 ### `accounts.list`
 
@@ -60,4 +61,8 @@ Counts over a window, and each agent's use of each account's weekly limit.
 ### `stats.outlook`
 
 The week left of the accounts together, recorded and guessed, each account's runway, and what the agents cost per day.
+
+### `stats.retro`
+
+What a founder's task cost: wall time, and tokens per agent from the doing windows of its subtree. A read only. The subtree is the task and every task opened under it, to any depth. A doing window of a task runs from the moment its holder began it (task_begin or task_self_start) to the first of: done, discard, release, handoff to another agent, or the holder beginning another task. A holder has at most one open window, so its windows never overlap; doing_seconds is time the agent held the task in doing, waits on a blocker included. A call of token_calls counts to an agent when its ts is after a window's begin and up to its end (as in stats.get) in one of that agent's windows and its cwd is in that agent's worktree. Calls outside every window are not counted. A task that is not found is `not_found`; a task that is not a founder's task (its reporter is not human) is `bad_request`.
 
