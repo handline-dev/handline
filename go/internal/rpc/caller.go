@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"cmp"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -78,14 +77,18 @@ func (c Caller) ActorInfo() map[string]any {
 }
 
 // logRefusal logs a founder's method refused to a caller that is not an agent (agents are refused by design), with what its hello said and
-// the processes above it, so a refused founder client names its cause.
+// the processes above it, so a refused founder client names its cause. Once per connection and method: a client that retries logs once.
 func (c *Conn) logRefusal(method, role string) {
-	if role != "founder" || c.Caller.Role == "agent" || c.srv.Log == nil {
+	if role != "founder" || c.Caller.Role == "agent" || c.srv.Log == nil || c.refusalNoted[method] {
 		return
 	}
+	if c.refusalNoted == nil {
+		c.refusalNoted = map[string]bool{}
+	}
+	c.refusalNoted[method] = true
 	chain, _ := processChain(c.Pid)
 	c.srv.Log("  refused %s: needs %s, caller is %s; hello from %q with %s; pid %d (%s)", method, role, c.Caller.Role, c.helloClient,
-		cmp.Or(c.helloKey, "no hello"), c.Pid, chain)
+		c.helloKey, c.Pid, chain)
 }
 
 // processChain is pid's program and up to 8 programs above it ("hl:12 > zsh:11"), and its controlling terminal. Empty for pid 0, a peer

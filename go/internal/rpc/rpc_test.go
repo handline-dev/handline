@@ -261,38 +261,60 @@ func TestAWaitingCallKeepsTheCallerItWasRoutedWithWhileAnotherHelloReplacesIt(t 
 
 func (f fakeAuth) SessionsReadable() error { return nil }
 
-// A founder's method refused to a caller that is not an agent is logged with what its hello said; an agent's refusal is by design and is not.
+// A founder's method refused to a caller that is not an agent is logged with what its hello said, once per connection and method; an agent's
+// refusal is by design, and a member's method refused is not a founder client's trouble: neither is logged.
 func TestARefusedFoundersCallIsLoggedWithWhatItsHelloSaid(t *testing.T) {
 	for _, c := range []struct {
+		about string
 		auth  fakeAuth
-		hello string
-		want  string // "" for no log line
+		hello string   // "" sends no hello
+		calls []string // methods called, each refused
+		want  []string // the log lines, by a part of each
 	}{
-		{fakeAuth{key: "k"}, `{"client":"electron","protocol":1}`, `refused only.founder: needs founder, caller is anonymous; hello from "electron" with no key`},
-		{fakeAuth{key: "k"}, `{"client":"electron","protocol":1,"key":"old"}`, `caller is anonymous; hello from "electron" with a key that is not the founder's`},
-		{fakeAuth{agent: "bob", key: "k"}, `{"client":"hl","protocol":1}`, ""},
+		{"no key", fakeAuth{key: "k"}, `{"client":"electron","protocol":1}`, []string{"only.founder"},
+			[]string{`refused only.founder: needs founder, caller is anonymous; hello from "electron" with no key`}},
+		{"a wrong key", fakeAuth{key: "k"}, `{"client":"electron","protocol":1,"key":"old"}`, []string{"only.founder"},
+			[]string{`hello from "electron" with a key that is not the founder's`}},
+		{"no hello", fakeAuth{key: "k"}, "", []string{"only.founder"}, nil}, // bad_request: the first call is hello
+		{"a retry", fakeAuth{key: "k"}, `{"client":"electron","protocol":1}`, []string{"only.founder", "only.founder", "also.founder"},
+			[]string{"refused only.founder", "refused also.founder"}},
+		{"an agent", fakeAuth{agent: "bob", key: "k"}, `{"client":"hl","protocol":1}`, []string{"only.founder"}, nil},
+		{"a member's method", fakeAuth{key: "k"}, `{"client":"electron","protocol":1}`, []string{"only.member"}, nil},
 	} {
 		var logged []string
-		srv := NewServer(c.auth, "abc1234", 7, "local", func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) })
-		srv.Register("only.founder", Method{Role: "founder", Handler: func(*Conn, map[string]any) (any, error) { return map[string]any{}, nil }})
+		srv := NewServer(c.auth, "abc1234", 7, "local", func(f string, a ...any) {
+			if l := fmt.Sprintf(f, a...); strings.Contains(l, "refused ") {
+				logged = append(logged, l)
+			}
+		})
+		ok := func(*Conn, map[string]any) (any, error) { return map[string]any{}, nil }
+		srv.Register("only.founder", Method{Role: "founder", Handler: ok})
+		srv.Register("also.founder", Method{Role: "founder", Handler: ok})
+		srv.Register("only.member", Method{Role: "member", Handler: ok})
 		cl, sv := net.Pipe()
 		done := make(chan struct{})
 		go func() { srv.Serve(NewLineTransport(sv), 0); sv.Close(); close(done) }()
 		conn := &client{cl, bufio.NewReader(cl)}
-		conn.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":`+c.hello+`}`)
-		if _, code := errOf(t, conn.raw(t, `{"jsonrpc":"2.0","id":2,"method":"only.founder","params":{}}`)); code != "refused" {
-			t.Fatalf("%s: %s", c.hello, code)
+		if c.hello != "" {
+			conn.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":`+c.hello+`}`)
+		}
+		for i, m := range c.calls {
+			reply := conn.raw(t, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":{}}`, i+2, m))
+			if c.hello != "" {
+				if _, code := errOf(t, reply); code != "refused" {
+					t.Fatalf("%s: %s %v", c.about, m, reply)
+				}
+			}
 		}
 		cl.Close()
 		<-done
-		line := ""
-		for _, l := range logged {
-			if strings.Contains(l, "refused only.founder") {
-				line = l
-			}
+		if len(logged) != len(c.want) {
+			t.Fatalf("%s: %q", c.about, logged)
 		}
-		if (c.want == "") != (line == "") || !strings.Contains(line, c.want) {
-			t.Fatalf("%s: %q", c.hello, logged)
+		for i, w := range c.want {
+			if !strings.Contains(logged[i], w) {
+				t.Fatalf("%s: %q, want %q", c.about, logged[i], w)
+			}
 		}
 	}
 }
