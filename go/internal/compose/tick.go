@@ -164,7 +164,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			Notice: func(q db.Q, to, text, reason string) error { _, err := env.Notice(q, to, text, reason); return err }}).Check},
 		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Free: cfg.DiskFree,
 			Floor: func() int64 { return int64(loadgate.LimitsOf(usage.LoadConfig(home)).DiskFreeGB) * housekeeping.GB }}).Check},
-		{Name: "orphan worktree sizes", Run: (&housekeeping.WorktreeSizes{Home: home, Log: logLine}).Check},
+		{Name: "worktree sizes", Run: (&housekeeping.WorktreeSizes{Log: logLine}).Check},
 		{Name: "orphans", Run: (&housekeeping.Orphans{Log: logLine, Scratch: housekeeping.ScratchRoot(),
 			Mode: func() string { return housekeeping.OrphansModeOf(usage.LoadConfig(home)) }}).Check},
 	}, Signalled: func() bool {

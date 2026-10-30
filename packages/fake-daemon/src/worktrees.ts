@@ -1,4 +1,4 @@
-// The fake daemon's repos and worktrees: read-only but for worktree.remove, as the Python and Go daemons serve them today.
+// The fake daemon's repos and worktrees: read-only, as the Python and Go daemons serve them today.
 import { createHash } from 'node:crypto';
 import type { Repo, Worktree } from '@handline/contract';
 import { Failure, invalidParams, refused } from '#src/errors.ts';
@@ -214,25 +214,6 @@ export class FakeWorktrees {
         const row = this.rows.find((w) => w.path === p.path)!;
         const files = row.changed.filter((c) => (p.file === undefined ? c.status !== '?' : c.path === p.file));
         return { path: p.path, file: p.file ?? null, diff: files.map(unified).join(''), truncated: false };
-      }
-      case 'worktree.remove': {
-        if (typeof p.path !== 'string' || !p.path) throw invalidParams('worktree.remove needs a path', 'path');
-        const w = this.rows.find((r) => r.path === p.path);
-        if (!w) throw new Failure('not_found', `no worktree ${p.path}`, { what: 'path' });
-        if (!w.orphan) throw refused('orphan', `${p.path} is an agent's worktree: it goes only with the agent.`);
-        const held = (w.files_changed ?? 0) > 0 || (w.commits_ahead ?? 0) > 0;
-        if (held && p.force !== true)
-          throw refused(
-            'dirty',
-            `${p.path} holds work: ${w.files_changed ?? 0} files changed, ${w.commits_ahead ?? 0} commits not on main.`,
-            undefined,
-            {
-              files_changed: w.files_changed ?? 0,
-              commits_ahead: w.commits_ahead ?? 0,
-            },
-          );
-        this.rows = this.rows.filter((r) => r !== w);
-        return { accepted: true, said: `${p.path} is removed.`, branch_deleted: !held && w.merged === true };
       }
       case 'files.list':
         return this.list(p);

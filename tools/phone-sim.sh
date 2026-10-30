@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # A phone simulator or emulator for a check, stopped when it ends: tools/phone-sim.sh <command>
 #   status | android start NAME | android stop SERIAL | ios start NAME | ios stop NAME
-# One left running costs a core (an emulator sat idle for six days at 60-70% CPU), and the daemon holds new work while one runs
-# (host_simulator_hold). Stop what you started; leave the ones you did not: android start prints the serial it launched, and stop takes it.
+# One left running costs a core (an emulator sat idle for six days at 60-70% CPU). Stop what you started; leave the ones you did not:
+# android start prints the serial it launched, and stop takes it.
 set -uo pipefail
 
 running_android() { adb devices 2>/dev/null | awk '/^emulator-[0-9]+\tdevice/ {print $1}'; }
