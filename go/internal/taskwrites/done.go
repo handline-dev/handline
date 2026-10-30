@@ -266,29 +266,29 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 }
 
 // doneText is what a task's end says to whoever it tells: "T<n> done by <by>: <evidence on one line>".
-// mayClose is whether by may mark t done: its assignee, owner, the founder, the owner of its parent task, or a lead of its team.
-func mayClose(tx *sql.Tx, home, by string, t *task) (bool, error) {
-	if by == t.Owner || by == t.reporter() || by == human {
-		return true, nil
-	}
-	if t.Parent.Valid {
-		var owner, reporter, opener string
-		if err := tx.QueryRow("SELECT owner, COALESCE(reporter, ''), opened_by FROM tasks WHERE id = ?", t.Parent.Int64).Scan(&owner, &reporter, &opener); err != nil && err != sql.ErrNoRows {
-			return false, err
-		}
-		if by == owner || by == reporter || (reporter == "" && by == opener) {
-			return true, nil
-		}
-	}
-	return leadsTreeOf(home, by, t)
-}
-
 func doneText(tid int64, by, evidence string) string {
 	who := by
 	if by == human {
 		who = "the founder"
 	}
 	return strings.TrimRight(fmt.Sprintf("T%d done by %s: %s", tid, who, strings.Join(strings.Fields(evidence), " ")), ": ")
+}
+
+// mayClose is whether by may mark t done: its assignee, owner, the founder, the owner of its parent task, or a lead of its team.
+func mayClose(tx *sql.Tx, home, by string, t *task) (bool, error) {
+	if by == t.Owner || by == t.reporter() || by == human {
+		return true, nil
+	}
+	if t.Parent.Valid {
+		p, err := getTask(tx, t.Parent.Int64)
+		if err != nil {
+			return false, err
+		}
+		if p != nil && (by == p.Owner || by == p.reporter()) {
+			return true, nil
+		}
+	}
+	return leadsTreeOf(home, by, t)
 }
 
 // shaOnMain is _sha_on_main: the full sha `sha` names in repo when main reaches it, else "" and why. A sha typed by hand that never
