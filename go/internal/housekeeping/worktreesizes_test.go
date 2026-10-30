@@ -80,3 +80,20 @@ func waitIdle(t *testing.T, w *WorktreeSizes) {
 	}
 	t.Fatal("the walk did not end")
 }
+
+// Every worktree an agent records is measured, as well as the orphans of the repositories agents work in.
+func TestAgentsWorktreesAreMeasuredToo(t *testing.T) {
+	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	if _, err := q.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES('alice', 'idle', 0, ?)", dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := WorktreePaths(q, t.TempDir())
+	if err != nil || len(got) != 1 || got[0] != dir {
+		t.Fatalf("%v %v", got, err)
+	}
+}

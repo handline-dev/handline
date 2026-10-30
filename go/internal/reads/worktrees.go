@@ -254,7 +254,7 @@ func (e *Env) labels() (map[string]string, error) {
 // untracked files and the size housekeeping last measured (nil until it has). The pull request is set later, by attachPRs.
 func (e *Env) facts(path string, files int) (facts map[string]any, merged bool, err error) {
 	var size any
-	if v, ok, err := db.Meta(e.DB, worktreeprune.SizePrefix+path); err != nil {
+	if v, ok, err := db.Meta(e.DB, worktreeprune.SizePrefix+worktreeprune.Real(path)); err != nil {
 		return nil, false, err
 	} else if n, err := strconv.ParseInt(v, 10, 64); ok && err == nil {
 		size = n

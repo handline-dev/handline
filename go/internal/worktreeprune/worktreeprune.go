@@ -307,10 +307,10 @@ func Ahead(path string) (merged bool, commits int) {
 	return merged, commits
 }
 
-// SizePrefix starts the meta name an orphan's measured size is kept under: the prefix, then its real path; the value is the bytes.
+// SizePrefix starts the meta name a worktree's measured size is kept under: the prefix, then its real path; the value is the bytes.
 const SizePrefix = "worktree_size:"
 
-// SizeEvery is how often the orphans' sizes are measured, in seconds: a walk of a worktree with its dependencies takes a while.
+// SizeEvery is how often the worktrees' sizes are measured, in seconds: a walk of a worktree with its dependencies takes a while.
 const SizeEvery = int64(3600)
 
 // Size is the bytes the files under path take on disk, as du counts them.

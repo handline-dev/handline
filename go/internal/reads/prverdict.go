@@ -10,7 +10,6 @@ import (
 
 const (
 	branchPRTTL    = time.Minute
-	branchPRCap    = 2000
 	branchPRWait   = 20 * time.Second
 	branchPRAtOnce = 8
 )
@@ -40,9 +39,6 @@ func (c *branchPRs) get(key string) (map[string]any, bool) {
 func (c *branchPRs) put(key string, pr map[string]any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.m) >= branchPRCap {
-		c.m = map[string]branchPR{}
-	}
 	c.m[key] = branchPR{pr: pr, until: c.now().Add(branchPRTTL)}
 }
 
@@ -98,14 +94,22 @@ func ghBranchPR(ctx context.Context, repo, branch string) (map[string]any, error
 	if err := json.Unmarshal(out, &pulls); err != nil {
 		return nil, err
 	}
+	if p, ok := chosenPull(pulls); ok {
+		return pullVerdict(p), nil
+	}
+	return nil, nil
+}
+
+// chosenPull is the newest open pull request of pulls (newest first), else the newest merged one.
+func chosenPull(pulls []ghPull) (ghPull, bool) {
 	for _, state := range []string{"OPEN", "MERGED"} {
 		for _, p := range pulls {
 			if p.State == state {
-				return pullVerdict(p), nil
+				return p, true
 			}
 		}
 	}
-	return nil, nil
+	return ghPull{}, false
 }
 
 // attachPRs sets "pr" on each worktree row (as worktrees.list builds them): its branch's pull request, nil for none, for a branch that is

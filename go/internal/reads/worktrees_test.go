@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/operations"
 )
@@ -264,5 +265,88 @@ func gitIn(t *testing.T) func(dir string, args ...string) {
 		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
+	}
+}
+
+// The size is read under the worktree's real path, as housekeeping keeps it, though the agent records a path through a link.
+// A worktree on its base, a detached one and one whose origin is not on GitHub are never asked about.
+func TestWorktreesWithNoPullRequestToAskAboutAreNeverAsked(t *testing.T) {
+	e := testEnv(t)
+	e.BranchPR = func(_ context.Context, repo, branch string) (map[string]any, error) {
+		t.Errorf("asked about %s %s", repo, branch)
+		return nil, nil
+	}
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	git := gitIn(t)
+	repo, other, detached := filepath.Join(root, "repo"), filepath.Join(root, "other"), filepath.Join(root, "detached")
+	for _, r := range []struct{ dir, origin string }{{repo, "git@github.com:acme/app.git"}, {other, "git@gitlab.com:acme/app.git"}} {
+		os.MkdirAll(r.dir, 0o755)
+		git(r.dir, "init", "-q", "-b", "main")
+		git(r.dir, "remote", "add", "origin", r.origin)
+		git(r.dir, "commit", "-q", "--allow-empty", "-m", "start")
+	}
+	git(repo, "worktree", "add", "-q", "--detach", detached)
+	git(other, "checkout", "-q", "-b", "feature")
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Fatal(err)
+	}
+	for agent, path := range map[string]string{"onbase": link + "/", "detached": detached, "gitlab": other} {
+		addAgent(t, e, agent, "")
+		if _, err := e.DB.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES(?, 'idle', 0, ?)", agent, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.DB.Exec("INSERT INTO meta(name, value, updated) VALUES(?, '4096', 0)", "worktree_size:"+repo)
+	got, err := e.worktreesList(nil, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := got.(map[string]any)["worktrees"].([]any)
+	if len(rows) != 3 {
+		t.Fatalf("%d rows", len(rows))
+	}
+	for _, r := range rows {
+		w := r.(map[string]any)
+		if w["pr"] != nil {
+			t.Errorf("%v: pr %v", w["branch"], w["pr"])
+		}
+		if w["owner"] == "onbase" && w["size_bytes"] != int64(4096) {
+			t.Errorf("a size kept under the real path is read for a linked one: %v", w["size_bytes"])
+		}
+	}
+}
+
+func TestAStatusContextOrAStartupFailureCountsAsFailing(t *testing.T) {
+	pr := ghPull{State: "OPEN", Checks: []check{{State: "FAILURE"}, {State: "ERROR"}, {Conclusion: "STARTUP_FAILURE"}, {State: "SUCCESS"}, {Conclusion: "SUCCESS"}}}
+	if got := pullVerdict(pr); got["verdict"] != "checks_failing" || got["failing"] != 3 {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestTheOpenPullRequestOfABranchStandsInFrontOfAMergedOne(t *testing.T) {
+	pulls := []ghPull{{Number: 3, State: "MERGED"}, {Number: 2, State: "CLOSED"}, {Number: 1, State: "OPEN"}}
+	if p, ok := chosenPull(pulls); !ok || p.Number != 1 {
+		t.Fatalf("%v %v", p, ok)
+	}
+	if p, ok := chosenPull(pulls[:2]); !ok || p.Number != 3 {
+		t.Fatalf("a merged one when none is open: %v %v", p, ok)
+	}
+	if _, ok := chosenPull(pulls[1:2]); ok {
+		t.Fatal("a closed one is none")
+	}
+}
+
+func TestABranchesPullRequestIsKeptAMinuteAndThenAskedAgain(t *testing.T) {
+	now := time.Now()
+	c := newBranchPRs()
+	c.now = func() time.Time { return now }
+	c.put("k", map[string]any{"number": 1})
+	if _, hit := c.get("k"); !hit {
+		t.Fatal("kept")
+	}
+	now = now.Add(branchPRTTL + time.Second)
+	if _, hit := c.get("k"); hit {
+		t.Fatal("kept past its minute")
 	}
 }
