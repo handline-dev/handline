@@ -150,7 +150,7 @@ export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
   { key: 'draft', label: 'Draft' },
   { key: 'needs', label: 'Needs you' },
   { key: 'running', label: 'Running' },
-  { key: 'queued', label: 'Queued' },
+  { key: 'queued', label: 'Waiting' },
   { key: 'done', label: 'Done' },
 ];
 

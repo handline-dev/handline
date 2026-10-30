@@ -1,4 +1,4 @@
-// The task page's line under the chips: what the task waits on and what waits on it, each a link, then the Graph.
+// The task page's line under the chips: what the task waits on (the daemon's blockers) and what waits on it (read from the tasks loaded in this window: the contract has no blocks field), each a link, then the Graph.
 import { taskRef } from '@handline/app-core';
 import type { TaskDetail } from '@handline/client';
 import { useTasks } from '@handline/app-data';

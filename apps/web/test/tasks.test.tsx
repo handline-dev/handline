@@ -81,7 +81,7 @@ describe('the list', () => {
     await mount();
     await loaded();
     expect(rowIds()).toEqual([1700, 1684, 1688, 1690]); // the draft first, then P1, then P2 by number
-    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Draft 1', 'Running 2', 'Queued 1']);
+    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Draft 1', 'Running 2', 'Waiting 1']);
     expect(text(row(1684))).toContain('P1');
     expect(text(row(1688))).toContain('doing');
     expect(text(row(1684))).toContain('architect');

@@ -16,6 +16,7 @@ afterEach(async () => {
   root = null;
   box?.remove();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const wait = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
@@ -28,6 +29,20 @@ const until = async (f: () => unknown, what: string) => {
 };
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
+const setSelect = (el: HTMLSelectElement, value: string) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, value);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+const setInput = (el: HTMLInputElement, value: string) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+const menu = async (name: string) => {
+  await click($('.tdetail-head button[aria-label="More"]'));
+  await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => (i.textContent ?? '').startsWith(name)));
+};
 const txt = (el: Element | null | undefined) => el?.textContent ?? '';
 const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 async function open(hash: string, seed?: string) {
@@ -219,5 +234,55 @@ describe('the task page', () => {
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => txt(i).startsWith('Duplicate')));
     await until(() => $('.ui-dialog'), 'the duplicate form');
     expect($$('.ui-dialog input').map((i) => (i as HTMLInputElement).value)).toContain('Terminal pane on the bytes channel');
+  });
+
+  it('Wait on another task sends task.edit with blocked_by', async () => {
+    const s = await open('#/tasks/1688');
+    await until(() => $('.tdetail-head'), 'the head');
+    await menu('Wait on another task');
+    await until(() => $('select[aria-label="Task to wait on"]'), 'the picker');
+    await setSelect($('select[aria-label="Task to wait on"]') as HTMLSelectElement, '1684');
+    await click($('button[form="waiton-form"]'));
+    await until(() => s.daemon.tasks.get({ task: 1688 }).blocked_by?.includes(1684), 'the wait'); // local-ref-ok
+  });
+
+  it('Add sub-task sends the task as its parent, and Duplicate goes past the duplicate-title gate', async () => {
+    const s = await open('#/tasks/1688');
+    await until(() => $('.tdetail-head'), 'the head');
+    await menu('Add sub-task');
+    await until(() => $('.ui-dialog'), 'the form');
+    await setInput($('.ui-dialog .tform input') as HTMLInputElement, 'The sub part');
+    await click($('button[form="newtask-form"]'));
+    await until(() => s.daemon.tasks.list({}).items.some((t) => t.title === 'The sub part' && t.parent === 1688), 'the sub-task'); // local-ref-ok
+    await menu('Duplicate');
+    await until(() => $('.ui-dialog'), 'the copy form');
+    await click($('button[form="newtask-form"]'));
+    await until(
+      () => s.daemon.tasks.list({}).items.filter((t) => t.title === 'Terminal pane on the bytes channel').length === 2,
+      'the copy',
+    );
+  });
+});
+
+describe('the agent Tasks tab and the older-rows button', () => {
+  it('lists Draft first, then the running and waiting groups, then closed tasks by the day they closed', async () => {
+    await open('#/agents/handline.term-build');
+    await until(() => $('button[aria-label="Add a tab"]'), 'the tab strip');
+    await click($('button[aria-label="Add a tab"]'));
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => b.textContent?.includes('Tasks')) ?? null);
+    await until(() => $('.tasks-tab-row'), 'the rows');
+    const heads = $$('.tasks-tab-list h3').map((h) => txt(h).replace(/\s*\d+$/, ''));
+    expect(heads[0]).toBe('Draft');
+    expect(heads).toContain('Running');
+    expect(heads.indexOf('Draft')).toBeLessThan(heads.indexOf('Running'));
+  });
+
+  it('without IntersectionObserver the Show 100 older button stays', async () => {
+    vi.stubGlobal('IntersectionObserver', undefined);
+    await open('#/tasks', 'tasks-200');
+    await until(() => $('button[aria-label="Show 100 older"]'), 'the button');
+    const first = $$('tr[data-task]').length;
+    await click($('button[aria-label="Show 100 older"]'));
+    await until(() => $$('tr[data-task]').length > first, 'more rows');
   });
 });

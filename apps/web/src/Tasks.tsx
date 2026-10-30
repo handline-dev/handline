@@ -1,6 +1,6 @@
 // The Tasks page (docs/design/inbox-tasks-prompts.md §4): what the daemon lists, grouped by status, with filters, sort, ticks, the bridge's keys,
 // and a click on a row opens the task on its own page. Writes go through `useWrite`: an authored one shows at once with a hollow dot, a decided one shows "…".
-import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react';
 import {
   CLOSED,
   defaultFilter,
@@ -64,6 +64,7 @@ function TaskTable({
   busy,
   markCell,
   rowProps,
+  footer,
 }: {
   groups: (ReturnType<typeof groupTasks>[number] & { folded: boolean })[];
   onFold: () => void;
@@ -72,6 +73,8 @@ function TaskTable({
   busy: boolean;
   markCell: boolean;
   rowProps: (t: Task) => RowProps;
+  /** Under the table, inside its scroll box: where the end of the list is. */
+  footer?: ReactNode;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
   const columns = useTableColumns(scroll);
@@ -116,6 +119,7 @@ function TaskTable({
           ))}
         </tbody>
       </table>
+      {footer}
     </div>
   );
 }
@@ -266,6 +270,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
           busy={q.isFetching && !q.data}
           markCell={marked.size > 0}
           rowProps={rowProps}
+          footer={more ? <LoadOlder shown={all.length} loading={loadingOlder} load={() => void loadOlder()} className="py-3" /> : null}
         />
       )}
       <AnimatedList>
@@ -369,7 +374,6 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
           listBody
         )}
       </View>
-      {more ? <LoadOlder shown={all.length} loading={loadingOlder} load={() => void loadOlder()} className="py-3" /> : null}
     </ScrollPage>
   );
 }
