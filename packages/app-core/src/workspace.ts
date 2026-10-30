@@ -249,6 +249,20 @@ export function splitTab(ws: Workspace, id: string, onto: string, edge: Edge): W
   return { ...ws, active: fresh.id, root: replaceGroup(root!, onto, (g) => wrap(g, fresh, edge)) };
 }
 
+/** Splits `onto` and shows `kind` in the new half, opening the tab first when it is not open yet (a task dragged out of a list). */
+export function splitNew(ws: Workspace, kind: TabKind, params: TabParams, onto: string, edge: Edge): Workspace | null {
+  const id = tabId(ws, kind, params);
+  if (ws.tabs[id]) return splitTab(ws, id, onto, edge);
+  if (!groupsOf(ws.root).some((g) => g.id === onto)) return null;
+  const fresh = group(nextGroupId(ws), [id]);
+  return {
+    ...ws,
+    active: fresh.id,
+    tabs: { ...ws.tabs, [id]: { id, kind, params } },
+    root: replaceGroup(ws.root, onto, (g) => wrap(g, fresh, edge)),
+  };
+}
+
 /** The Split button: halves a pane, the new half (to its right) holding a "new" tab that offers what to open. */
 export function splitPane(ws: Workspace, onto: string): Workspace | null {
   if (!groupsOf(ws.root).some((g) => g.id === onto)) return null;

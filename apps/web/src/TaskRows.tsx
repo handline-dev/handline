@@ -4,6 +4,7 @@ import { Chip } from '#src/ds/Chip.tsx';
 import { idleText, isOver, isPerson, type RowVerb, taskRef, timeLeft, timeoutText, watchResult } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useMe } from '@handline/app-react';
+import { useWorkspaceIfAny } from '#src/Workspace.tsx';
 import { goTasks } from '#src/route.ts';
 import { AnimatedCell, AnimatedRow } from '#src/AnimatedList.tsx';
 import { StateChip } from '#src/taskui.tsx';
@@ -29,6 +30,7 @@ export function Row(props: {
 }) {
   const { t, now } = props;
   const me = useMe();
+  const ws = useWorkspaceIfAny();
   const over = isOver(t, now);
   const authored = props.mark === 'authored';
   const time = timeLeft(timeoutText(t, now) || idleText(t, now));
@@ -76,6 +78,13 @@ export function Row(props: {
             title={`asked by ${t.from}`}
           >
             <span
+              draggable={!!ws && t.id > 0}
+              onDragStart={(e) => {
+                e.dataTransfer?.setData('text/plain', taskRef(t.id));
+                // The drop cover appears over the pane; mounting it inside dragstart makes Chromium cancel the drag.
+                setTimeout(() => ws?.setDragging(`tasks:${t.id}`), 0);
+              }}
+              onDragEnd={() => ws?.setDragging(null)}
               className={`ttitle line-clamp-2 break-words whitespace-normal text-md font-medium${authored ? ' ghost italic text-ink-2' : ''}`}
             >
               {t.title}
