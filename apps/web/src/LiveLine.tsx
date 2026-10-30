@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem, Working } from '@handline/client';
 import { VERBS, doingWords, taskRef, turnElapsed, turnSummary } from '@handline/app-core';
 import { useVerbRun } from '@handline/app-data';
+import { bashName } from '#src/bashName.ts';
 import { Item } from '#src/ChatMessages.tsx';
 import { Icon } from '#src/ui/index.ts';
 
@@ -23,16 +24,6 @@ function Dots() {
       ))}
     </span>
   );
-}
-
-/** `hl task new` for a Bash call: the words the command starts with, up to the first flag, path, quote or assignment. */
-function bashName(call: string): string {
-  const words = call
-    .replace(/^Bash\s+/, '')
-    .trim()
-    .split(/\s+/);
-  const end = words.findIndex((w, i) => i >= 3 || /^[-"'$]|[/=]/.test(w));
-  return words.slice(0, end < 0 ? 3 : end).join(' ');
 }
 
 const commands = (n: number) => `${n} command${n === 1 ? '' : 's'}`;
