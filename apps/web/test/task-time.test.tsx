@@ -55,10 +55,11 @@ describe('task time', () => {
     await mount(s);
     await until(() => line()?.textContent?.includes('left'), 'the time left');
     expect(line()!.textContent).toMatch(/^(39|40)m left/);
-    await act(async () => void (location.hash = '#/tasks/1650')); // closed: no clock
-    await until(() => box.querySelector('article[aria-label="Task T1650"] .tverbs, article[aria-label="Task T1650"]'), 'the closed task');
-    await wait(100);
-    expect(line()?.textContent ?? '').not.toContain('left');
+    await act(async () => void (location.hash = '#/tasks/1650')); // local-ref-ok closed: no clock
+    await until(
+      () => box.querySelector('article[aria-label="Task T1650"]') && !line()?.textContent?.includes('left'), // local-ref-ok
+      'the closed task without a time left',
+    );
   });
 
   it('is one line until clicked, then draws the segments in order, adding up to the whole', async () => {
