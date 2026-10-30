@@ -2,10 +2,11 @@
 // the same pane (the task detail of the Tasks page); the window's Back returns to the list. Rows share one grid of fixed columns, so a long title is cut
 // with an ellipsis and never widens the row; boxes appear only in Select mode; older tasks come 100 at a time on a button.
 import { useEffect, useMemo, useState } from 'react';
-import { agentTasks, dueOf, openTask, taskRef, taskSections, watchResult, type RowVerb } from '@handline/app-core';
+import { agentTasks, dueOf, openTask, taskRef, taskSections, type RowVerb } from '@handline/app-core';
 import { useAgentTasks, useServes } from '@handline/app-data';
 import { Icon } from '#src/Icon.tsx';
-import { StateChip, useNow } from '#src/taskui.tsx';
+import { useNow } from '#src/taskui.tsx';
+import { Chip } from '#src/ds/Chip.tsx';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { useAgents } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
@@ -23,7 +24,7 @@ const CLOSED = ['done', 'discarded'];
 const bare = (agent: string) => agent.split('.').at(-1) ?? agent; // 'handline.daemon' is 'daemon' in a row: the team is the same on every line
 // state · number · title (the one column that gives) · owner · time
 /** Below 28rem of pane the who column goes, so the title keeps the room. */
-const COLS = 'grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_5rem] @[28rem]:grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_6.5rem_5rem]';
+const COLS = 'grid-cols-[3rem_minmax(0,1fr)_5rem] @[28rem]:grid-cols-[3rem_minmax(0,1fr)_auto_5rem]';
 
 export function TasksTab({ agent, task = null }: { agent: string; task?: number | null }) {
   const { query: q, items, more, loadOlder, loadingOlder } = useAgentTasks(agent);
@@ -117,6 +118,12 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                   {g.rows.map((t) => {
                     const role = roles.get(t.id);
                     const due = dueOf(t, now);
+                    const who =
+                      role === 'assigned'
+                        ? { name: t.to, title: `Opened by ${agent}, held by ${t.to}` }
+                        : t.from !== agent
+                          ? { name: t.from, title: `Opened by ${t.from}` }
+                          : null;
                     return (
                       <RowMenu key={t.id} tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)}>
                         {(more, menuOpen) => (
@@ -141,27 +148,14 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                               onDragEnd={() => setDragging(null)}
                               onClick={() => setOpen(t.id)}
                             >
-                              <StateChip state={t.state} result={watchResult(t)} />
-                              <span className="mono">{taskRef(t.id)}</span>
-                              <span
-                                className="ttitle min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-md font-medium"
-                                title={t.title}
-                              >
+                              <span className="mono text-xs text-ink-3">{taskRef(t.id)}</span>
+                              <span className="ttitle min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-md" title={t.title}>
+                                <span className="sr-only">{t.state}: </span>
                                 {t.title}
                               </span>
-                              {role === 'assigned' ? (
-                                <span
-                                  className="who hidden min-w-0 truncate text-xs text-ink-2 @[28rem]:block"
-                                  title={`Opened by ${agent}, held by ${t.to}`}
-                                >
-                                  <Icon name="agent" size={12} aria-hidden /> {bare(t.to)}
-                                </span>
-                              ) : t.from !== agent ? (
-                                <span
-                                  className="who hidden min-w-0 truncate text-xs text-ink-2 @[28rem]:block"
-                                  title={`Opened by ${t.from}`}
-                                >
-                                  from {bare(t.from)}
+                              {who ? (
+                                <span className="who hidden @[28rem]:inline-flex" title={who.title}>
+                                  <Chip>{bare(who.name)}</Chip>
                                 </span>
                               ) : (
                                 <span className="who hidden @[28rem]:block" />

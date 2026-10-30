@@ -29,7 +29,7 @@ import { Button, ScrollPage } from '#src/ui/index.ts';
 import { LoadOlder } from '#src/LoadOlder.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useBulk } from '#src/taskActions.ts';
-import { ReasonSheet, useCan, useNow, useTableColumns } from '#src/taskui.tsx';
+import { ReasonSheet, useCan, useNow, useTableColumns, useWide } from '#src/taskui.tsx';
 import { useMarks } from '#src/useMarks.ts';
 import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
 import { View } from '#src/View.tsx';
@@ -49,6 +49,18 @@ const inScope = (tasks: Task[], scope: Scope, me: string, now: number, graph: bo
 
 export function TasksPage({ route }: { route: string }) {
   const id = route && route !== 'graph' ? Number(route) : null;
+  const wide = useWide(1100);
+  if (id !== null && wide)
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 w-[min(420px,40%)] flex-none flex-col">
+          <TaskList selected={id} />
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-line">
+          <TaskDetail id={id} split />
+        </div>
+      </div>
+    );
   if (id !== null) return <TaskDetail id={id} />;
   return <TaskList selected={null} graph={route === 'graph'} />;
 }

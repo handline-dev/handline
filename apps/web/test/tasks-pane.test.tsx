@@ -264,6 +264,17 @@ describe('the task page', () => {
   });
 });
 
+describe('the Tasks page on a wide window', () => {
+  it('keeps the list on the left with the open task beside it, the task in the body with no bar of its own', async () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} }));
+    await open('#/tasks/1688');
+    await until(() => $('article.tdetail') && $('tr[data-task="1684"]'), 'the split');
+    expect($('tr[data-task="1688"]')).not.toBeNull(); // the list stays, the open task in it
+    expect(txt($('article.tdetail .tbody h2'))).toContain('Terminal pane on the bytes channel');
+    expect($('.page-bar button[title="Back to Tasks"]')).toBeNull();
+  });
+});
+
 describe('the agent Tasks tab and the older-rows button', () => {
   it('lists Draft first, then the running and waiting groups, then closed tasks by the day they closed', async () => {
     await open('#/agents/handline.term-build');

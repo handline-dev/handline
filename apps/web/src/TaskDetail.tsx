@@ -41,17 +41,19 @@ export function TaskDetail({
   id,
   onBack,
   embedded,
+  split,
 }: {
   id: number;
   /** Where Back goes for a detail the window's own Back cannot return from (My turn): on a page the top bar carries it; left out, it goes to Tasks. */
   onBack?: () => void;
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
-  /** The column beside the Tasks table, full height of the split: only the Tasks page asks for it. */
+  /** The column beside the Tasks list on a wide window: no bar of its own, the title in the body. */
+  split?: boolean;
 }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
-  const page = !embedded; // on a page of its own the top bar names the task, whatever the width
+  const page = !embedded && !split; // on a page of its own the top bar names the task, whatever the width
   return (
     <>
       {page ? (
@@ -224,6 +226,23 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
       : []),
   ];
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
+  const statusControl = status.length ? (
+    <MenuButton
+      label="Status"
+      variant="outline"
+      size="sm"
+      align="start"
+      trigger={<StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />}
+    >
+      {status.map((v) => (
+        <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+          {v.label}
+        </MenuItem>
+      ))}
+    </MenuButton>
+  ) : (
+    <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
+  );
   return (
     <TaskNotes task={t.id}>
       <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
@@ -232,23 +251,6 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
             <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
               <Id>{taskRef(t.id)}</Id> <TitleEdit t={t} />
             </h2>
-          )}
-          {status.length ? (
-            <MenuButton
-              label="Status"
-              variant="outline"
-              size="sm"
-              align="start"
-              trigger={<StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />}
-            >
-              {status.map((v) => (
-                <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
-                  {v.label}
-                </MenuItem>
-              ))}
-            </MenuButton>
-          ) : (
-            <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
           )}
           <HistoryButton id={t.id} />
           <span className="relative ml-auto inline-flex">
@@ -275,7 +277,11 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
             </>
           ) : null}
         </p>
+        <div className="mt-3">
+          <TaskChips t={t} now={now} me={me} lead={statusControl} />
+        </div>
         <TimeLine id={t.id} />
+        <TaskWaitLine t={t} />
         <TaskWatch t={t} />
         {why && NOT_PICKED.test(why) ? (
           <p className="twhy m-0 mt-2 flex items-center gap-1.5 text-xs text-ink-3" role="status">
@@ -290,10 +296,6 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
             </span>
           </p>
         ) : null}
-        <div className="mt-3">
-          <TaskChips t={t} now={now} me={me} />
-        </div>
-        <TaskWaitLine t={t} />
         <Brief t={t} can={edit.can.ok && open} />
 
         {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}

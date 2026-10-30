@@ -1,5 +1,5 @@
 // The task detail's presentational parts: the assignee, priority and time box chips, the link sections and the cancel sheet.
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { isGate, taskRef, timeBoxText, watchLine } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { Icon, type IconName } from '#src/ui/Icon.tsx';
@@ -15,7 +15,7 @@ const H3 = 'm-0 mt-4 mb-1 flex items-center text-sm font-semibold';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
 
 /** The assignee, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
-export function TaskChips({ t, now, me }: { t: Detail; now: number; me: string }) {
+export function TaskChips({ t, now, me, lead }: { t: Detail; now: number; me: string; lead?: ReactNode }) {
   const [picking, setPicking] = useState(false);
   const edit = useEditTask(t);
   const can = edit.can.ok && t.state !== 'done' && t.state !== 'discarded' && !isGate(t);
@@ -25,6 +25,7 @@ export function TaskChips({ t, now, me }: { t: Detail; now: number; me: string }
   return (
     <>
       <div className="tchips flex flex-wrap items-center gap-2">
+        {lead}
         {can ? (
           <>
             <span className="relative inline-flex">
