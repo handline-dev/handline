@@ -45,7 +45,9 @@ export const tabLabel = (t: Tab, structured = false): string =>
                 : t.kind === 'terminal'
                   ? 'Claude Code'
                   : t.kind === 'shell'
-                    ? 'Terminal'
+                    ? t.params.title
+                      ? `Terminal · ${t.params.title}`
+                      : 'Terminal'
                     : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
 
 export const TAB_ICON: Record<string, IconName> = {

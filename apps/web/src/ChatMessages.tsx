@@ -20,7 +20,8 @@ import { Button, CardCode, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
 import { Notice } from '#src/ds/Chat.tsx';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
 import { Pictures } from '#src/ChatAttach.tsx';
-import { Markdown } from '#src/Markdown.tsx';
+import { Markdown, parseBlocks } from '#src/Markdown.tsx';
+import { isShell } from '#src/CommandCard.tsx';
 import { RichText } from '#src/RichText.tsx';
 import type { useWorkspace } from '#src/Workspace.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
@@ -76,6 +77,12 @@ function Stamp({ left, time, always, hovered }: { left?: boolean; time: ReactNod
     </div>
   );
 }
+
+/** The command blocks in the text parts before part `n`: a block's number counts through the whole message. */
+const shellBlocks = (m: ChatMessage, n: number) =>
+  (m.parts ?? [])
+    .slice(0, n)
+    .reduce((c, p) => c + ('text' in p ? parseBlocks(p.text).filter((b) => b.kind === 'code' && isShell(b.lang)).length : 0), 0);
 
 /** Under an agent's message, shown on hover: copy, quote, and how long ago. Nothing is drawn at rest, but the room stays so the list does not jump. */
 function HoverBar({ m, onPick }: { m: ChatMessage; onPick?: (m: ChatMessage) => void }) {
@@ -243,7 +250,7 @@ function MessageRow(props: MessageProps) {
             'text' in p ? (
               p.text ? (
                 <div key={n} className={MSG_BODY}>
-                  <Markdown text={p.text} agent={agent} />
+                  <Markdown text={p.text} agent={agent} message={{ id: m.id, runs: m.runs, first: shellBlocks(m, n) }} />
                 </div>
               ) : null
             ) : p.gone ? (
@@ -258,7 +265,7 @@ function MessageRow(props: MessageProps) {
           <>
             {m.body ? (
               <div className={MSG_BODY}>
-                <Markdown text={m.body} agent={agent} />
+                <Markdown text={m.body} agent={agent} message={{ id: m.id, runs: m.runs }} />
               </div>
             ) : null}
             {m.attachments?.length ? <Pictures items={m.attachments} thumb={side !== 'person'} /> : null}
