@@ -1,5 +1,6 @@
 // The fake daemon's task comments: the memos on a row, the asks to the founder they raise, and who was told.
 import type { Memo, MemoFile, MemoReader } from '@handline/contract';
+import { refs } from '#src/attachments.ts';
 import { TaskFailure, TaskStore, type Row } from '#src/taskstore.ts';
 
 /** `@human` in a comment: at the start or after a character that is not part of a name. */
@@ -81,6 +82,20 @@ export class TaskComments extends TaskStore {
     m.files = files;
     return id;
   }
+  /** How many briefs and memos name image id, or carry it as a memo's file: attachment.remove's count. */
+  naming(id: string): number {
+    let n = 0;
+    for (const t of this.rows) {
+      if (refs(t.body).includes(id)) n++;
+      for (const m of t.memos ?? []) if (refs(m.text).includes(id) || m.files?.some((f) => f.id === id)) n++;
+    }
+    return n;
+  }
+  /** Every memo's files through mark, so one the founder removed reads gone and removed. */
+  remark(mark: (f: MemoFile) => MemoFile): void {
+    for (const t of this.rows) for (const m of t.memos ?? []) if (m.files) m.files = m.files.map(mark);
+  }
+
   /** The task's comments, each cut at the images its text names (one page: the fake keeps no more). */
   comments(p: Record<string, unknown>, agent = false): { memos: Memo[]; more: boolean } {
     return { memos: this.get(p, agent).memos, more: false };

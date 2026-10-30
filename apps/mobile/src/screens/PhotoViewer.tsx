@@ -6,6 +6,7 @@ import { Image, Keyboard, KeyboardAvoidingView, Modal, PixelRatio, Platform, Pre
 import { captureRef } from 'react-native-view-shot';
 import { initialMarks, keptMarks, marksReducer } from '@handline/app-core';
 import { useUploadImage } from '@handline/app-data';
+import { useStore } from '@handline/app-react';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { MarkShapes } from '#src/screens/MarkShapes.tsx';
@@ -13,6 +14,7 @@ import { Button, SafeScreen } from '#src/screens/parts.tsx';
 import { useImage } from '#src/screens/ChatPictures.tsx';
 import { BAR, DiscardAsk, INK, DIM, Notes, notesText, plural } from '#src/screens/PhotoNotes.tsx';
 import { useZoom } from '#src/screens/PhotoZoom.ts';
+import { DeleteAsk } from '#src/screens/PhotoDelete.tsx';
 
 export interface Shot {
   id: string;
@@ -31,6 +33,8 @@ interface Where {
   pictures: Shot[];
   to?: string;
   onSend?: SendMarks;
+  /** The founder may delete these photos (a chat's, a comment's; not a task brief's). */
+  deletable?: boolean;
   onClose: () => void;
 }
 
@@ -81,6 +85,8 @@ function Photo(props: Where & { pic: Shot; at: number; step: (by: number) => voi
   const [state, dispatch] = useReducer(marksReducer, undefined, initialMarks);
   const [asking, setAsking] = useState<'browse' | 'close' | null>(null); // the Discard question, and where Discard goes
   const [capturing, setCapturing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const founder = useStore().client.hello?.role === 'founder';
   const [problem, setProblem] = useState<string | null>(null);
   const stage = useRef<View>(null);
   const shot = useRef<View>(null);
@@ -189,6 +195,17 @@ function Photo(props: Where & { pic: Shot; at: number; step: (by: number) => voi
             </Text>
           )}
           <View style={{ flex: 1 }} />
+          {props.deletable && founder && !marking && (
+            <Pressable
+              testID="picture-delete"
+              accessibilityRole="button"
+              accessibilityLabel="Delete photo"
+              onPress={() => setDeleting(true)}
+              hitSlop={12}
+            >
+              <Text style={{ color: INK, fontSize: 16, fontWeight: '600' }}>Delete</Text>
+            </Pressable>
+          )}
           <Pressable testID="picture-close" accessibilityRole="button" accessibilityLabel="Close" onPress={leave} hitSlop={12}>
             <Text style={{ color: INK, fontSize: 16, fontWeight: '600' }}>Close</Text>
           </Pressable>
@@ -294,6 +311,7 @@ function Photo(props: Where & { pic: Shot; at: number; step: (by: number) => voi
         )}
       </KeyboardAvoidingView>
 
+      {deleting && <DeleteAsk id={pic.id} onKeep={() => setDeleting(false)} onDeleted={props.onClose} />}
       {asking && (
         <DiscardAsk
           count={marks.length}

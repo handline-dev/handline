@@ -244,6 +244,8 @@ export type MemoFile = {
   path?: string;
   /** True when it is no longer kept: attachment.get then answers not_found. */
   gone?: boolean;
+  /** true when the founder deleted the file (attachment.remove), always with gone: the client says it was deleted. */
+  removed?: boolean;
 };
 
 /** One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at. */

@@ -294,6 +294,8 @@ export type SettingsValues = {
   load_per_core_pct?: number;
   /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. */
   ram_free_min_pct?: number;
+  /** Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses. */
+  disk_free_min_gb?: number;
   /** 1 holds the daemon's new work while a phone simulator or emulator runs on this machine (a booted iOS simulator device, or the qemu an Android emulator runs on); 0 does not. Held the same way as a load limit (status reason load), by the same rules. */
   host_simulator_hold?: number;
   /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. */
@@ -350,6 +352,8 @@ export type SettingsChanges = {
   load_per_core_pct?: number | null;
   /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default). */
   ram_free_min_pct?: number | null;
+  /** Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses. null removes the key (back to the default). */
+  disk_free_min_gb?: number | null;
   /** 1 holds the daemon's new work while a phone simulator or emulator runs on this machine; 0 does not. null removes the key (back to the default). */
   host_simulator_hold?: number | null;
   /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. null removes the key (back to the default). */
@@ -454,6 +458,8 @@ export type ImagePart = {
   gone?: boolean;
   /** Where the image is stored. Only for an agent caller, which reads it by path; a member or founder client never gets it. */
   path?: string;
+  /** true when the founder deleted the image (attachment.remove), always with gone: the client says it was deleted. */
+  removed?: boolean;
 };
 
 /** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
@@ -513,6 +519,8 @@ export type Resources = {
     load_per_core: number;
     /** ram_free_bytes in percent of ram_total_bytes; the free-memory floor is compared with this. */
     ram_free_pct: number;
+    /** Heavy slots held now (tools/heavy-slot.sh), at the same measure. Light slots are not counted. The cap is settings.get heavy_slots, or connection.info heavy_slots.slots when the environment overrides it. */
+    heavy_running: number;
   };
   /** What all agents with a terminal pane use together. */
   agents_total: {
@@ -579,6 +587,11 @@ export type MachineNeed = {
     count: number;
     size_bytes: number;
   };
+};
+
+/** attachment.remove deleted this image or file: a client marks every ImagePart and MemoFile with this id gone and removed, without refetching. */
+export type AttachmentRemoved = {
+  id: AttachmentId;
 };
 
 export interface CoreMethods {

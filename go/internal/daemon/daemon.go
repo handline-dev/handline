@@ -421,7 +421,12 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 		func(s *rpc.Server) {
 			adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home, Logins: d.logins, Changed: d.accountAdded})
 		},
-		func(s *rpc.Server) { attachments.Register(s, attachments.New(d.cfg.Home)) },
+		func(s *rpc.Server) {
+			attachments.Register(s, attachments.New(d.cfg.Home), func(topic, typ string, data map[string]any) error {
+				_, err := d.hub.Append(stream.Entry{Topic: topic, Type: typ, Data: data})
+				return err
+			})
+		},
 		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.teller()) },
 		func(s *rpc.Server) {
 			debugterm.Register(s, &debugterm.Env{DB: d.db, Backend: d.tchan.Backend, Procs: debugterm.ReadProcs, Now: time.Now})

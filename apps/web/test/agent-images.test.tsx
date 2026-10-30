@@ -135,7 +135,9 @@ describe('images an agent attaches to a message', () => {
       parts: [{ text: 'see ' }, { image, caption: 'one', gone: true }],
     });
     await mount(s);
-    await until(() => box.querySelector('.msg .attachment.gone'), 'the dropped image');
-    expect(box.querySelector('.msg .attachment.gone')!.textContent).toBe('one - no longer kept');
+    // The seeded chat has a removed image of its own: find this message's line among the gone ones.
+    const gone = () => [...box.querySelectorAll('.msg .attachment.gone')].map((e) => e.textContent);
+    await until(() => gone().some((t) => t?.startsWith('one')), 'the dropped image');
+    expect(gone()).toContain('one - no longer kept');
   });
 });

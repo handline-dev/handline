@@ -8,10 +8,12 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-// Register adds attachment.put and attachment.get to the server's table.
-func Register(srv *rpc.Server, s *Store) {
+// Register adds attachment.put, attachment.get and attachment.remove to the server's table. A dry run keeps no reply, so attachment.remove
+// keeps none and leaves its own write event.
+func Register(srv *rpc.Server, s *Store, emit Emit) {
 	srv.Register("attachment.put", rpc.Method{Role: "member", Write: true, Handler: s.put})
 	srv.Register("attachment.get", rpc.Method{Role: "member", Handler: s.get})
+	srv.Register("attachment.remove", rpc.Method{Role: "founder", Write: true, Unkept: true, OwnEvent: true, Handler: s.removeMethod(emit)})
 }
 
 func (s *Store) put(c *rpc.Conn, p map[string]any) (any, error) {
