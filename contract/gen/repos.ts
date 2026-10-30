@@ -19,6 +19,16 @@ export type Worktree = {
   children: string[];
   status: string;
   changed: ChangedFile[];
+  /** Present and true only on a worktree no agent records: one an agent left behind when it was retired, renamed or moved. Its owner is null. Never the repo's own checkout or a locked worktree. */
+  orphan?: boolean;
+  /** Orphans only: whether its HEAD is merged into main. */
+  merged?: boolean;
+  /** Orphans only: its changed and untracked files, as git status counts them. */
+  files_changed?: number;
+  /** Orphans only: its commits not on main. */
+  commits_ahead?: number;
+  /** Orphans only: the bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured. */
+  size_bytes?: number | null;
 };
 
 export interface ReposMethods {
@@ -40,6 +50,33 @@ export interface ReposMethods {
     /** Unified diff. */
     diff: string;
     truncated: boolean;
+  } };
+  "worktree.remove": { params: {
+  /** The orphan's path, as worktrees.list gives it. */
+  path: string;
+  /** Remove it even though it holds work: files changed, or commits not on main. The person's confirm; nothing asks again. */
+  force?: boolean;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** Whether its branch went too: only for one merged into main and clean, by `git branch -d`. A forced removal leaves the branch. */
+    branch_deleted: boolean;
+  } };
+  "files.list": { params: {
+  agent: AgentName;
+  /** Matched case-insensitively as a subsequence of the path: its letters appear in the path in order, not necessarily side by side. Absent, null or empty lists every file. Anything else that is not a string is bad_request (field query). */
+  query?: string;
+  /** The most files returned; absent or null is 50. Outside 1..200, or not an integer: bad_request (field limit). */
+  limit?: number;
+}; result: {
+    /** With no query, every file in byte order of path. With one, the matches best first: a match inside the file's name (the part after the last `/`) comes first, then one elsewhere in the path, then a subsequence that is not side by side; within each, the shorter path first, then byte order. */
+    files: {
+      /** Relative to the worktree, with `/` between parts. */
+      path: string;
+      /** The file's size in bytes. */
+      size: number;
+    }[];
+    /** More files matched than limit let through. */
+    more: boolean;
   } };
   "file.read": { params: {
   agent: AgentName;
@@ -82,6 +119,8 @@ export const REPOS_METHODS: { [K in keyof ReposMethods]: { role: Role; callers: 
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
+  "worktree.remove": { role: "founder", callers: null, write: true, since: 1 },
+  "files.list": { role: "member", callers: null, write: false, since: 1 },
   "file.read": { role: "founder", callers: null, write: false, since: 1 },
   "file.write": { role: "founder", callers: null, write: true, since: 1 },
   "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },

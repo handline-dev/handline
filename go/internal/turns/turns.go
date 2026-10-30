@@ -242,7 +242,7 @@ func (t *Tracker) hook(tr *turn, agent, event string, raw map[string]any, at int
 	}
 }
 
-// runningTasks are the descriptions of the entries of Stop's background_tasks still running.
+// runningTasks name the entries of Stop's background_tasks still running, "<type>: <description>" (a shell's command when it has none).
 func runningTasks(v any) []string {
 	list, _ := v.([]any)
 	var out []string
@@ -252,6 +252,12 @@ func runningTasks(v any) []string {
 			continue
 		}
 		d, _ := m["description"].(string)
+		if d == "" {
+			d, _ = m["command"].(string)
+		}
+		if typ, _ := m["type"].(string); typ != "" {
+			d = typ + ": " + d
+		}
 		out = append(out, d)
 	}
 	return out
@@ -420,6 +426,17 @@ func (t *Tracker) Session(handle string) (running, known bool) {
 		return false, true
 	}
 	return false, false
+}
+
+// Running names the work the last Stop said agent still runs (runningTasks); nil when no Stop says, or there is none.
+func (t *Tracker) Running(agent string) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tr := t.get(agent)
+	if tr.state != Idle || !tr.bgKnown {
+		return nil
+	}
+	return append([]string(nil), tr.background...)
 }
 
 // Background is the work the last Stop said still runs, as the footer would count it ("" is none).

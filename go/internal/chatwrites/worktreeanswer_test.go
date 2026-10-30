@@ -118,7 +118,7 @@ func TestADecisionActsOnTheAnswerThenClosesTheTaskWithWhatWasDone(t *testing.T) 
 		t.Fatal(err)
 	}
 	res.Tell()
-	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = ?", tid, "3: "+path+" stays") != 1 {
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = ?", tid, "kept: "+path+" stays") != 1 {
 		t.Fatal("the task closes with what was done")
 	}
 }
@@ -145,5 +145,25 @@ func TestOnlyARegisteredLinkedWorktreeIsActedOn(t *testing.T) {
 	}
 	if _, err := os.Stat(main); err != nil {
 		t.Fatal("the main checkout was touched")
+	}
+}
+
+// The task's buttons send keep, save or force: force is the confirm and asks nothing more, and each closes with what was done.
+func TestTheNamedAnswersKeepSaveOrForceDelete(t *testing.T) {
+	for _, c := range []struct {
+		words, said string
+		gone        bool
+	}{{"keep", "kept: ", false}, {"save", "saved: what was left is on rescue/bob-2026-10-26", true}, {"force", "force deleted: ", true}} {
+		t.Run(c.words, func(t *testing.T) {
+			r := newRig(t)
+			tid, path, _ := askedAbout(t, r)
+			handled, said, err := answer(t, r, tid, c.words)
+			if !handled || err != nil || !strings.HasPrefix(said, c.said) {
+				t.Fatalf("%v %q %v", handled, said, err)
+			}
+			if _, err := os.Stat(path); os.IsNotExist(err) != c.gone {
+				t.Fatalf("removed %v, want %v", os.IsNotExist(err), c.gone)
+			}
+		})
 	}
 }

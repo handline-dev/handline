@@ -61,6 +61,217 @@
      }
     }
    ]
+  },
+  {
+   "name": "chat.send.a_quote_is_kept_with_the_message",
+   "spec": "chat.send",
+   "about": "A quote of the parent's words, whitespace aside, is kept with the message, collapsed, and chat.messages shows it (needs --var ask_agent: an agent with one open question to the person, which reads `which one?`).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "to": "human",
+        "id": {
+         "$type": "integer",
+         "$save": "ask"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "this one",
+       "parent": "{{ask}}",
+       "quote": " which\n one ",
+       "request_id": "conf-cq-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "mid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "id": "{{mid}}",
+        "parent": "{{ask}}",
+        "quote": "which one"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_quote_not_in_the_parent_is_bad_request",
+   "spec": "chat.send",
+   "about": "A quote must be words of the parent: one it did not say is bad_request naming quote (needs --var ask_agent: an agent with one open question to the person, which reads `which one?`).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "to": "human",
+        "id": {
+         "$type": "integer",
+         "$save": "ask"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "this one",
+       "request_id": "conf-cq-2",
+       "parent": "{{ask}}",
+       "quote": "that one"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "quote"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_quote_without_a_parent_is_bad_request",
+   "spec": "chat.send",
+   "about": "A quote goes with parent: alone it is bad_request naming quote (needs --var ask_agent: an agent with one open question to the person, which reads `which one?`).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "to": "human",
+        "id": {
+         "$type": "integer",
+         "$save": "ask"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "this one",
+       "request_id": "conf-cq-3",
+       "quote": "which one"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "quote"
+      }
+     }
+    }
+   ]
   }
  ]
 }

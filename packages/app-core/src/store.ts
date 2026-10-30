@@ -140,6 +140,11 @@ export class Store {
     this.notices.dismissToasts();
     this.emit();
   }
+  /** Says what a call the person asked for did, as a toast that goes by itself. */
+  say(message: string): void {
+    this.notices.push('ok', message);
+    this.emit();
+  }
   /** Shows a sentence the store itself did not produce, such as an unreachable daemon. */
   fail(message: string): void {
     this.notices.push('fail', message);

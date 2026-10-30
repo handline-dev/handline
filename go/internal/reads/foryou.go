@@ -133,11 +133,7 @@ func (e *Env) ForYou() ([]map[string]any, int, error) {
 	}
 
 	// What the machine needs.
-	needs, err := e.machineNeeds()
-	if err != nil {
-		return nil, 0, err
-	}
-	for _, n := range needs {
+	for _, n := range e.machineNeeds() {
 		need := n.(map[string]any)
 		add(forYouItem("machine", need["kind"].(string), nil, need["text"].(string), "do", need["since"]))
 	}

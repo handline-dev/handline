@@ -50,6 +50,7 @@ export const reads = {
   'repos.list': { resource: 'repos' },
   'worktrees.list': { resource: 'worktrees' },
   'worktree.diff': { resource: 'worktree-diff' },
+  'files.list': { resource: 'files' },
   'file.read': { resource: 'file' },
   'schedules.list': { resource: 'schedules' },
   'stats.get': { resource: 'stats' },

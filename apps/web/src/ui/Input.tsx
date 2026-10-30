@@ -28,13 +28,13 @@ export function NativeSelect({ className, ...rest }: ComponentProps<'select'>) {
   return <select {...rest} className={join(BAR, className)} />;
 }
 
-/** The row under a chat: a rounded surface holding the message box and its send button — tone on tone, no border, no shadow. */
+/** The composer under a chat: a rounded surface with the message box over a bar of tools and the send button — tone on tone, no border, no shadow. */
 export function ComposeRow({ className, ...rest }: ComponentProps<'div'>) {
   return (
     <div
       {...rest}
       ref={registerComposer}
-      className={join('compose-row relative mx-3 mb-3 flex items-end gap-1.5 rounded-lg bg-surface px-2 py-1.5', className)}
+      className={join('compose-row relative mx-3 mb-3 max-w-[680px] rounded-lg bg-surface px-4 py-3', className)}
     />
   );
 }

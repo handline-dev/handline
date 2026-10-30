@@ -44,6 +44,10 @@ export class FakeDaemon {
   raiseProposal(p: Parameters<Script['hr']['raise']>[0]) {
     return this.script.hr.raise(p);
   }
+  /** Worktrees that hold work, by agent: agent.retire is refused with gate dirty until the call answers for them. */
+  get held() {
+    return this.script.held;
+  }
   readonly unservedTopics = new Set<Topic>(); // topics `subscribe` refuses, as a daemon that lacks the list does
   readonly inbox: FakeInbox;
   readonly tasks = new FakeTasks(this, () => this.iso());

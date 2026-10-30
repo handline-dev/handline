@@ -1,0 +1,420 @@
+{
+ "fixtures": [
+  {
+   "name": "files.list.every_file_in_path_order",
+   "spec": "files.list",
+   "about": "With no query: what git tracks and the untracked files it does not ignore, in byte order of path; the ignored build/out.js is absent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "files.list",
+      "params": {
+       "agent": "{{files_agent}}"
+      }
+     },
+     "result": {
+      "files": [
+       {
+        "path": ".gitignore",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "README.md",
+        "size": 6,
+        "$exact": true
+       },
+       {
+        "path": "docs/domain.md",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "lib/main.go",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "main/run.sh",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "notes/todo.md",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "src/app/Main.tsx",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "src/app/main_test.go",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "src/my_animation.ts",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       }
+      ],
+      "more": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "files.list.best_matches_first",
+   "spec": "files.list",
+   "about": "A query matches case-insensitively as a subsequence: inside the file's name first, then elsewhere in the path, then spread out; shorter paths first within each.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "files.list",
+      "params": {
+       "agent": "{{files_agent}}",
+       "query": "MaIn"
+      }
+     },
+     "result": {
+      "files": [
+       {
+        "path": "lib/main.go",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "docs/domain.md",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "src/app/Main.tsx",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "src/app/main_test.go",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "main/run.sh",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "src/my_animation.ts",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       }
+      ],
+      "more": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "files.list.limit_and_more",
+   "spec": "files.list",
+   "about": "limit cuts the list and more says files were left out.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "files.list",
+      "params": {
+       "agent": "{{files_agent}}",
+       "query": "main",
+       "limit": 2
+      }
+     },
+     "result": {
+      "files": [
+       {
+        "path": "lib/main.go",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       },
+       {
+        "path": "docs/domain.md",
+        "size": {
+         "$type": "integer"
+        },
+        "$exact": true
+       }
+      ],
+      "more": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "files.list.nothing_matches",
+   "spec": "files.list",
+   "about": "A query nothing matches is an empty list, not an error.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "files.list",
+      "params": {
+       "agent": "{{files_agent}}",
+       "query": "zzz"
+      }
+     },
+     "result": {
+      "files": [],
+      "more": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "files.list.limit_is_1_to_200",
+   "spec": "files.list",
+   "about": "A limit outside 1..200 is bad_request naming limit.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "files.list",
+      "params": {
+       "agent": "{{files_agent}}",
+       "limit": 201
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "files.list.query_is_a_string",
+   "spec": "files.list",
+   "about": "A query that is not a string is bad_request naming query.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "files.list",
+      "params": {
+       "agent": "{{files_agent}}",
+       "query": 7
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "query"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "files.list.an_agent_with_no_worktree_is_not_found",
+   "spec": "files.list",
+   "about": "An agent the daemon records no worktree for is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "files.list",
+      "params": {
+       "agent": "no.such.agent"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "files.list.an_agent_session_is_refused_by_role",
+   "spec": "files.list",
+   "about": "A person's read: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "files.list",
+      "params": {
+       "agent": "x.y"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

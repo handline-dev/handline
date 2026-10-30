@@ -573,6 +573,11 @@ export type MachineNeed = {
   since: Timestamp;
   /** The item in plain words, with the free space in it. */
   text: string;
+  /** disk only, when there are any: the worktrees no agent works in (worktrees.list orphan), as housekeeping last measured them (at most hourly). The text names them too. */
+  orphan_worktrees?: {
+    count: number;
+    size_bytes: number;
+  };
 };
 
 /** A For you item the founder can defer: a task (id is its number), a comment's ask to the founder (id is the comment's number, `memo`) or a need of the machine (id is `disk`). A session's ask and an HR proposal are never deferred: an agent is stopped on them. */

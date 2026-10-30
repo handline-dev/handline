@@ -11,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/worktreeprune"
 )
 
 const (
@@ -50,26 +52,12 @@ func (e *Env) repoOf(agent string) string {
 	return s
 }
 
-func defaultBranch(repo string) string {
-	if ok, out := git(repo, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"); ok && strings.TrimSpace(out) != "" {
-		return strings.TrimPrefix(strings.TrimSpace(out), "origin/")
-	}
-	return gitrun.IntegrationBranch
-}
+func defaultBranch(repo string) string { return worktreeprune.DefaultBranch(repo) }
 
 // repos is rpc_worktrees.repos: the repos the agents were told to work in, by path.
 func (e *Env) repos() []any {
-	seen := map[string]bool{}
-	var paths_ []string
-	for _, name := range paths.ListAgents(e.Home) {
-		if repo := e.repoOf(name); repo != "" && !seen[repo] && isDir(repo) {
-			seen[repo] = true
-			paths_ = append(paths_, repo)
-		}
-	}
-	sort.Strings(paths_)
-	out := make([]any, 0, len(paths_))
-	for _, p := range paths_ {
+	out := []any{}
+	for _, p := range worktreeprune.Repos(e.Home) {
 		out = append(out, map[string]any{"name": filepath.Base(p), "path": p, "default_branch": defaultBranch(p)})
 	}
 	return out
@@ -162,11 +150,11 @@ func countOf(s string) int64 {
 	return n
 }
 
-// changed is rpc_worktrees._changed: the changed files with git's status letter and line counts.
-func changed(path string) []any {
+// changed is rpc_worktrees._changed: the changed files with git's status letter and line counts, up to maxChanged, and how many there are.
+func changed(path string) ([]any, int) {
 	ok, status := git(path, "status", "--porcelain=v1", "-z", "-uall")
 	if !ok {
-		return []any{}
+		return []any{}, 0
 	}
 	counts := map[string][2]int64{}
 	if ok, stat := git(path, "diff", "--numstat", "-z", "--no-ext-diff", "HEAD"); ok {
@@ -183,9 +171,9 @@ func changed(path string) []any {
 			}
 		}
 	}
-	rows := []any{}
+	rows, total := []any{}, 0
 	entries := strings.Split(status, "\x00")
-	for i := 0; i < len(entries) && len(rows) < maxChanged; i++ {
+	for i := 0; i < len(entries); i++ {
 		entry := entries[i]
 		if len([]rune(entry)) < 4 {
 			continue
@@ -193,6 +181,9 @@ func changed(path string) []any {
 		code, name := entry[:2], entry[3:]
 		if strings.ContainsAny(code, "RC") {
 			i++
+		}
+		if total++; len(rows) >= maxChanged {
+			continue
 		}
 		mark := "M"
 		if code == "??" {
@@ -208,7 +199,7 @@ func changed(path string) []any {
 		n := counts[name]
 		rows = append(rows, map[string]any{"path": name, "status": mark, "added": n[0], "deleted": n[1]})
 	}
-	return rows
+	return rows, total
 }
 
 // bosses is each agent's supervisor from team.yaml; empty when it cannot be read.
@@ -261,7 +252,7 @@ func (e *Env) labels() (map[string]string, error) {
 
 func (e *Env) worktree(path, owner string, kn known, bosses map[string]string, labels map[string]string) map[string]any {
 	ok, branch := git(path, "rev-parse", "--abbrev-ref", "HEAD")
-	ch := changed(path)
+	ch, _ := changed(path)
 	boss := bosses[owner]
 	repo := e.repoOf(owner)
 	repoName := ""
@@ -372,7 +363,48 @@ func (e *Env) worktreesList(_ *rpc.Conn, params map[string]any) (any, error) {
 			out = append(out, wt)
 		}
 	}
+	if owner == nil {
+		orphans, err := e.orphans(repo)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, orphans...)
+	}
 	return map[string]any{"worktrees": out}, nil
+}
+
+// orphans are the worktrees no agent records, in repo when it is named (by name or path), as worktrees.list items: orphan true, what
+// each holds that its default branch does not, and the size housekeeping last measured (null until it has).
+func (e *Env) orphans(repo *string) ([]any, error) {
+	agents, err := worktreeprune.AgentWorktrees(e.DB, "")
+	if err != nil {
+		return nil, err
+	}
+	out := []any{}
+	for _, r := range worktreeprune.Repos(e.Home) {
+		if repo != nil && *repo != r && *repo != filepath.Base(r) {
+			continue
+		}
+		for _, wt := range worktreeprune.Orphans(r, agents) {
+			path := worktreeprune.Real(wt.Path)
+			merged, commits := worktreeprune.Ahead(path)
+			var size any
+			if v, ok, err := db.Meta(e.DB, worktreeprune.SizePrefix+path); err != nil {
+				return nil, err
+			} else if n, err := strconv.ParseInt(v, 10, 64); ok && err == nil {
+				size = n
+			}
+			ch, files := changed(path)
+			status := "clean"
+			if len(ch) > 0 {
+				status = "dirty"
+			}
+			out = append(out, map[string]any{"path": path, "repo": filepath.Base(r), "branch": wt.Branch, "owner": nil, "parent": nil,
+				"children": []string{}, "status": status, "changed": ch, "orphan": true, "merged": merged,
+				"files_changed": files, "commits_ahead": commits, "size_bytes": size})
+		}
+	}
+	return out, nil
 }
 
 func (e *Env) worktreeDiff(_ *rpc.Conn, params map[string]any) (any, error) {

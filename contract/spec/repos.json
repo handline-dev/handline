@@ -71,6 +71,33 @@
       "items": {
        "$ref": "#/components/schemas/ChangedFile"
       }
+     },
+     "orphan": {
+      "type": "boolean",
+      "description": "Present and true only on a worktree no agent records: one an agent left behind when it was retired, renamed or moved. Its owner is null. Never the repo's own checkout or a locked worktree."
+     },
+     "merged": {
+      "type": "boolean",
+      "description": "Orphans only: whether its HEAD is merged into main."
+     },
+     "files_changed": {
+      "type": "integer",
+      "description": "Orphans only: its changed and untracked files, as git status counts them."
+     },
+     "commits_ahead": {
+      "type": "integer",
+      "description": "Orphans only: its commits not on main."
+     },
+     "size_bytes": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Orphans only: the bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured."
      }
     },
     "required": [
@@ -152,7 +179,8 @@
    },
    "x-role": "member",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "The worktrees agents work in, then the orphans: worktrees of the same repos that no agent records (orphan true), each with what it holds that main does not and its size. `owner` lists no orphans, since they have none; `repo` narrows both, by the repo's name or path."
   },
   {
    "name": "worktree.diff",
@@ -216,6 +244,158 @@
      "$ref": "#/components/errors/not_found"
     }
    ]
+  },
+  {
+   "name": "worktree.remove",
+   "summary": "Remove an orphan worktree (worktrees.list orphan), the founder's choice from the list.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The orphan's path, as worktrees.list gives it."
+     }
+    },
+    {
+     "name": "force",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Remove it even though it holds work: files changed, or commits not on main. The person's confirm; nothing asks again."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "branch_deleted": {
+         "type": "boolean",
+         "description": "Whether its branch went too: only for one merged into main and clean, by `git branch -d`. A forced removal leaves the branch."
+        }
+       },
+       "required": [
+        "branch_deleted"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "A worktree merged into main with nothing changed goes at once, with its branch. One that holds work is refused, gate `dirty`, with `files_changed` and `commits_ahead` in the error data, unless force. A path that is no orphan (an agent works in it, or it is not a worktree of an agent's repo) is refused, gate `orphan`: an agent's worktree goes only with the agent. If git cannot remove it, the call is refused, gate `git`, with git's words.",
+   "x-gates": [
+    "orphan",
+    "dirty",
+    "git"
+   ]
+  },
+  {
+   "name": "files.list",
+   "summary": "The files of an agent's worktree, for the chat's @ menu.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "query",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Matched case-insensitively as a subsequence of the path: its letters appear in the path in order, not necessarily side by side. Absent, null or empty lists every file. Anything else that is not a string is bad_request (field query)."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 50,
+      "description": "The most files returned; absent or null is 50. Outside 1..200, or not an integer: bad_request (field limit)."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "files": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string",
+          "description": "Relative to the worktree, with `/` between parts."
+         },
+         "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The file's size in bytes."
+         }
+        },
+        "required": [
+         "path",
+         "size"
+        ]
+       },
+       "description": "With no query, every file in byte order of path. With one, the matches best first: a match inside the file's name (the part after the last `/`) comes first, then one elsewhere in the path, then a subsequence that is not side by side; within each, the shorter path first, then byte order."
+      },
+      "more": {
+       "type": "boolean",
+       "description": "More files matched than limit let through."
+      }
+     },
+     "required": [
+      "files",
+      "more"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "description": "The files are what git tracks plus the untracked files it does not ignore (`git ls-files --cached --others --exclude-standard`), the regular files among them that are there now. An agent with no worktree, or whose worktree is gone, is not_found. It reads only names and sizes, never a file's content."
   },
   {
    "name": "file.read",

@@ -78,3 +78,13 @@ func (s *MemStore) SetPush(id string, p Push) (bool, error) {
 	}
 	return ok, nil
 }
+
+func (s *MemStore) DropPush(id, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d, ok := s.byID[id]; ok && d.Push != nil && d.Push.Token == token {
+		d.Push = nil
+		s.byID[id] = d
+	}
+	return nil
+}

@@ -65,7 +65,7 @@ export function FoldLine(props: {
       <button
         type="button"
         aria-expanded={open}
-        className="group flex w-fit max-w-full cursor-pointer flex-wrap items-baseline gap-x-2 rounded-md border border-line bg-panel px-2.5 py-1 text-left text-md"
+        className="group flex w-fit max-w-full cursor-pointer flex-wrap items-baseline gap-x-2 tint rounded-sm px-1.5 py-1 text-left text-md"
         onClick={() => folds.toggle(f)}
       >
         <Icon name={open ? 'less' : 'more'} size={14} label={open ? 'Fold the task cards' : 'Show the task cards'} />

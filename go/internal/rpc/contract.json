@@ -147,6 +147,9 @@
  "file.write": {
   "role": "founder"
  },
+ "files.list": {
+  "role": "member"
+ },
  "for_you.list": {
   "role": "member"
  },
@@ -481,6 +484,9 @@
  },
  "worktree.diff": {
   "role": "member"
+ },
+ "worktree.remove": {
+  "role": "founder"
  },
  "worktree.set_status": {
   "role": "member"

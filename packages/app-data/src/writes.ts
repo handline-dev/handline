@@ -17,6 +17,7 @@ import { edit, provisionalId, upsert, type Ctx } from '#src/cache.ts';
 import { accountAfter, type AccountChange } from '#src/account-after.ts';
 import { accountRemove } from '#src/account-remove.ts';
 import { chatWrites } from '#src/chat-writes.ts';
+import { classify } from '#src/errors.ts';
 import { keyOf, qk } from '#src/reads.ts';
 import type { WriteSpec } from '#src/write-spec.ts';
 
@@ -346,7 +347,6 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'agent.unstall': 'clear stall',
     'agent.force_start': 'force start',
     'agent.create': 'create',
-    'agent.retire': 'retire',
     'worktree.set_status': 'set status',
     'input.take': 'take control',
     'input.release': 'release',
@@ -366,6 +366,11 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
   }).map(([m, label]) => [m, decided(label)]),
 );
 
+const askedDirty = (e: unknown) => {
+  const f = classify(e);
+  return f.kind === 'refused' && f.gate === 'dirty';
+};
+
 export const writes: Record<string, WriteSpec> = {
   'account.remove': accountRemove,
   'team.seal': decided('seal'),
@@ -375,6 +380,9 @@ export const writes: Record<string, WriteSpec> = {
   ...schedules,
   ...decidedWrites,
   'chat.seen': { ...decided('mark seen'), quiet: true },
+  // A worktree that holds work is refused until the person answers; the screen asks, so no error line is raised.
+  'agent.retire': { ...decided('retire'), asks: askedDirty },
+  'worktree.remove': { ...decided('remove worktree'), asks: askedDirty },
   // A prompt the person answers: a stale one is refused and the card shows the prompt that is open now.
   'prompt.answer': {
     kind: 'decided',

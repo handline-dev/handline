@@ -6,12 +6,18 @@ package worktreeprune
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
+	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/team"
 )
 
 // Worktree is one entry of `git worktree list --porcelain`.
@@ -147,6 +153,13 @@ func WhyKept(wt Worktree, agents map[string]bool, here string) string {
 // Tag marks the founder's task that asks what to do with a retired member's worktree that holds work.
 const Tag = "worktree-removal"
 
+// The answers for a worktree that holds work, as agent.retire takes them (worktree) and the founder's Tag task offers them as buttons.
+const (
+	Keep  = "keep"  // it stays
+	Save  = "save"  // what is left goes to a rescue branch, then it is removed
+	Force = "force" // it is removed with whatever it holds; its branch stays
+)
+
 const (
 	notMerged   = " is not merged into main"
 	uncommitted = "uncommitted or untracked files"
@@ -224,4 +237,147 @@ func Remove(path string) (ok bool, why string) {
 		return false, strings.TrimSpace(r.Stderr)
 	}
 	return true, ""
+}
+
+// Repos are the repositories the agents were told to work in (team.yaml repo), each once, sorted.
+func Repos(home string) []string {
+	seen := map[string]bool{}
+	var out []string
+	roster := team.NewRoster(home)
+	for _, name := range paths.ListAgents(home) {
+		cfg, err := roster.Read(name)
+		if err != nil {
+			continue
+		}
+		if repo, _ := cfg["repo"].(string); repo != "" && !seen[repo] {
+			if st, err := os.Stat(repo); err == nil && st.IsDir() {
+				seen[repo] = true
+				out = append(out, repo)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Orphans are the worktrees of repo that no agent records (agents, from AgentWorktrees): left behind by an agent that went. The repo's own
+// checkout, a locked worktree and one that is no checkout are never orphans.
+func Orphans(repo string, agents map[string]bool) []Worktree {
+	all := List(repo)
+	var out []Worktree
+	for i, wt := range all {
+		if i == 0 || wt.Bare || wt.Prunable || wt.Locked || agents[Real(wt.Path)] {
+			continue
+		}
+		out = append(out, wt)
+	}
+	return out
+}
+
+// DefaultBranch is the branch the repository at path merges into: origin's HEAD, else gitrun.IntegrationBranch.
+func DefaultBranch(path string) string {
+	if r := gitrun.Run(path, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"); r.RC == 0 && strings.TrimSpace(r.Stdout) != "" {
+		return strings.TrimPrefix(strings.TrimSpace(r.Stdout), "origin/")
+	}
+	return gitrun.IntegrationBranch
+}
+
+// Unsaved is what the worktree holds that its repository's default branch does not: whether its HEAD is merged into it, its changed or
+// untracked files and its commits not on it.
+func Unsaved(path string) (merged bool, files, commits int) {
+	merged, commits = Ahead(path)
+	if r := gitrun.Run(path, "status", "--porcelain"); r.RC == 0 && strings.TrimSpace(r.Stdout) != "" {
+		files = len(strings.Split(strings.TrimSpace(r.Stdout), "\n"))
+	}
+	return merged, files, commits
+}
+
+// Ahead is Unsaved without the files: whether the worktree's HEAD is merged into the default branch, and its commits not on it.
+func Ahead(path string) (merged bool, commits int) {
+	base := DefaultBranch(path)
+	merged = gitrun.Run(path, "merge-base", "--is-ancestor", "HEAD", base).RC == 0
+	if r := gitrun.Run(path, "rev-list", "--count", base+"..HEAD"); r.RC == 0 {
+		commits, _ = strconv.Atoi(strings.TrimSpace(r.Stdout))
+	}
+	return merged, commits
+}
+
+// SizePrefix starts the meta name an orphan's measured size is kept under: the prefix, then its real path; the value is the bytes.
+const SizePrefix = "worktree_size:"
+
+// SizeEvery is how often the orphans' sizes are measured, in seconds: a walk of a worktree with its dependencies takes a while.
+const SizeEvery = int64(3600)
+
+// Size is the bytes the files under path take on disk, as du counts them.
+func Size(path string) (int64, error) {
+	out, err := exec.Command("du", "-sk", path).Output()
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("du said nothing for %s", path)
+	}
+	kb, err := strconv.ParseInt(fields[0], 10, 64)
+	return kb * 1024, err
+}
+
+// DeleteMergedBranch deletes branch in repo with `git branch -d`, never -D: git keeps a branch not merged, and false says so.
+func DeleteMergedBranch(repo, branch string) bool {
+	return branch != "" && branch != "main" && gitrun.Run(repo, "branch", "-d", branch).RC == 0
+}
+
+// FindOrphan is the orphan worktree at path among the repositories an agent works in, with its repository; false when path is none.
+func FindOrphan(q db.Q, home, path string) (wt Worktree, repo string, ok bool, err error) {
+	agents, err := AgentWorktrees(q, "")
+	if err != nil {
+		return Worktree{}, "", false, err
+	}
+	want := Real(path)
+	for _, r := range Repos(home) {
+		for _, o := range Orphans(r, agents) {
+			if Real(o.Path) == want {
+				return o, r, true, nil
+			}
+		}
+	}
+	return Worktree{}, "", false, nil
+}
+
+// Held is a worktree of an agent that holds work: its path, its changed or untracked files and its commits not on main.
+type Held struct {
+	Path           string
+	Files, Commits int
+}
+
+// Holding are the worktrees agent records that hold work nobody else has (HoldsWork): what a retire must ask about before it goes.
+func Holding(q db.Q, agent string) ([]Held, error) {
+	mine, err := Of(q, agent)
+	if err != nil {
+		return nil, err
+	}
+	others, err := AgentWorktrees(q, agent)
+	if err != nil {
+		return nil, err
+	}
+	var out []Held
+	for _, path := range mine {
+		wt, ok := Find(List(path), path)
+		if !ok || !HoldsWork(WhyKept(wt, others, "")) {
+			continue
+		}
+		_, files, commits := Unsaved(path)
+		out = append(out, Held{Path: path, Files: files, Commits: commits})
+	}
+	return out, nil
+}
+
+// Find is the worktree of all at path.
+func Find(all []Worktree, path string) (Worktree, bool) {
+	for _, wt := range all {
+		if Real(wt.Path) == Real(path) {
+			return wt, true
+		}
+	}
+	return Worktree{}, false
 }
