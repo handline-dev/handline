@@ -414,6 +414,7 @@ export const writes: Record<string, WriteSpec> = {
   'session.type': uncached('type'),
   'terminal.input': uncached('key'),
   'terminal.resize': uncached('resize'),
+  'attachment.remove': decided('delete the photo'),
   'shell.open': uncached('open shell'),
   'shell.close': uncached('close shell'),
   'daemon.upgrade': uncached('upgrade daemon'),

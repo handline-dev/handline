@@ -255,7 +255,7 @@ function MessageRow(props: MessageProps) {
               ) : null
             ) : p.gone ? (
               <span key={n} className="attachment gone muted text-[12px]">
-                {p.caption || p.image.name || 'image'} - no longer kept
+                {p.caption || p.image.name || 'image'} - {p.removed ? 'Photo deleted' : 'no longer kept'}
               </span>
             ) : (
               <Pictures key={n} items={[{ id: p.image.id, name: p.image.name ?? p.caption }]} thumb={side !== 'person'} />

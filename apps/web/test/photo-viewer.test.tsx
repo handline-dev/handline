@@ -103,13 +103,30 @@ describe('the photo viewer', () => {
     await until(() => !$('.image-viewer'), 'the viewer closed');
   });
 
-  it('offers Copy photo and Save photo under More', async () => {
+  it('deletes the photo after one confirm that counts the places, and the message then says it was deleted', async () => {
+    const s = setup();
+    await open(s);
+    await click($('.image-viewer [aria-label="More"]')!);
+    await click(
+      [...document.querySelectorAll<HTMLElement>('.image-viewer [role="menuitem"]')].find((m) => m.textContent === 'Delete photo…')!,
+    );
+    await until(() => $('.image-viewer [role="alertdialog"]'), 'the confirm');
+    expect($('.image-viewer [role="alertdialog"]')!.textContent).toContain('Removed from 1 place');
+    await click(
+      [...document.querySelectorAll<HTMLElement>('.image-viewer [role="alertdialog"] button')].find((b) => b.textContent === 'Delete')!,
+    );
+    await until(() => !$('.image-viewer'), 'the viewer closed');
+    await until(() => box.querySelector('.msg .attachment.gone')?.textContent?.includes('Photo deleted'), 'the row says so');
+  });
+
+  it('offers Copy, Save and Delete under More', async () => {
     const s = setup();
     await open(s);
     await click($('.image-viewer [aria-label="More"]')!);
     expect([...document.querySelectorAll('.image-viewer [role="menuitem"]')].map((m) => m.textContent)).toEqual([
       'Copy photo',
       'Save photo',
+      'Delete photo…',
     ]);
   });
 

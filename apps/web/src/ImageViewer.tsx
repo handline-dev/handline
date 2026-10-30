@@ -1,7 +1,8 @@
 // The one enlarged view of a picture: dimmed scrim, zoom (ViewerStage.tsx) and, under a PhotoNotes place, marking what to change.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { initialMarks, keptMarks, marksReducer, marksToShapes } from '@handline/app-core';
-import { sentence, classify, useAttachmentUrl } from '@handline/app-data';
+import { sentence, classify, useAttachmentUrl, useWrite } from '@handline/app-data';
+import { useHello } from '@handline/app-react';
 import { marked } from '#src/Annotate.tsx';
 import { notesText, useNotesPlace } from '#src/PhotoNotes.tsx';
 import { ViewerStage } from '#src/ViewerStage.tsx';
@@ -103,7 +104,7 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
             Fit
           </button>
         ) : null}
-        {url && !marking ? <PhotoMenu url={url} name={pic.name} /> : null}
+        {url && !marking ? <PhotoMenu url={url} name={pic.name} id={pic.id} onDeleted={onClose} /> : null}
         <button type="button" className="inline-flex items-center gap-1 border-0 bg-transparent text-white" onClick={() => leave('close')}>
           <Icon name="close" size={14} aria-hidden />
           Close
@@ -125,7 +126,13 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
           />
         ) : (
           <p className="m-auto opacity-70" onClick={() => leave('close')}>
-            {full.failed ? 'The image could not be loaded.' : full.gone ? 'This image is no longer kept.' : 'Loading…'}
+            {full.failed
+              ? 'The image could not be loaded.'
+              : full.removed
+                ? 'Photo deleted.'
+                : full.gone
+                  ? 'This image is no longer kept.'
+                  : 'Loading…'}
           </p>
         )}
         {!marking && at > 0 ? <Arrow side="left" label="Previous picture" onClick={() => step(-1)} /> : null}
@@ -189,8 +196,29 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
 }
 
 /** More: copy the photo to the clipboard, or save it as a file. */
-function PhotoMenu({ url, name }: { url: string; name: string }) {
+function PhotoMenu({ url, name, id, onDeleted }: { url: string; name: string; id?: string; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
+  const [places, setPlaces] = useState<number | null>(null);
+  const founder = useHello()?.role === 'founder';
+  const remove = useWrite('attachment.remove');
+  // The count of places comes from a dry run, so the confirm says what the deletion reaches before anything is removed.
+  const ask = async () => {
+    setOpen(false);
+    try {
+      setPlaces((await remove.mutateAsync({ id: id!, dry_run: true })).removed_from);
+    } catch {
+      // useWrite has reported it
+    }
+  };
+  const del = async () => {
+    setPlaces(null);
+    try {
+      await remove.mutateAsync({ id: id! });
+      onDeleted();
+    } catch {
+      // useWrite has reported it
+    }
+  };
   const item = 'block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-sm text-ink';
   const copy = async () => {
     setOpen(false);
@@ -209,6 +237,21 @@ function PhotoMenu({ url, name }: { url: string; name: string }) {
       >
         ⋯
       </button>
+      {places !== null ? (
+        <div
+          role="alertdialog"
+          aria-label="Delete photo?"
+          className="absolute right-0 z-20 mt-1 grid w-64 gap-2 rounded-md bg-panel p-3 text-sm text-ink shadow-[var(--shadow)]"
+        >
+          <span>
+            {places === 0 ? 'Delete this photo?' : `Removed from ${places} ${places === 1 ? 'place' : 'places'}. This cannot be undone.`}
+          </span>
+          <span className="flex justify-end gap-2">
+            <Button size="sm" label="Cancel" onClick={() => setPlaces(null)} />
+            <Button size="sm" variant="solid" label="Delete" className="!bg-bad" onClick={() => void del()} />
+          </span>
+        </div>
+      ) : null}
       {open ? (
         <div role="menu" className="absolute right-0 z-20 mt-1 w-40 rounded-md bg-panel py-1 shadow-[var(--shadow)]">
           <button type="button" role="menuitem" className={item} onClick={() => void copy().catch(() => undefined)}>
@@ -217,6 +260,11 @@ function PhotoMenu({ url, name }: { url: string; name: string }) {
           <a role="menuitem" className={`${item} no-underline`} href={url} download={name} onClick={() => setOpen(false)}>
             Save photo
           </a>
+          {founder && id ? (
+            <button type="button" role="menuitem" className={`${item} !text-bad`} onClick={() => void ask()}>
+              Delete photo…
+            </button>
+          ) : null}
         </div>
       ) : null}
     </span>

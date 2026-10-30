@@ -15,6 +15,7 @@ import type {
   Task,
 } from '@handline/client';
 import { edit, inRead, put, upsert, type Ctx, type Pages } from '#src/cache.ts';
+import { markRemoved } from '#src/attachments.ts';
 import { chatEvent } from '#src/chat-events.ts';
 import { transcriptEvent } from '#src/transcript.ts';
 import { qk } from '#src/reads.ts';
@@ -30,6 +31,13 @@ const rules: Record<string, Rule> = {
     edit<AgentDetail>(qc, qk.agent(d, a.name), (old) => ({ ...old, ...a }), e.cursor);
     // The row does not carry what the detail adds (terminal, who may type, the open prompt), so an open detail is read again.
     void qc.invalidateQueries({ queryKey: qk.agent(d, a.name) });
+  },
+  // The founder deleted an image: every picture of it goes blank, and the texts that carry it say so when read again.
+  'attachment.removed': ({ qc, d }, e) => {
+    markRemoved(String(data<{ id: string }>(e).id));
+    void qc.invalidateQueries({ queryKey: ['d', d, 'chat-messages'] });
+    void qc.invalidateQueries({ queryKey: ['d', d, 'task'] });
+    void qc.invalidateQueries({ queryKey: ['d', d, 'memos'] });
   },
   'agent.removed': ({ qc, d }, e) => {
     const name = e.agent ?? String(data<{ name: string }>(e).name);
