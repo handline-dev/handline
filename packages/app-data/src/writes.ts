@@ -382,7 +382,6 @@ export const writes: Record<string, WriteSpec> = {
   'chat.seen': { ...decided('mark seen'), quiet: true },
   // A worktree that holds work is refused until the person answers; the screen asks, so no error line is raised.
   'agent.retire': { ...decided('retire'), asks: askedDirty },
-  'worktree.remove': { ...decided('remove worktree'), asks: askedDirty },
   // A prompt the person answers: a stale one is refused and the card shows the prompt that is open now.
   'prompt.answer': {
     kind: 'decided',

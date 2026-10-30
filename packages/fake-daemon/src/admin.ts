@@ -39,7 +39,6 @@ const DEFAULTS: Settings['values'] = {
   load_per_core_pct: 150,
   ram_free_min_pct: 10,
   disk_free_min_gb: 5,
-  host_simulator_hold: 1,
   heavy_slots: 2,
   keep_awake: 'off',
   reap_orphans: 'dry',

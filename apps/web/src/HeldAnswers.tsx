@@ -79,7 +79,7 @@ export function useHeldAnswers(say: (line: string) => void) {
         (p, st) => p.then(() => writer[st.method].mutateAsync(st.params as never)),
         Promise.resolve<unknown>(undefined),
       );
-      void sent.catch(() => undefined).then(() => keep((all) => delete all[key]));
+      void sent.catch((e: unknown) => say(sentence(classify(e)))).then(() => keep((all) => delete all[key]));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

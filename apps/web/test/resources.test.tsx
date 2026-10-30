@@ -80,6 +80,24 @@ describe('system resources', () => {
     await until(() => limit() === 300, 'the typed limit after blur');
   });
 
+  it('a refused limit save leaves the limit as it was and says why', async () => {
+    const s = setup();
+    location.hash = '#/my-turn';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={storage} />);
+    });
+    await until(() => box.querySelector('.resource-cell'), 'the resource cell');
+    await act(async () => void box.querySelector<HTMLElement>('.resource-cell')!.click());
+    await until(() => box.querySelector('.resource-details'), 'the popover');
+    s.daemon.knobs.refuse('settings.set', 'role', 'only the founder may change the limits');
+    await act(async () => void box.querySelector<HTMLElement>('[data-resource="Load"] button')!.click());
+    await act(async () => void box.querySelector<HTMLElement>('[aria-label="Raise"]')!.click());
+    await until(() => document.body.textContent?.includes('only the founder may change the limits'), 'the refusal sentence');
+    expect(s.daemon.admin.settings().values.load_per_core_pct).toBe(150);
+  });
+
   it('the admin view lists agents heaviest first with Stop behind a menu on each row and a totals line', async () => {
     await mount('#/admin');
     await until(() => box.querySelector('.admin-usage li[data-agent]'), 'the usage rows');

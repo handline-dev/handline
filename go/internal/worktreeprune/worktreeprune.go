@@ -260,20 +260,6 @@ func Repos(home string) []string {
 	return out
 }
 
-// Orphans are the worktrees of repo that no agent records (agents, from AgentWorktrees): left behind by an agent that went. The repo's own
-// checkout, a locked worktree and one that is no checkout are never orphans.
-func Orphans(repo string, agents map[string]bool) []Worktree {
-	all := List(repo)
-	var out []Worktree
-	for i, wt := range all {
-		if i == 0 || wt.Bare || wt.Prunable || wt.Locked || agents[Real(wt.Path)] {
-			continue
-		}
-		out = append(out, wt)
-	}
-	return out
-}
-
 // DefaultBranch is the branch the repository at path merges into: origin's HEAD, else gitrun.IntegrationBranch.
 func DefaultBranch(path string) string {
 	if r := gitrun.Run(path, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"); r.RC == 0 && strings.TrimSpace(r.Stdout) != "" {
@@ -325,23 +311,6 @@ func Size(path string) (int64, error) {
 // DeleteMergedBranch deletes branch in repo with `git branch -d`, never -D: git keeps a branch not merged, and false says so.
 func DeleteMergedBranch(repo, branch string) bool {
 	return branch != "" && branch != "main" && gitrun.Run(repo, "branch", "-d", branch).RC == 0
-}
-
-// FindOrphan is the orphan worktree at path among the repositories an agent works in, with its repository; false when path is none.
-func FindOrphan(q db.Q, home, path string) (wt Worktree, repo string, ok bool, err error) {
-	agents, err := AgentWorktrees(q, "")
-	if err != nil {
-		return Worktree{}, "", false, err
-	}
-	want := Real(path)
-	for _, r := range Repos(home) {
-		for _, o := range Orphans(r, agents) {
-			if Real(o.Path) == want {
-				return o, r, true, nil
-			}
-		}
-	}
-	return Worktree{}, "", false, nil
 }
 
 // Held is a worktree of an agent that holds work: its path, its changed or untracked files and its commits not on main.

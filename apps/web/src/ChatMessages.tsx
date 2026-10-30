@@ -22,7 +22,6 @@ import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgC
 import { Pictures } from '#src/ChatAttach.tsx';
 import { Markdown, parseBlocks } from '#src/Markdown.tsx';
 import { isShell } from '#src/CommandCard.tsx';
-import { RichText } from '#src/RichText.tsx';
 import type { useWorkspace } from '#src/Workspace.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { Reveal } from '#src/ui/Reveal.tsx';
@@ -416,7 +415,7 @@ export function Item({
           }}
         >
           <div className={MSG_BODY}>
-            <RichText text={i.text ?? ''} />
+            <Markdown text={i.text ?? ''} agent={agent} message={{ id: i.id, runs: i.runs, prefix: 'r' }} />
           </div>
         </div>
         <Stamp time={clockTime(i.at)} />

@@ -73,15 +73,16 @@ function Inline({ text, agent }: { text: string; agent?: string }) {
   return <>{parts}</>;
 }
 
-const runOf = (m: { id: number; runs?: CommandRun[] }, index: number): BlockRef => ({
+export const runOf = (m: { id: number; runs?: CommandRun[]; prefix?: string }, index: number): BlockRef => ({
   message: m.id,
   index,
-  run: m.runs?.find((r) => r.block === `${m.id}:${index}`),
+  prefix: m.prefix,
+  run: m.runs?.find((r) => r.block === `${m.prefix ?? ''}${m.id}:${index}`),
 });
 
 const HEADINGS = ['text-[1.15em]', 'text-[1.08em]', 'text-[1em]', 'text-[1em]'];
 
-/** `message` is set where the blocks can be run: `first` counts the command blocks of the message's earlier parts. */
+/** `message` is set where the blocks can be run: `first` counts the command blocks of the message's earlier parts; `prefix` is 'r' on an agent's own reply. */
 export function Markdown({
   text,
   agent,
@@ -89,7 +90,7 @@ export function Markdown({
 }: {
   text: string;
   agent?: string;
-  message?: { id: number; runs?: CommandRun[]; first?: number };
+  message?: { id: number; runs?: CommandRun[]; first?: number; prefix?: string };
 }) {
   let index = message?.first ?? 0;
   const inline = (t: string) => <Inline text={t} agent={agent} />;

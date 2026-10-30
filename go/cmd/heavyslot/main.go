@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -82,6 +83,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: heavyslot -- <command> [args...]")
 		os.Exit(2)
 	}
+	go watchParent(os.Getppid())
 	if os.Getenv("HANDLINE_HEAVY_SLOT") == "" {
 		class := heavyClass
 		if isLight(args) {
@@ -305,6 +307,36 @@ func describe(record string) string {
 		time.Since(at).Round(time.Second))
 }
 
+// command is the run's command once started, and whether it has a process group of its own.
+var command struct {
+	sync.Mutex
+	cmd   *exec.Cmd
+	group bool
+}
+
+// signalCommand sends s to the command, to its whole group when it has one; the caller holds command's lock.
+func signalCommand(s syscall.Signal) {
+	if command.cmd == nil {
+	} else if command.group {
+		syscall.Kill(-command.cmd.Process.Pid, s)
+	} else {
+		command.cmd.Process.Signal(s)
+	}
+}
+
+// watchParent ends the run once the process that started it is gone (this one is re-parented): nobody waits for it, so it must not
+// hold a slot or keep its command running. It kills the command and exits.
+func watchParent(parent int) {
+	for range time.Tick(poll) {
+		if os.Getppid() != parent {
+			command.Lock()
+			fmt.Fprintln(os.Stderr, "heavyslot: the process that started this run is gone; ending it")
+			signalCommand(syscall.SIGKILL)
+			os.Exit(128 + int(syscall.SIGHUP))
+		}
+	}
+}
+
 // run starts the command, passes it the signals this process gets, and returns its exit status. Off a terminal the command gets a
 // process group of its own and a signal goes to all of it: a stopped run stops everything it started, not only its shell, which
 // would let its current step run to the end. On a terminal it stays in the terminal's foreground group, which Ctrl-C reaches whole,
@@ -314,19 +346,21 @@ func run(args []string) int {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	group := !hlclient.StdinIsTerminal()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: group}
+	command.Lock()
 	if err := cmd.Start(); err != nil {
+		command.Unlock()
 		fmt.Fprintf(os.Stderr, "heavyslot: %v\n", err)
 		return 127
 	}
+	command.cmd, command.group = cmd, group
+	command.Unlock()
 	sigs := make(chan os.Signal, 4)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		for s := range sigs {
-			if group {
-				syscall.Kill(-cmd.Process.Pid, s.(syscall.Signal))
-			} else {
-				cmd.Process.Signal(s)
-			}
+			command.Lock()
+			signalCommand(s.(syscall.Signal))
+			command.Unlock()
 		}
 	}()
 	err := cmd.Wait()
