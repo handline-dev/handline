@@ -28,6 +28,8 @@ export interface Remote {
 export interface Settings {
   mode: Mode;
   remote: Remote | null;
+  /** Allow devices on this network: the gateway also serves the web page, so a browser on another computer can be invited. Off unless set. */
+  network?: boolean;
 }
 
 export const parseMode = (v: unknown): Mode | undefined => (v === 'connect' || v === 'own' ? v : undefined);
@@ -56,7 +58,11 @@ export class SettingsFile {
     } catch {
       /* none yet */
     }
-    return { mode: forced ?? parseMode(kept.mode) ?? 'connect', remote: isRemote(kept.remote) ? kept.remote : null };
+    return {
+      mode: forced ?? parseMode(kept.mode) ?? 'connect',
+      remote: isRemote(kept.remote) ? kept.remote : null,
+      ...(kept.network === true ? { network: true } : {}),
+    };
   }
   write(s: Settings): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });

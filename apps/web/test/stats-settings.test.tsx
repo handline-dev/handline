@@ -345,6 +345,19 @@ describe('settings', () => {
     expect($('[data-device="d1"]')).not.toBeNull();
   });
 
+  it('Computers: this computer is the first server, and Connect a device shows the invite as a QR and a link that works once', async () => {
+    await mount('#/settings');
+    await until(() => $('[data-server="this"]'), 'the server row');
+    expect(text($('[data-server="this"]'))).toContain('This computer');
+    expect(text(document.body)).toContain('Servers run agents. Devices only connect.');
+    await click(button('Connect a device')!);
+    await until(() => $('.ui-dialog [aria-label="Invite QR code"] svg'), 'the QR');
+    const dialog = $('.ui-dialog')!;
+    expect(text(dialog)).toMatch(/#pair=[A-Z0-9-]+/);
+    expect(text(dialog)).toMatch(/Valid for\s*[45]:\d\d/);
+    expect(text(dialog)).toContain('Anyone with this link for 5 minutes gets full control');
+  });
+
   it('a number shows its unit as a suffix inside the field', async () => {
     await mount('#/settings');
     await until(() => field('Idle close'), 'the fields');

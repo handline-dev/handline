@@ -21,7 +21,7 @@ const PARTS = [
   { id: 'set-handoff', label: 'Handoff' },
   { id: 'set-notifications', label: 'Notifications' },
   { id: 'set-answers', label: 'Always answer' },
-  { id: 'set-devices', label: 'Devices' },
+  { id: 'set-devices', label: 'Computers' },
   { id: 'set-appearance', label: 'Appearance' },
   { id: 'set-advanced', label: 'Advanced' },
 ];
