@@ -200,7 +200,7 @@ describe('the Requests page', () => {
     expect(buttons).toContain('Later');
     expect(buttons).not.toContain('Open');
     const open = [...answers.children].at(-1) as HTMLElement;
-    expect(text(open)).toBe('Open T9201');
+    expect(text(open)).toBe('Open T9201'); // local-ref-ok
     expect(open.className).toContain('text-acc-ink'); // the link look, not an outlined button
     await click(open);
     await until(() => location.hash === '#/tasks/9201', 'the task');
