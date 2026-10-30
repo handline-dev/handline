@@ -30,7 +30,8 @@ export function DaemonBuild() {
       );
   };
   useEffect(() => {
-    if (!apart) store.notices.drop(KEY); // the daemon is on the app's build now
+    if (!apart)
+      store.notices.drop(KEY); // the daemon is on the app's build now
     else if (movable && !tried.current.has(pair)) {
       tried.current.add(pair);
       void restart();
