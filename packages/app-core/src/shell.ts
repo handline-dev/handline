@@ -40,6 +40,14 @@ export interface NavigateTo {
   event: string;
 }
 
+/** Where an update is: preparing (with its step and how far along), ready, put off until later, or failed (with the reason). */
+export interface ShellUpdate {
+  phase: 'idle' | 'preparing' | 'ready' | 'later' | 'failed';
+  step: string;
+  fraction: number;
+  reason: string;
+}
+
 export interface ShellApi {
   /** Present when the shell is there; a change that breaks a call makes it 2. */
   api: 1;
@@ -114,7 +122,7 @@ export interface ShellApi {
   setMode?(mode: 'connect' | 'own'): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** The follow-main build's commit and whether a newer main is waiting; `following` is false in any other build. */
   follow?(): Promise<
-    | { ok: true; following: boolean; sha: string; state: 'current' | 'available' | 'updating' | 'failed'; next: string | null }
+    | { ok: true; following: boolean; sha: string; state: 'current' | 'available' | 'updating' | 'ready' | 'failed'; next: string | null }
     | Fail<'bad_request'>
   >;
   /** The build the app is (its git sha, null when it has none) and whether the app can move the daemon onto it; the page compares the sha with the daemon's. */
@@ -127,6 +135,10 @@ export interface ShellApi {
   linkCli?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_link'>>;
   /** Looks at GitHub's main now; the answer is `follow()` again. */
   checkUpdate?(): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** The update notice: where the update is, and its buttons. `onUpdate` is called now with the last state and on every change. */
+  update?(): Promise<({ ok: true } & ShellUpdate) | Fail<'bad_request'>>;
+  updateAct?(what: 'restart' | 'later' | 'retry' | 'details'): Promise<{ ok: true } | Fail<'bad_request'>>;
+  onUpdate?(cb: (v: ShellUpdate) => void): () => void;
   /** Opens the one-time QR window for pairing a phone with this app's gateway. `mode().phone` says whether that is possible. */
   phone?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
   /** Whether "Allow devices on this network" is on (the gateway then serves the page on its address), and whether this app can change it. */

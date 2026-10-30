@@ -15,7 +15,6 @@ const common: BuildOptions = {
 
 await build({ ...common, entryPoints: ['src/main.ts'], outfile: 'dist/main.cjs' });
 await build({ ...common, entryPoints: ['src/preload.ts'], outfile: 'dist/preload.cjs' });
-await build({ ...common, entryPoints: ['src/popover-preload.ts'], outfile: 'dist/popover-preload.cjs' });
 
 // The build id the app and the daemon are compared by: the 12-char git sha of the checkout (src/build-id.ts reads it).
 let sha = 'unknown';

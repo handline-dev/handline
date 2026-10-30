@@ -27,7 +27,15 @@ import { COPY_URL, phoneHtml } from '#src/phone-html.ts';
 import { grant } from '#src/grant.ts';
 import { onTailnet } from '#src/tailnet.ts';
 import { singleWindow } from '#src/single-window.ts';
-import { trayIcon as iconFor, trayMenu, type TrayActions, type TrayFollow, type TrayIcon, type TrayMode } from '#src/tray.ts';
+import {
+  trayIcon as iconFor,
+  trayMenu,
+  type TrayActions,
+  type TrayFollow,
+  type TrayIcon,
+  type TrayMode,
+  type TrayUpdate,
+} from '#src/tray.ts';
 
 /** The menu bar icon; a run that does not draw one gets a stand-in that draws nothing. */
 function makeTray(draws: boolean): Tray {
@@ -202,11 +210,21 @@ async function daemonCmd(o: {
 }
 
 /** The tray's icon and menu. No context menu is set: a click builds the menu, and Option held at the click adds the details. */
-function trayControls(tray: Tray, owner: Owner, actions: TrayActions, mode: () => TrayMode, follow?: () => TrayFollow) {
+function trayControls(
+  tray: Tray,
+  owner: Owner,
+  actions: TrayActions,
+  mode: () => TrayMode,
+  follow?: () => TrayFollow,
+  update?: () => TrayUpdate,
+) {
   let unread = 0;
   const menu = (details: boolean) =>
-    Menu.buildFromTemplate(trayMenu(owner.state, owner.reason, actions, follow?.(), mode(), { unread, details }));
-  const draw = () => tray.setImage(trayImage(iconFor(owner.state, owner.reason, actions, { unread, details: false }, follow?.(), mode())));
+    Menu.buildFromTemplate(trayMenu(owner.state, owner.reason, actions, follow?.(), mode(), { unread, details, update: update?.() }));
+  const draw = () =>
+    tray.setImage(
+      trayImage(iconFor(owner.state, owner.reason, actions, { unread, details: false, update: update?.() }, follow?.(), mode())),
+    );
   tray.on('click', (e) => tray.popUpContextMenu(menu(!!e.altKey)));
   tray.on('right-click', (e) => tray.popUpContextMenu(menu(!!e.altKey)));
   return { draw, setUnread: (n: number) => ((unread = n), draw()) };
@@ -234,6 +252,8 @@ export function ownDaemon(o: {
   loginPath: () => Promise<string | undefined>;
   /** Follow-main mode adds its items to the tray. */
   follow?: () => TrayFollow;
+  /** The update flow, for the menu's update lines and the icon. */
+  update?: () => TrayUpdate;
   /** Whether this run draws a menu bar icon (drawsTray in background.ts). */
   tray: boolean;
   /** The build the app is (its sha), and the way to move the daemon onto it. */
@@ -267,7 +287,7 @@ export function ownDaemon(o: {
     phone: o.current.remote ? undefined : () => void showPhone(openPhone),
     restartDaemon: o.current.remote ? undefined : () => void o.upgradeDaemon().catch(showUpgradeFailure),
   });
-  const { draw, setUnread } = trayControls(tray, owner, actions, mode, o.follow);
+  const { draw, setUnread } = trayControls(tray, owner, actions, mode, o.follow, o.update);
   owner.onChange(draw);
   logFailures(owner, log);
   draw();

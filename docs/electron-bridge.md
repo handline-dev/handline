@@ -44,7 +44,7 @@ The badge and the notices need **no call**: the shell reads `daemon.status` and 
 |---|---|---|
 | Badge | the dock badge shows `inbox.unread` (`99+` above 99; Linux count only, none on Windows) | the bell count in the app's top bar, and `(n) ` in front of the tab title; the page does both in the shell too |
 | Notice | one native notice per `prompt_asked`, `task_done`, `stall`, `account_out`, and one per `hr.raised` (an HR proposal). `hr.settled` raises none: the person decided, or the agent withdrew; a failed apply shows on the HR card. An HR notice is never suppressed by the agent on screen: it asks for a decision, whatever workspace is open; its text is the event's `title`, plain, control characters dropped, cut at 200 characters | none: no permission prompt, no `Notification` API. The bell and the cards are the signal |
-| Update | "Handline was updated. Restart now?" on a newer build, once idle; "Not now" is not asked again for that build | none: a new deploy is a reload |
+| Update | one notice in the page's bottom-right stack (§4.7): Updating Handline…, Handline is ready to restart (Restart now, Later), Handline was not updated (Try again, Details); raised for a newer build once idle, and for a main that moved in follow mode; no dialog | none: a new deploy is a reload |
 
 ### 3.1 `screen`
 
@@ -182,3 +182,7 @@ The shell tests run under node with the Electron side injected, as `Desk` and `U
 - The HR notice follows the `hr` topic of the HR spec (`hr.raised`; `target` `hr`, `agent` null for a bundle). The shell's `Desk` adds `hr` to its subscribe. It is not suppressed while the HR page itself is on screen; `screen` would need a second field for that, which nobody asked for.
 - The daemon emits `task_done` with `str(tid)` even when `task_id` is missing, which reads `None`; `routeOfTarget` guards it, and `stream.py` should stop sending it.
 - `terminal_editor` is the honest limit of a GUI app. Running the editor in the Terminal pane (a pty on the daemon) would lift it; it is a feature, not a fix, and not planned.
+
+### 4.7 `update`, `updateAct`, `onUpdate`
+
+The one update notice. Two sources feed it: a build that changed under the running app (raised once the app is idle), and, in follow mode, GitHub's main moving (the app then prepares by itself: it fetches, moves its checkout, and builds the page beside the running one in `apps/web/dist-next` and its own bundle, with the running page untouched). `update()` gives `{ phase, step, fraction, reason }` and `onUpdate(cb)` calls `cb` with the last state and on every change. `phase` is `idle`, `preparing` (`step` such as "Building (2 of 3)", `fraction` 0 to 1), `ready`, `later` or `failed` (`reason`, one line). `updateAct('restart' | 'later' | 'retry' | 'details')`: restart moves the daemon onto the new build, swaps the built page in and relaunches; later puts a ready update off until the next day (the bell row keeps Restart now); retry repeats what failed (the restart if the build was done, else the build); details opens the command output of the failure. Anything else is `bad_request`, as is a call from another sender. There is no centred dialog and no popover window; the menu-bar menu says the same words.

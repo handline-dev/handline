@@ -1,6 +1,7 @@
 // The tray's menu as plain data, so a test can read it; main.ts hands it to Electron's Menu.
 import { badgeText } from '#src/notices.ts';
 import type { FollowState } from '#src/follow.ts';
+import type { UpdatePhase } from '#src/update-flow.ts';
 import type { Link, Mode } from '#src/mode.ts';
 import type { DaemonState } from '#src/owner.ts';
 
@@ -28,9 +29,18 @@ export interface TrayActions {
 export type TrayIcon = 'plain' | 'turn' | 'update' | 'trouble';
 
 /** What the tray shows besides the daemon: the My turn count, and whether the menu was opened with Option held (the details). */
+/** The update flow as the menu shows it. */
+export interface TrayUpdate {
+  phase: UpdatePhase;
+  reason: string;
+  restart(): void;
+  retry(): void;
+}
+
 export interface TrayView {
   unread: number;
   details: boolean;
+  update?: TrayUpdate;
 }
 
 export const STATUS_WORDS: Record<DaemonState, string> = {
@@ -114,7 +124,7 @@ function trouble(state: DaemonState, reason: string, a: TrayActions, m?: TrayMod
 export function trayIcon(state: DaemonState, reason: string, a: TrayActions, view: TrayView, follow?: TrayFollow, m?: TrayMode): TrayIcon {
   if (trouble(state, reason, a, m)) return 'trouble';
   if (view.unread > 0) return 'turn';
-  return follow?.state === 'available' ? 'update' : 'plain';
+  return view.update?.phase === 'ready' || view.update?.phase === 'later' ? 'update' : 'plain';
 }
 
 /** What Option shows and the usual menu leaves out: the mode, the daemon and its address, the commit, and the switches. Addresses and commits copy on a click. */
@@ -125,7 +135,7 @@ function detailItems(state: DaemonState, reason: string, a: TrayActions, follow?
   else items.push({ label: reason && state === 'failed' ? `${STATUS_WORDS[state]} (${reason})` : STATUS_WORDS[state], enabled: false });
   if (m) items.push({ label: daemonWords(m.link), ...(m.link.address ? { click: () => a.copy(m.link.address!) } : { enabled: false }) });
   if (follow) items.push({ label: `Handline is on main ${follow.sha.slice(0, 7)}`, click: () => a.copy(follow.sha) });
-  if (follow?.state !== 'available' && follow) items.push({ label: 'Check for update', click: follow.check });
+  if (follow && follow.state !== 'ready') items.push({ label: 'Check for update', click: follow.check });
   if (m?.mode === 'connect') items.push({ label: 'Pair with the link on the clipboard', click: m.pair });
   if (m) items.push({ label: m.mode === 'connect' ? 'Switch to Own daemon' : 'Switch to Connect', click: m.switchTo });
   return items;
@@ -144,13 +154,15 @@ export function trayMenu(
   const notes: TrayItem[] = [];
   if (view.unread > 0) notes.push({ label: `Needs you · ${badgeText(view.unread)}`, click: a.inbox });
   notes.push(...(trouble(state, reason, a, m) ?? []));
-  if (follow?.state === 'available' && follow.next) notes.push({ label: 'Restart to update', click: follow.restart });
   const apart = m?.link.mismatch();
   if (apart)
     notes.push({ label: `⚠ ${apart}`, enabled: false }, ...(m?.restartDaemon ? [{ label: 'Restart daemon', click: m.restartDaemon }] : []));
-  if (follow?.state === 'updating') notes.push({ label: 'Updating…', enabled: false });
-  if (follow?.state === 'failed')
-    notes.push({ label: `Update failed: ${follow.reason}`, enabled: false }, { label: 'Check again', click: follow.check });
+  const u = view.update;
+  if (u?.phase === 'preparing') notes.push({ label: 'Updating Handline…', enabled: false });
+  if (u?.phase === 'ready' || u?.phase === 'later')
+    notes.push({ label: 'Handline is ready to restart', enabled: false }, { label: 'Restart now', click: u.restart });
+  if (u?.phase === 'failed')
+    notes.push({ label: `Handline was not updated: ${u.reason}`, enabled: false }, { label: 'Try again', click: u.retry });
   if (notes.length) items.push({ type: 'separator' }, ...notes);
   items.push({ type: 'separator' });
   if (m?.phone) items.push({ label: 'Pair a phone…', click: m.phone });

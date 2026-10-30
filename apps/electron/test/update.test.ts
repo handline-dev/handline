@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Window } from 'happy-dom';
 import { buildId, unsent, UNSENT_PROBE, Updater } from '#src/update.ts';
+import { REMIND_MS, UpdateFlow } from '#src/update-flow.ts';
 
 const page = (over: { fields?: string[]; matches?: Record<string, number> } = {}) => ({
   querySelectorAll: (s: string) => {
@@ -61,80 +62,81 @@ test('a build is the page that names its assets plus the main bundle, and null w
 });
 
 function harness(first: string | null = 'v1') {
-  const s = { build: first, idle: true, answer: true, asked: 0, restarts: 0, fail: '', failures: [] as string[] };
-  const u = new Updater({
-    build: () => s.build,
-    idle: async () => s.idle,
-    ask: async () => {
-      s.asked++;
-      return s.answer;
+  const s = { build: first, idle: true, restarts: 0, fail: '', time: 1_000_000 };
+  const flow = new UpdateFlow(() => s.time);
+  const u = new Updater(
+    {
+      build: () => s.build,
+      idle: async () => s.idle,
+      restart: async () => {
+        if (s.fail) throw new Error(s.fail);
+        s.restarts++;
+      },
     },
-    restart: async () => {
-      if (s.fail) throw new Error(s.fail);
-      s.restarts++;
-    },
-    failed: (why) => s.failures.push(why),
-  });
-  return { s, u };
+    flow,
+  );
+  return { s, u, flow };
 }
 
-test('the same build asks nothing; a newer one asks once and restarts on yes', async () => {
-  const { s, u } = harness();
+test('the same build says nothing; a newer one raises the update as ready, and Restart now restarts', async () => {
+  const { s, u, flow } = harness();
   await u.check();
-  assert.equal(s.asked, 0);
+  assert.equal(flow.view.phase, 'idle');
   s.build = 'v2';
   await u.check();
-  assert.deepEqual([s.asked, s.restarts], [1, 1]);
+  assert.equal(flow.view.phase, 'ready');
+  flow.act('restart');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(s.restarts, 1);
 });
 
-test('while a draft or a send is open it does not ask, and asks once it is idle', async () => {
-  const { s, u } = harness();
+test('while a draft or a send is open it raises nothing, and raises it once the app is idle', async () => {
+  const { s, u, flow } = harness();
   s.build = 'v2';
   s.idle = false;
   await u.check();
   await u.check();
-  assert.equal(s.asked, 0);
+  assert.equal(flow.view.phase, 'idle');
   s.idle = true;
   await u.check();
-  assert.equal(s.asked, 1);
+  assert.equal(flow.view.phase, 'ready');
 });
 
-test('a build said no to is not asked about again, a newer one is', async () => {
-  const { s, u } = harness();
+test('Later puts it off for a day; it is not raised again by every check, and comes back after the day', async () => {
+  const { s, u, flow } = harness();
   s.build = 'v2';
-  s.answer = false;
   await u.check();
+  flow.act('later');
+  assert.equal(flow.view.phase, 'later');
+  s.time += REMIND_MS - 1;
   await u.check();
+  assert.equal(flow.view.phase, 'later');
+  s.time += 2;
   await u.check();
-  assert.deepEqual([s.asked, s.restarts], [1, 0]);
-  s.build = 'v3';
-  await u.check();
-  assert.equal(s.asked, 2);
+  assert.equal(flow.view.phase, 'ready');
 });
 
-test('a build that cannot be read is skipped, and a check during a question does not ask twice', async () => {
-  const { s, u } = harness();
+test('a restart the daemon refuses leaves the app running and the notice failed with the reason; Try again restarts', async () => {
+  const { s, u, flow } = harness();
+  s.build = 'v2';
+  s.fail = 'the daemon did not upgrade';
+  await u.check();
+  flow.act('restart');
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual([flow.view.phase, flow.view.reason, s.restarts], ['failed', 'the daemon did not upgrade', 0]);
+  s.fail = '';
+  flow.act('retry');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(s.restarts, 1);
+});
+
+test('a build that cannot be read is skipped, and a check while one is being built or already offered does nothing more', async () => {
+  const { s, u, flow } = harness();
   s.build = null;
   await u.check();
-  assert.equal(s.asked, 0);
+  assert.equal(flow.view.phase, 'idle');
   s.build = 'v2';
-  await Promise.all([u.check(), u.check()]);
-  assert.equal(s.asked, 1);
-});
-
-test('when no build was readable at launch, the first one seen is the running one', async () => {
-  const { s, u } = harness(null);
-  s.build = 'v1';
+  flow.preparing('Building (1 of 2)', 0.5); // the follow-main path is building it
   await u.check();
-  assert.equal(s.asked, 0);
-});
-
-test('a restart that fails says why, and the next check does not ask about that build again', async () => {
-  const { s, u } = harness();
-  s.build = 'v2';
-  s.fail = 'the daemon did not upgrade: refused';
-  await u.check();
-  assert.deepEqual([s.restarts, s.failures], [0, ['the daemon did not upgrade: refused']]);
-  await u.check();
-  assert.equal(s.asked, 1);
+  assert.equal(flow.view.phase, 'preparing');
 });

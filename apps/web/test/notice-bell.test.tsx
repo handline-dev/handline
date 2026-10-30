@@ -5,8 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
-import { composers, registerComposer } from '#src/ui/composers.ts';
-import { ComposeRow } from '#src/ui/index.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -152,81 +150,15 @@ describe('the notice bell', () => {
   });
 });
 
-describe('the toast stack and the composer', () => {
-  it('lifts above a composer it would cover', async () => {
-    const s = setup();
-    const store = new Store(s.client);
+describe('the toast stack', () => {
+  it('sits flush in the corner above the status bar, and does not move for a composer', async () => {
+    const store = new Store(setup().client);
     box = document.body.appendChild(document.createElement('div'));
     root = createRoot(box);
-    const rect = (top: number, bottom: number, left = 600, right = 1000) =>
-      ({ top, bottom, left, right, width: right - left, height: bottom - top, x: left, y: top, toJSON() {} }) as DOMRect;
-    const row = document.createElement('div');
-    const forget = registerComposer(row);
-    const orig = Element.prototype.getBoundingClientRect;
-    Element.prototype.getBoundingClientRect = function (this: Element) {
-      return this.classList.contains('toasts') ? rect(650, 740) : this === row ? rect(700, 760) : orig.call(this);
-    };
-    try {
-      vi.stubGlobal(
-        'ResizeObserver',
-        class {
-          observe() {}
-          unobserve() {}
-          disconnect() {}
-        },
-      );
-      await act(async () => root!.render(<App store={store} daemon="test" storage={null} />));
-      await act(async () => void store.notices.push('info', 'a: task T1 is done', 'team'));
-      expect((box.querySelector('.toasts') as HTMLElement).style.transform).toBe('translateY(-48px)');
-    } finally {
-      Element.prototype.getBoundingClientRect = orig;
-      vi.unstubAllGlobals();
-      forget?.();
-    }
-  });
-
-  it('lifts for a composer that mounts after the toast, and settles when it goes', async () => {
-    const s = setup();
-    const store = new Store(s.client);
-    box = document.body.appendChild(document.createElement('div'));
-    root = createRoot(box);
-    const row = document.createElement('div');
-    const orig = Element.prototype.getBoundingClientRect;
-    Element.prototype.getBoundingClientRect = function (this: Element) {
-      const rect = (top: number, bottom: number) =>
-        ({ top, bottom, left: 600, right: 1000, width: 400, height: bottom - top, x: 600, y: top, toJSON() {} }) as DOMRect;
-      return this.classList.contains('toasts') ? rect(650, 740) : this === row ? rect(700, 760) : orig.call(this);
-    };
-    try {
-      vi.stubGlobal(
-        'ResizeObserver',
-        class {
-          observe() {}
-          unobserve() {}
-          disconnect() {}
-        },
-      );
-      await act(async () => root!.render(<App store={store} daemon="test" storage={null} />));
-      await act(async () => void store.notices.push('info', 'a: task T1 is done', 'team'));
-      const toasts = box.querySelector('.toasts') as HTMLElement;
-      expect(toasts.style.transform).toBe('');
-      let forget: (() => void) | void;
-      await act(async () => void (forget = registerComposer(row)));
-      expect(toasts.style.transform).toBe('translateY(-48px)');
-      await act(async () => void forget?.());
-      expect(toasts.style.transform).toBe('');
-    } finally {
-      Element.prototype.getBoundingClientRect = orig;
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('knows the real compose row while it is mounted', async () => {
-    box = document.body.appendChild(document.createElement('div'));
-    root = createRoot(box);
-    await act(async () => root!.render(<ComposeRow />));
-    expect(composers.list()).toEqual([box.querySelector('.compose-row')]);
-    await act(async () => root!.render(null));
-    expect(composers.list()).toEqual([]);
+    await act(async () => root!.render(<App store={store} daemon="test" storage={null} />));
+    await act(async () => void store.notices.push('info', 'a: task T1 is done', 'team'));
+    const toasts = box.querySelector('.toasts') as HTMLElement;
+    expect(toasts.className).toContain('bottom-full');
+    expect(toasts.style.transform).toBe('');
   });
 });

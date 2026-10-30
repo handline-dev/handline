@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
+import { app, BrowserWindow, desktopCapturer, ipcMain, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { drawsTray, inBackground } from '#src/background.ts';
@@ -20,9 +20,10 @@ import type { Follower } from '#src/follow.ts';
 import { parseMode, remoteUrl, SettingsFile, type Link, type Mode, type Remote } from '#src/mode.ts';
 import { ownDaemon, readFounderKey, type Own } from '#src/own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from '#src/tailnet.ts';
-import { Cli, Connection, Page, Settings, CHANNELS } from '#src/bridge.ts';
+import { Cli, Connection, Page, Settings, Update, CHANNELS } from '#src/bridge.ts';
 import { serveDir } from '#src/serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from '#src/update.ts';
+import { UpdateFlow } from '#src/update-flow.ts';
 import { bundleAt } from '#src/bundle.ts';
 import { readBuildSha } from '#src/build-id.ts';
 import { upgradeNow } from '#src/daemon-upgrade.ts';
@@ -54,6 +55,8 @@ const APP_ICON = path.join(import.meta.dirname, '../assets/icon.png');
 const dist = env('WEB_DIST') ?? carried?.web ?? path.resolve(import.meta.dirname, '../../web/dist');
 
 let win: BrowserWindow | null = null;
+/** Where an update is, for the notice, the tray and both sources of updates. */
+const flow = new UpdateFlow();
 
 /** VISUAL, EDITOR and PATH: the shell's own environment, else the login shell's, asked once (a Dock launch has neither). */
 let login: Promise<EditorEnv> | null = null;
@@ -203,32 +206,51 @@ function upgrader(client: DaemonClient, remote: Remote | null): (sha?: string) =
         });
 }
 
-function makeUpdater(page: Page, composer: Composer, upgrade: () => Promise<void>): Updater {
-  return new Updater({
-    build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
-    // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
-    idle: async () => {
-      if (!win || win.isDestroyed() || composer.running) return false; // an open editor counts as unsent
-      if (page.unsent !== null) return !page.unsent;
-      return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
+function makeUpdater(page: Page, composer: Composer, upgrade: () => Promise<void>, flow: UpdateFlow): Updater {
+  return new Updater(
+    {
+      build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
+      // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
+      idle: async () => {
+        if (background || !win || win.isDestroyed() || composer.running) return false; // an open editor counts as unsent
+        if (page.unsent !== null) return !page.unsent;
+        return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
+      },
+      // The daemon moves onto the new build first; if it will not, the app stays and the notice says why.
+      restart: async () => {
+        await upgrade();
+        app.relaunch();
+        app.quit();
+      },
     },
-    ask: async () =>
-      !background &&
-      (
-        await dialog.showMessageBox(win!, {
-          message: 'Handline was updated. Restart now?',
-          buttons: ['Restart', 'Not now'],
-          defaultId: 0,
-          cancelId: 1,
-        })
-      ).response === 0,
-    // The daemon moves onto the new build first; if it will not, the app stays and says why.
-    restart: async () => {
-      await upgrade();
-      app.relaunch();
-      app.quit();
+    flow,
+  );
+}
+
+/** What the tray's menu shows of the update flow. */
+const trayUpdate = (flow: UpdateFlow) => ({
+  phase: flow.view.phase,
+  reason: flow.view.reason,
+  restart: () => flow.act('restart'),
+  retry: () => flow.act('retry'),
+});
+
+/** The update notice's calls: its state, and restart, later, try again or the log of a failure. */
+function handleUpdate(origin: string, flow: UpdateFlow, redraw: () => void): void {
+  const log = path.join(app.getPath('userData'), 'update.log');
+  const u = new Update(origin, {
+    view: () => flow.view,
+    act: (what) => flow.act(what),
+    details: () => {
+      fs.writeFileSync(log, flow.log || flow.view.reason, { mode: 0o600 });
+      void shell.openPath(log);
     },
-    failed: (reason) => void dialog.showMessageBox(win!, { type: 'error', message: 'Handline was not restarted', detail: reason }),
+  });
+  ipcMain.handle(CHANNELS.update, (e) => u.view(e));
+  ipcMain.handle(CHANNELS.updateAct, (e, arg) => u.act(e, arg));
+  flow.onChange(() => {
+    redraw();
+    win?.webContents.send(CHANNELS.update, flow.view);
   });
 }
 
@@ -316,7 +338,7 @@ if (!app.requestSingleInstanceLock({ background })) {
     // Follow-main mode (pnpm app): the app runs from its own checkout of main and offers to restart when main moves.
     const upgradeTo = upgrader(client, remote);
     const following = env('FOLLOW')
-      ? followMain({ dir: root, window: () => win, changed: () => own.redraw(), upgradeDaemon: upgradeTo })
+      ? followMain({ dir: root, window: () => win, changed: () => own.redraw(), upgradeDaemon: upgradeTo, flow })
       : null;
     const f = following?.follower;
     const own: Own = ownDaemon({
@@ -337,6 +359,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       upgradeDaemon: () => upgradeTo(),
       openWindow: () => void openWindow(),
       openPage: (screen) => void openWindow().then(() => win?.webContents.send(CHANNELS.navigate, { screen, id: '', event: 'tray' })),
+      update: () => trayUpdate(flow),
       follow:
         f &&
         (() => ({
@@ -384,7 +407,8 @@ if (!app.requestSingleInstanceLock({ background })) {
     app.on('window-all-closed', () => undefined);
     app.on('quit', () => web.close());
 
-    const updater = makeUpdater(page, composer, () => upgradeTo());
+    handleUpdate(origin, flow, () => own.redraw());
+    const updater = makeUpdater(page, composer, () => upgradeTo(), flow);
     void own
       .ready()
       .then((at) => {
