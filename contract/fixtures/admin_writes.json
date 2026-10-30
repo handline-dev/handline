@@ -1453,7 +1453,7 @@
   {
    "name": "settings.set.heavy_slots_keep_awake_and_disk_floor_are_set_and_null_resets_them",
    "spec": "settings.set",
-   "about": "The heavy-run slots, the keep-awake mode and the free-disk floor are set, then null puts them back to their defaults; the floor reads 5 on a fresh home, 20 once set, and 5 again after null.",
+   "about": "The heavy-run slots, the keep-awake mode and the free-disk floor are set, then null puts them back to their defaults; the floor reads 5 on a fresh home, 20 once set, 0 (off) once set to 0, and 5 again after null.",
    "as": "founder",
    "steps": [
     {
@@ -1521,6 +1521,37 @@
       "method": "settings.set",
       "params": {
        "changes": {
+        "disk_free_min_gb": 0
+       },
+       "request_id": "conf-w2-ka2b"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "settings.get"
+     },
+     "result": {
+      "values": {
+       "disk_free_min_gb": 0
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "settings.set",
+      "params": {
+       "changes": {
         "heavy_slots": null,
         "keep_awake": null,
         "disk_free_min_gb": null
@@ -1538,7 +1569,7 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 6,
+      "id": 8,
       "method": "settings.get"
      },
      "result": {
