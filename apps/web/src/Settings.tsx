@@ -6,9 +6,10 @@ import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from '#src/Answers.tsx';
 import { Devices } from '#src/Devices.tsx';
 import { DebugEntry } from '#src/debug/DebugEntry.tsx';
-import { SectionHead, SettingsCard } from '#src/ui/index.ts';
+import { Button, SectionHead, SettingsCard } from '#src/ui/index.ts';
 import { HandoffPrompt } from '#src/HandoffPrompt.tsx';
-import { NumberRow, SwitchRow } from '#src/SettingsRows.tsx';
+import { NumberRow, Row, SwitchRow } from '#src/SettingsRows.tsx';
+import { OPEN_RESOURCES } from '#src/ResourceArea.tsx';
 import { Appearance, BackgroundRows, Connection, NoticeBatch, Notifications, TerminalRow, WeekAlertRow } from '#src/SettingsMore.tsx';
 import { TeamSeal } from '#src/TeamSeal.tsx';
 import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
@@ -98,11 +99,16 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                 </section>
                 <SettingsFold id="set-advanced" title="Advanced" hint="Limits, pacing, background work, terminal view">
                   <SettingsCard>
-                    {limits
-                      .filter((f) => !isHostCap(f))
-                      .map((f) => (
-                        <NumberRow key={f.label} {...f} />
-                      ))}
+                    {limits.some((f) => !isHostCap(f)) ? (
+                      <Row label="Machine limits" hint="Load, memory and heavy slots live in the resource manager (bottom right)">
+                        <Button
+                          label="Open"
+                          onClick={() => window.dispatchEvent(new CustomEvent(OPEN_RESOURCES, { detail: { at: 'load' } }))}
+                        >
+                          Open
+                        </Button>
+                      </Row>
+                    ) : null}
                     {paceFields(v).map((f) => (
                       <NumberRow key={f.label} {...f} />
                     ))}

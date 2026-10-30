@@ -34,7 +34,7 @@ afterEach(async () => {
 });
 
 describe('system resources', () => {
-  it('the status bar has cells for the CPU, memory and disk and a keep-awake choice; the popover is a read-only summary', async () => {
+  it('the status bar has cells for the CPU, memory and disk and a keep-awake choice; the popover has the lines with their limits', async () => {
     await mount('#/my-turn');
     await until(() => box.querySelector('.resource-cell'), 'the resource cell');
     expect(text(box.querySelector('.resource-cell'))).toMatch(/^CPU \d+%.*Memory .* free.*Disk .* left/);
@@ -42,13 +42,33 @@ describe('system resources', () => {
     expect(box.querySelector('.limit-editor')).toBeNull();
     await act(async () => void box.querySelector<HTMLElement>('.resource-cell')!.click());
     await until(() => box.querySelector('.resource-details'), 'the popover');
-    expect(['CPU', 'Memory', 'Disk'].map((l) => !!box.querySelector(`.resource-details [data-resource="${l}"]`))).toEqual([
-      true,
-      true,
-      true,
-    ]);
-    expect(box.querySelector('.limit-editor')).toBeNull(); // a summary: the limits are set in Settings
-    expect(box.querySelectorAll('.resource-details button').length).toBe(0);
+    const line = (l: string) => box.querySelector<HTMLElement>(`.resource-details [data-resource="${l}"]`);
+    expect(['Load', 'Memory', 'Disk', 'Heavy slots'].map((l) => !!line(l))).toEqual([true, true, true, true]);
+    expect(text(line('Load'))).toContain('Limit 150%');
+    expect(line('Disk')!.querySelector('button')).toBeNull(); // the daemon keeps no disk limit: nothing to change
+    expect(box.querySelector('.limit-editor')).toBeNull(); // editors open on a click
+  });
+
+  it('a limit is changed in place: the line opens its editor, + saves at once, the effect is one line, and Undo puts it back', async () => {
+    const s = setup();
+    location.hash = '#/my-turn';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={storage} />);
+    });
+    await until(() => box.querySelector('.resource-cell'), 'the resource cell');
+    await act(async () => void box.querySelector<HTMLElement>('.resource-cell')!.click());
+    await until(() => box.querySelector('.resource-details'), 'the popover');
+    const limit = () => s.daemon.admin.settings().values.load_per_core_pct;
+    await act(async () => void box.querySelector<HTMLElement>('[data-resource="Load"] button')!.click());
+    expect(text(box.querySelector('.limit-editor'))).toContain('Agents wait above 150%');
+    expect(text(box.querySelector('.limit-editor'))).toContain('0 turns the limit off');
+    await act(async () => void box.querySelector<HTMLElement>('[aria-label="Raise"]')!.click());
+    await until(() => limit() === 200, 'the saved limit');
+    await until(() => text(box.querySelector('.limit-said')).includes('Load limit: 200%'), 'the line after the change');
+    await act(async () => void [...box.querySelectorAll<HTMLElement>('.limit-said button')].find((b) => text(b) === 'Undo')!.click());
+    await until(() => limit() === 150, 'the limit back');
   });
 
   it('the admin view lists agents heaviest first with Stop behind a menu on each row and a totals line', async () => {
