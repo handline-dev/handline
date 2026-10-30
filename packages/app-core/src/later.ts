@@ -35,7 +35,7 @@ export function laterChoices(now: number): { label: string; until: string }[] {
   ];
 }
 
-/** When the item returns, in words: "Fri 09:00" or "when T7020 is done". */
+/** When the item returns, in words: "Fri 09:00" or "when T9 is done". */
 export const laterWords = (l: LaterAt): string =>
   'until' in l
     ? new Date(l.until).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
