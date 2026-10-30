@@ -25,6 +25,16 @@ function Dots() {
   );
 }
 
+/** `hl task new` for a Bash call: the words the command starts with, up to the first flag, path, quote or assignment. */
+function bashName(call: string): string {
+  const words = call
+    .replace(/^Bash\s+/, '')
+    .trim()
+    .split(/\s+/);
+  const end = words.findIndex((w, i) => i >= 3 || /^[-"'$]|[/=]/.test(w));
+  return words.slice(0, end < 0 ? 3 : end).join(' ');
+}
+
 const commands = (n: number) => `${n} command${n === 1 ? '' : 's'}`;
 
 export function LiveLine({
@@ -52,10 +62,11 @@ export function LiveLine({
   const turn = turnSummary(messages, items, running);
   if (!running && !turn.count) return <div className="working-slot h-5 flex-none" />; // the row stays so the messages above never move
   const now = turn.last ?? working.line;
-  const what = now ? doingWords(now) : 'Working';
+  const name = now?.startsWith('Bash ') ? bashName(now) : '';
+  const what = name ? `Running ${name}` : now ? doingWords(now) : 'Working';
   // The task is named only when the agent holds one; it is never read out of a command's text.
   const held = detail.task ? taskRef(detail.task.id) : null;
-  const text = running ? [what, turnElapsed(working.since)].join(' · ') : [`Ran ${commands(turn.count)}`, held].filter(Boolean).join(' · ');
+  const text = running ? [what, turnElapsed(working.since), held].filter(Boolean).join(' · ') : `Ran ${commands(turn.count)}`;
   return (
     <div className="working-slot flex min-h-5 flex-none flex-col items-start self-start">
       <div className="flex h-5 max-w-full items-center gap-2">

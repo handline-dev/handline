@@ -92,26 +92,39 @@ describe('the working indicator', () => {
     await until(got, 'session.interrupt reaching the daemon');
   });
 
-  it('names the task after the turn when the agent holds one', async () => {
+  it('names the task on the running line, before Stop, when the agent holds one', async () => {
     const s = setup();
     const held = s.daemon.sessions.get(ARCH)!.fx.task!;
     await mountWithTurn(s);
+    expect(box.querySelector('.working')!.textContent).toMatch(new RegExp(`· T${held.id}$`));
     s.daemon.chat.setWorking(ARCH, false);
-    await until(() => box.querySelector('.ran')?.textContent?.includes(` · T${held.id}`), 'the task on the folded line');
+    await until(() => box.querySelector('.ran'), 'the folded line');
+    expect(box.querySelector('.ran')!.textContent).not.toMatch(/T\d/);
   });
 
-  it('names no task after the turn when the agent holds none', async () => {
+  it('names no task on the running line when the agent holds none', async () => {
     const s = setup();
     const fx = s.daemon.sessions.get(ARCH)!.fx;
     const held = fx.task;
     fx.task = null;
     try {
       await mountWithTurn(s);
-      s.daemon.chat.setWorking(ARCH, false);
-      await until(() => box.querySelector('.ran'), 'the folded line');
-      expect(box.querySelector('.ran')!.textContent).not.toMatch(/T\d/);
+      expect(box.querySelector('.working')!.textContent).not.toMatch(/T\d/);
     } finally {
       fx.task = held;
     }
+  });
+
+  it('a Bash call is named by the words its command starts with', async () => {
+    const s = setup();
+    s.daemon.chat.setWorking(ARCH, true);
+    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'hl task new --assign x "T1684 do it"' });
+    location.hash = `#/agents/${ARCH}`;
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
+    });
+    await until(() => box.querySelector('.working')?.textContent?.startsWith('Running hl task new · '), 'the command name');
   });
 });
