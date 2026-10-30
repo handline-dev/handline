@@ -159,7 +159,7 @@ test('a daemon that does not upgrade stops the restart before the relaunch; its 
   await f.restartNow();
   assert.equal(f.state, 'failed');
   assert.equal(f.reason, 'the daemon did not upgrade: exe prints another sha');
-  assert.deepEqual(calls, []);
+  assert.deepEqual(calls, ['clear']); // cleared before the build, not at the restart
   ok = true;
   await f.retry();
   assert.equal(ran.length, built); // nothing was built again
