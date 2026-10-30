@@ -102,7 +102,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   const read = [useInbox().isPending, useTasks({}).isPending];
   const turn = useWaiting();
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', props.startOn ?? 'agents');
-  // The app opens on Requests when anything waits on the person, on Agents when nothing does: decided once, when the first read is in,
+  // The app opens on Requests when anything waits on the person, on Agents when nothing does: decided once,
   // when what waits is all read (the inbox and the tasks), unless an agent's page was left open or a tab was already picked.
   const decided = useRef(!!props.startOn);
   useEffect(() => {
