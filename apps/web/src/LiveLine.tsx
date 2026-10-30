@@ -74,7 +74,7 @@ export function LiveLine({
         {running ? (
           <button
             type="button"
-            className="flex-none cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 underline hover:text-ink"
+            className="flex-none cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 underline"
             onClick={() => interrupt(VERBS.interrupt)}
           >
             Stop
