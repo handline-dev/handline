@@ -80,6 +80,38 @@ describe("an agent's Tasks tab", () => {
     expect(location.hash).toBe('#/tasks');
   });
 
+  it('a row dragged onto the pane edge splits the window and opens that task in the new pane', async () => {
+    await tab();
+    expect($('[data-panes]')!.getAttribute('data-panes')).toBe('1');
+    const row = $('.tasks-tab-row')!;
+    const data = { setData: vi.fn(), dropEffect: '' };
+    const fire = (el: Element, type: string, init: Record<string, unknown> = {}) =>
+      act(async () => {
+        const e = new Event(type, { bubbles: true, cancelable: true });
+        Object.assign(e, { dataTransfer: data, ...init });
+        el.dispatchEvent(e);
+      });
+    await fire(row, 'dragstart');
+    await until(() => $('.drop-overlay'), 'the drop cover');
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 600,
+      width: 1000,
+      height: 600,
+    } as DOMRect);
+    const cover = $('.drop-overlay')!;
+    await fire(cover, 'dragover', { clientX: 990, clientY: 300 });
+    expect($('.drop-preview')?.getAttribute('data-zone')).toBe('right');
+    await fire(cover, 'drop', { clientX: 990, clientY: 300 });
+    await until(() => $('[data-panes]')!.getAttribute('data-panes') === '2', 'the second pane');
+    expect($('.drop-overlay')).toBeNull();
+    expect($$('[data-group]')).toHaveLength(2);
+  });
+
   it("a row's menu leaves out what cannot run and puts the stopping verbs last", async () => {
     await tab();
     await click($('.tasks-tab-row')!.parentElement!.querySelector('button[aria-label="Actions"]'));

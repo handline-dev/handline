@@ -45,6 +45,9 @@ export function jumpTo(id: number): boolean {
   return true;
 }
 
+/** The longest quote chat.send takes (the daemon's quoteMax, in characters). */
+const QUOTE_MAX = 1000;
+
 const full = (at: string) => {
   const d = new Date(at);
   return Number.isNaN(+d) ? undefined : dateTime(at);
@@ -204,7 +207,8 @@ function MessageRow(props: MessageProps) {
     const s = window.getSelection();
     const text = s?.toString().replace(/\s+/g, ' ').trim();
     if (side === 'person' || unnumbered || failed || !props.onPick || !text || !s?.rangeCount) return setSel(null);
-    if (!m.body.replace(/\s+/g, ' ').includes(text)) return setSel(null);
+    // The daemon refuses a quote over QUOTE_MAX characters, so a longer selection does not offer one.
+    if ([...text].length > QUOTE_MAX || !m.body.replace(/\s+/g, ' ').includes(text)) return setSel(null);
     const r = s.getRangeAt(0).getBoundingClientRect();
     setSel({ text, x: r.left + r.width / 2, y: r.top });
   };
