@@ -55,6 +55,7 @@ export const reads = {
   'schedules.list': { resource: 'schedules' },
   'stats.get': { resource: 'stats' },
   'stats.outlook': { resource: 'outlook' },
+  'stats.retro': { resource: 'retro' },
   'settings.get': { resource: 'settings' },
   'prefs.get': { resource: 'prefs', feed: 'prefs' },
   'connection.get': { resource: 'connection' },
