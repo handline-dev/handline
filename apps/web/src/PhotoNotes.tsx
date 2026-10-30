@@ -41,7 +41,7 @@ export function TaskNotes({ task, children }: { task: number; children: ReactNod
   const upload = useUploadImage();
   const place = useMemo<NotesPlace>(
     () => ({
-      button: (n) => `Add ${plural(n)}`,
+      button: (n) => `Add ${plural(n)} to T${task}`,
       send: async (text, image, name) => {
         const sent = image ? await upload(image, `${name} marked.png`, 'image/png') : null;
         await comment.mutateAsync({ task, text: withImages(text, sent ? [sent.id] : [], name) });

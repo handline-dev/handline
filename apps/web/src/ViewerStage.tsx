@@ -221,6 +221,17 @@ export function ViewerStage({ url, name, marking, marks, dispatch, image, onZoom
           {i + 1}
         </button>
       ))}
+      {marks.marks.map((m, i) =>
+        m.text.trim() && m.id !== marks.open ? (
+          <span
+            key={m.id}
+            className="pointer-events-none absolute max-w-48 -translate-y-1/2 truncate rounded-sm bg-bad px-1.5 py-0.5 text-xs text-white"
+            style={{ ...screen(m.rect.x, m.rect.y), marginLeft: 14 }}
+          >
+            {i + 1} {m.text.trim()}
+          </span>
+        ) : null,
+      )}
       {current ? (
         <div
           data-note

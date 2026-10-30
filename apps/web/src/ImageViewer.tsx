@@ -88,7 +88,7 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
       aria-modal="true"
       aria-label={pic.name}
       tabIndex={-1}
-      className="image-viewer fixed inset-0 z-50 flex flex-col bg-black/75 text-white outline-none"
+      className="image-viewer fixed inset-0 z-50 flex flex-col bg-black/95 text-white outline-none"
     >
       <div className="flex h-12 flex-none items-center gap-3 px-4 text-sm">
         <span className="min-w-0 truncate font-medium">{pic.name}</span>
@@ -103,6 +103,7 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
             Fit
           </button>
         ) : null}
+        {url && !marking ? <PhotoMenu url={url} name={pic.name} /> : null}
         <button type="button" className="inline-flex items-center gap-1 border-0 bg-transparent text-white" onClick={() => leave('close')}>
           <Icon name="close" size={14} aria-hidden />
           Close
@@ -143,8 +144,8 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
             </span>
             <span className="flex gap-2">
               <Button
-                variant="solid"
                 label="Discard"
+                className="!text-bad"
                 onClick={() => {
                   dispatch({ type: 'clear' });
                   if (asking === 'close') onClose();
@@ -154,7 +155,7 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
                   }
                 }}
               />
-              <Button label="Keep marking" className="!text-white" onClick={() => setAsking(null)} />
+              <Button variant="solid" label="Keep marking" onClick={() => setAsking(null)} />
             </span>
           </div>
         ) : marking ? (
@@ -184,6 +185,41 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** More: copy the photo to the clipboard, or save it as a file. */
+function PhotoMenu({ url, name }: { url: string; name: string }) {
+  const [open, setOpen] = useState(false);
+  const item = 'block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-sm text-ink hover:bg-line';
+  const copy = async () => {
+    setOpen(false);
+    const blob = await (await fetch(url)).blob();
+    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+  };
+  return (
+    <span className="relative">
+      <button
+        type="button"
+        aria-label="More"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="border-0 bg-transparent px-2 text-lg leading-none text-white"
+        onClick={() => setOpen(!open)}
+      >
+        ⋯
+      </button>
+      {open ? (
+        <div role="menu" className="absolute right-0 z-20 mt-1 w-40 rounded-md bg-panel py-1 shadow-[var(--shadow)]">
+          <button type="button" role="menuitem" className={item} onClick={() => void copy().catch(() => undefined)}>
+            Copy photo
+          </button>
+          <a role="menuitem" className={`${item} no-underline`} href={url} download={name} onClick={() => setOpen(false)}>
+            Save photo
+          </a>
+        </div>
+      ) : null}
+    </span>
   );
 }
 

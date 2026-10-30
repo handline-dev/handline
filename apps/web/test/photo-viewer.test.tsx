@@ -103,6 +103,16 @@ describe('the photo viewer', () => {
     await until(() => !$('.image-viewer'), 'the viewer closed');
   });
 
+  it('offers Copy photo and Save photo under More', async () => {
+    const s = setup();
+    await open(s);
+    await click($('.image-viewer [aria-label="More"]')!);
+    expect([...document.querySelectorAll('.image-viewer [role="menuitem"]')].map((m) => m.textContent)).toEqual([
+      'Copy photo',
+      'Save photo',
+    ]);
+  });
+
   it('marks, takes a note, sends ONE message with the numbered note, and asks before discarding unsent marks', async () => {
     const s = setup();
     await open(s);
@@ -114,6 +124,7 @@ describe('the photo viewer', () => {
     await type($('.image-viewer textarea') as HTMLTextAreaElement, 'Make it lighter');
     await act(async () => void (button('Done') as HTMLElement).click());
     await until(() => button('Send 1 note to ' + ARCH), 'the send button');
+    expect($('.image-viewer .stage')!.textContent).toContain('1 Make it lighter');
     // Cancel with an unsent mark asks; keeping goes back to marking.
     await click(button('Cancel')!);
     expect($('.image-viewer')!.textContent).toContain('Discard 1 note?');
