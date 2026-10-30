@@ -48,7 +48,7 @@ export function SettingsFold({ id, title, hint, children }: { id?: string; title
       <button
         type="button"
         aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-left"
+        className="flex min-h-11 w-full cursor-pointer items-center gap-2 border-0 border-t border-line bg-transparent px-0 py-2 text-left text-ink"
         onClick={() => setOpen(!open)}
       >
         <Icon name={open ? 'less' : 'more'} size={14} label={open ? `Fold ${title}` : `Show ${title}`} />
@@ -56,7 +56,7 @@ export function SettingsFold({ id, title, hint, children }: { id?: string; title
         <span className="text-xs text-ink-3">{hint}</span>
       </button>
       <Reveal show={open}>
-        <div className="flex flex-col gap-4 pt-4">{children}</div>
+        <div className="flex flex-col gap-4 pb-2">{children}</div>
       </Reveal>
     </section>
   );

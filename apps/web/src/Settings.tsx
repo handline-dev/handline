@@ -1,6 +1,8 @@
 // The Home settings page (#/settings), founder only: the default cap, idle close and three switches through settings.set, each field saving on its
 // own (authored: it shows at once and goes back with its own note when refused), and the standing answers. One
 // card per section whose rows are a title, one grey line and the control on the right (docs/design-gaps.md G80).
+import { Bell, Briefcase, CheckCheck, Laptop, Palette, Smartphone } from 'lucide-react';
+import { useState } from 'react';
 import { capField, idleField, limitFields, paceFields, type KV } from '@handline/app-core';
 import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from '#src/Answers.tsx';
@@ -10,20 +12,18 @@ import { Button, SectionHead, SettingsCard } from '#src/ui/index.ts';
 import { HandoffPrompt } from '#src/HandoffPrompt.tsx';
 import { NumberRow, Row, SwitchRow } from '#src/SettingsRows.tsx';
 import { OPEN_RESOURCES } from '#src/ResourceArea.tsx';
-import { Appearance, BackgroundRows, Connection, NoticeBatch, Notifications, TerminalRow, WeekAlertRow } from '#src/SettingsMore.tsx';
+import { Appearance, BackgroundRows, Connection, NoticeBatch, Notifications, TerminalRow } from '#src/SettingsMore.tsx';
 import { TeamSeal } from '#src/TeamSeal.tsx';
 import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
 import { View } from '#src/View.tsx';
 
 const PARTS = [
-  { id: 'set-concurrency', label: 'Concurrency' },
-  { id: 'set-closing', label: 'Closing windows' },
-  { id: 'set-handoff', label: 'Handoff' },
-  { id: 'set-notifications', label: 'Notifications' },
-  { id: 'set-answers', label: 'Always answer' },
-  { id: 'set-devices', label: 'Devices' },
-  { id: 'set-appearance', label: 'Appearance' },
-  { id: 'set-advanced', label: 'Advanced' },
+  { id: 'set-notifications', label: 'Notifications', icon: Bell },
+  { id: 'set-work', label: 'Work', icon: Briefcase },
+  { id: 'set-appearance', label: 'Appearance', icon: Palette },
+  { id: 'set-devices', label: 'Devices', icon: Smartphone },
+  { id: 'set-answers', label: 'Always answer', icon: CheckCheck },
+  { id: 'set-computer', label: 'This computer', icon: Laptop },
 ];
 
 /** The machine-wide cap stays in General; the other load limits are Advanced. */
@@ -33,6 +33,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
   const q = useSettings();
   const { served } = useServes('settings.get');
   const v = q.data?.values;
+  const [prompt, setPrompt] = useState(false);
   const limits = v ? limitFields(v) : [];
   return (
     <SettingsShell tab="settings" label="Settings" parts={PARTS}>
@@ -44,8 +45,11 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
           <View q={q} served shape="settings" what="settings">
             {v ? (
               <>
-                <section id="set-concurrency">
-                  <SectionHead>Concurrency</SectionHead>
+                <section id="set-notifications">
+                  <Notifications />
+                </section>
+                <section id="set-work">
+                  <SectionHead icon={Briefcase}>Work</SectionHead>
                   <SettingsCard>
                     <NumberRow
                       {...capField(v.active_cap)}
@@ -57,6 +61,19 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       .map((f) => (
                         <NumberRow key={f.label} {...f} />
                       ))}
+                    <NumberRow {...idleField(v.park_timeout_s)} label="Close idle sessions after" hint="" more="0 is never" />
+                    <SwitchRow
+                      label="Handoff note"
+                      hint="Before a session closes, the agent writes a note for the next one"
+                      on={!!v.handoff_note}
+                      change={(on) => ({ handoff_note: on })}
+                    />
+                    <Row label="Handoff text" hint="What the agent is asked before a session closes">
+                      <Button label={prompt ? 'Hide' : 'Edit'} variant="outline" size="sm" onClick={() => setPrompt(!prompt)}>
+                        {prompt ? 'Hide' : 'Edit'}
+                      </Button>
+                    </Row>
+                    {prompt ? <HandoffPrompt settings={q.data!} /> : null}
                     {v.pacing === undefined ? null : (
                       <SwitchRow
                         label="Pacing"
@@ -67,48 +84,35 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                     )}
                   </SettingsCard>
                 </section>
-                <section id="set-closing">
-                  <SectionHead>Closing windows</SectionHead>
-                  <SettingsCard>
-                    <NumberRow {...idleField(v.park_timeout_s)} hint="Idle time before a session closes" more="0 is never" />
-                  </SettingsCard>
-                </section>
-                <section id="set-handoff">
-                  <SectionHead>Handoff</SectionHead>
-                  <SettingsCard>
-                    <SwitchRow
-                      label="Handoff note"
-                      hint="Before a session closes, the agent writes a note for the next one"
-                      on={!!v.handoff_note}
-                      change={(on) => ({ handoff_note: on })}
-                    />
-                    <HandoffPrompt settings={q.data!} />
-                  </SettingsCard>
-                </section>
-                <section id="set-notifications">
-                  <Notifications />
-                </section>
-                <section id="set-answers">
-                  <Answers />
+                <section id="set-appearance">
+                  <Appearance storage={storage} />
                 </section>
                 <section id="set-devices">
                   <Devices />
                 </section>
-                <section id="set-appearance">
-                  <Appearance storage={storage} />
+                <section id="set-answers">
+                  <Answers />
                 </section>
-                <SettingsFold id="set-advanced" title="Advanced" hint="Limits, pacing, background work, terminal view">
+                <section id="set-computer">
+                  <SectionHead icon={Laptop}>This computer</SectionHead>
                   <SettingsCard>
                     {limits.some((f) => !isHostCap(f)) ? (
                       <Row label="Machine limits" hint="Load, memory and heavy slots live in the resource manager (bottom right)">
                         <Button
                           label="Open"
+                          variant="outline"
+                          size="sm"
                           onClick={() => window.dispatchEvent(new CustomEvent(OPEN_RESOURCES, { detail: { at: 'load' } }))}
                         >
                           Open
                         </Button>
                       </Row>
                     ) : null}
+                    <TerminalRow storage={storage} />
+                  </SettingsCard>
+                </section>
+                <SettingsFold title="Advanced" hint="Pace lines, background work, notice batch, cache">
+                  <SettingsCard>
                     {paceFields(v).map((f) => (
                       <NumberRow key={f.label} {...f} />
                     ))}
@@ -120,8 +124,6 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       on={!!v.ignore_cache_expiry}
                       change={(on) => ({ ignore_cache_expiry: on })}
                     />
-                    <TerminalRow storage={storage} />
-                    <WeekAlertRow />
                   </SettingsCard>
                 </SettingsFold>
                 <SettingsFold title="About" hint="Connection, version, Admin, Debug, seal the team files">

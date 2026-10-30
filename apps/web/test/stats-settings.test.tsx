@@ -231,7 +231,7 @@ describe('settings', () => {
     await mount('#/settings');
     await until(() => field('Default cap'), 'the fields');
     expect(field('Default cap').value).toBe('4');
-    expect(field('Idle close').value).toBe('30');
+    expect(field('Close idle sessions after').value).toBe('30');
     await click($$('button[aria-expanded]').find((b) => text(b).includes('Advanced'))!);
     await until(() => toggle('Handoff note'), 'the Advanced rows');
     expect(toggle('Handoff note').getAttribute('aria-checked')).toBe('true');
@@ -254,12 +254,12 @@ describe('settings', () => {
 
   it('idle close converts minutes to seconds', async () => {
     const s = await mount('#/settings');
-    await until(() => field('Idle close'), 'the fields');
-    await setValue(field('Idle close'), '45');
-    await blur(field('Idle close'));
+    await until(() => field('Close idle sessions after'), 'the fields');
+    await setValue(field('Close idle sessions after'), '45');
+    await blur(field('Close idle sessions after'));
     await until(() => s.daemon.admin.settings().values.park_timeout_s === 2700, 'seconds');
-    await setValue(field('Idle close'), '0');
-    await blur(field('Idle close'));
+    await setValue(field('Close idle sessions after'), '0');
+    await blur(field('Close idle sessions after'));
     await until(() => s.daemon.admin.settings().values.park_timeout_s === 0, 'never');
   });
 
@@ -364,8 +364,8 @@ describe('settings', () => {
 
   it('a number shows its unit as a suffix inside the field', async () => {
     await mount('#/settings');
-    await until(() => field('Idle close'), 'the fields');
-    expect(text($('[data-setting="Idle close"] .ui-input-wrap .ui-unit'))).toBe('min');
+    await until(() => field('Close idle sessions after'), 'the fields');
+    expect(text($('[data-setting="Close idle sessions after"] .ui-input-wrap .ui-unit'))).toBe('min');
     expect(text($('[data-setting="Default cap"] .ui-input-wrap .ui-unit'))).toBe('agents');
   });
 

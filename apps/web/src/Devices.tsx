@@ -1,5 +1,6 @@
 // Settings > Computers: the servers (the computers that run agents; this one is always the first) and the devices that only connect, each with
 // when it was last seen and Revoke behind a confirm. Devices always shows, with a way to connect one.
+import { Smartphone } from 'lucide-react';
 import { useState } from 'react';
 import { ago } from '@handline/app-core';
 import { classify, sentence, useAgents, useDevices, useOff, useRead, useServes, useStatus, useWrite } from '@handline/app-data';
@@ -74,7 +75,7 @@ export function Devices() {
   const rows = q.data?.devices ?? [];
   return (
     <>
-      <SectionHead>Computers</SectionHead>
+      <SectionHead icon={Smartphone}>Devices</SectionHead>
       <p className={`${NOTE} m-0 mb-3`}>Servers run agents. Devices only connect.</p>
       <h3 className="m-0 mb-1 text-md font-medium">Servers</h3>
       <ThisComputer />
@@ -117,6 +118,8 @@ export function Devices() {
               </RowTitle>
               <Button
                 label={`Revoke ${d.name}`}
+                variant="outline"
+                size="sm"
                 disabled={!!off}
                 title={off}
                 onClick={() => (setRefused(''), setAsking({ id: d.id, name: d.name }))}
