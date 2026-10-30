@@ -77,7 +77,7 @@ Record that the person has an agent's messages in front of them, up to a message
 
 ### `attachment.put`
 
-Upload an image for a message, in chunks; the last chunk returns the Attachment to name in chat.send. See x-attachments. A chunk whose offset is not `received` is bad_request, field offset, and the reply's data says what the daemon holds, so a client that lost a reply resumes from there; the same request_id and params replays as for every write and writes nothing. When received reaches bytes the daemon checks the type by the first bytes and answers with `attachment`; a size over 10 MiB, an unsent total over its limit or too many open uploads is refused, gate limit, and the partial upload is dropped. An upload id that is unknown or expired is not_found.
+Upload a file for a message, in chunks; the last chunk returns the Attachment to name in chat.send. See x-attachments. A chunk whose offset is not `received` is bad_request, field offset, and the reply's data says what the daemon holds, so a client that lost a reply resumes from there; the same request_id and params replays as for every write and writes nothing. When received reaches bytes the daemon checks an image type (PNG, JPEG, GIF, WebP) by the first bytes, takes any other file as sent, and answers with `attachment`; a size over 10 MiB, an unsent total over its limit or too many open uploads is refused, gate limit, and the partial upload is dropped. An upload id that is unknown or expired is not_found.
 
 ### `attachment.get`
 
