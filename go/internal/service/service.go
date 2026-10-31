@@ -533,11 +533,15 @@ func (s *Service) StatusJSON() string {
 
 var pidLine = regexp.MustCompile(`(?m)^\s*pid = (\d+)`)
 
-// Uninstall unloads the job and removes its file; the version folders stay.
+// Uninstall unloads the job and the gateway's and removes their files; the version folders stay.
 func (s *Service) Uninstall() (string, error) {
 	if s.Label == LiveLabel && !paths.IsLive(s.Home) {
 		return "", fmt.Errorf("%s is not the live home, so the live service is not its to remove; nothing was done", s.Home)
 	}
+	gw := s.gatewayJob()
+	_, gwTarget := gw.target()
+	gw.Launchctl("bootout", gwTarget)
+	os.Remove(gw.Plist)
 	_, target := s.target()
 	s.Launchctl("bootout", target)
 	if err := os.Remove(s.Plist); err != nil {
@@ -738,10 +742,15 @@ func (s *Service) restore(prior []byte, v string, err error) Ensured {
 	return Ensured{State: "kept", Reason: fmt.Sprintf("%v; the job that was there is back", err)}
 }
 
-// Stop unloads the job and leaves its file, so the next Ensure (the next app launch) or login starts it again.
+// Stop unloads the job and the gateway's and leaves their files, so the next Ensure (the next app launch) or login starts them again.
 func (s *Service) Stop() (string, error) {
 	if s.Label == LiveLabel && !paths.IsLive(s.Home) {
 		return "", fmt.Errorf("%s is not the live home, so the live service is not its to stop; nothing was done", s.Home)
+	}
+	if gw := s.gatewayJob(); gw.loaded() {
+		if err := gw.unload(); err != nil {
+			return "", err
+		}
 	}
 	if !s.loaded() {
 		return s.Label + " was not running", nil

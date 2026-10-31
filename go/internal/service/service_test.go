@@ -281,6 +281,17 @@ func TestTheLiveLabelIsRefusedOnAScratchHome(t *testing.T) {
 	}
 }
 
+func TestUninstallRemovesTheGatewayJobToo(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	if msg, err := r.s.Uninstall(); err != nil || msg != "removed "+r.s.Plist || r.loaded || r.gw.loaded {
+		t.Fatalf("%q %v, gateway loaded %v", msg, err, r.gw.loaded)
+	}
+	if _, err := os.Stat(r.s.gatewayJob().Plist); err == nil {
+		t.Fatal("the gateway job file is still there")
+	}
+}
+
 func TestARehearsalLabelKeepsItsOwnVersions(t *testing.T) {
 	t.Setenv("HANDLINE_SERVICE_LABEL", "dev.handline.rehearsal")
 	if s := New(t.TempDir()); filepath.Base(s.Bin) != "bin-dev.handline.rehearsal" || filepath.Base(s.Plist) != "dev.handline.rehearsal.plist" {
@@ -574,16 +585,19 @@ func TestAKeptJobWithoutTmuxIsLeftAlone(t *testing.T) {
 func TestStopUnloadsTheJobAndKeepsItsFile(t *testing.T) {
 	r := newRig(t)
 	r.s.Ensure(r.build("v1", false))
-	if msg, err := r.s.Stop(); err != nil || msg != "stopped test.handline.service" || r.loaded {
-		t.Fatalf("%q %v", msg, err)
+	if msg, err := r.s.Stop(); err != nil || msg != "stopped test.handline.service" || r.loaded || r.gw.loaded {
+		t.Fatalf("%q %v, gateway loaded %v", msg, err, r.gw.loaded)
 	}
 	if _, err := os.Stat(r.s.Plist); err != nil {
 		t.Fatal("the job file went with the stop")
 	}
+	if _, err := os.Stat(r.s.gatewayJob().Plist); err != nil {
+		t.Fatal("the gateway job file went with the stop")
+	}
 	if msg, _ := r.s.Stop(); msg != "test.handline.service was not running" {
 		t.Error(msg)
 	}
-	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" || got.Reason != "the job was not loaded" || !r.loaded {
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" || got.Reason != "the job was not loaded" || !r.loaded || !r.gw.loaded {
 		t.Fatalf("the next app launch: %+v", got)
 	}
 	r.s.Label = LiveLabel
@@ -884,13 +898,10 @@ func TestAGatewayThatDoesNotAnswerFailsEnsure(t *testing.T) {
 	}
 }
 
-// stray is a process the gateway pid file names, run by no job: a handlined -gateway when gateway, any other program otherwise.
-func (r *rig) stray(gateway bool) (pid int, exited <-chan struct{}) {
+// stray is a process the gateway pid file names, run by no job: the program name run with arg.
+func (r *rig) stray(name, arg string) (pid int, exited <-chan struct{}) {
 	dir, _ := os.MkdirTemp(r.root, "stray-")
-	prog, arg := filepath.Join(dir, "handlined"), "-gateway"
-	if !gateway {
-		prog, arg = filepath.Join(dir, "other"), "-x"
-	}
+	prog := filepath.Join(dir, name)
 	os.WriteFile(prog, []byte("#!/bin/sh\ntrap 'sleep 0.5; exit 0' TERM\nwhile :; do sleep 0.1; done\n"), 0o755) // slow to exit
 	cmd := exec.Command(prog, arg)
 	if err := cmd.Start(); err != nil {
@@ -906,7 +917,7 @@ func (r *rig) stray(gateway bool) (pid int, exited <-chan struct{}) {
 
 func TestEnsureStopsAGatewayRunByNoJob(t *testing.T) {
 	r := newRig(t)
-	_, exited := r.stray(true)
+	_, exited := r.stray("handlined", "-gateway")
 	r.gw.onLoad = func() {
 		select {
 		case <-exited:
@@ -920,15 +931,19 @@ func TestEnsureStopsAGatewayRunByNoJob(t *testing.T) {
 }
 
 func TestEnsureLeavesAnotherProgramOnTheGatewaysPid(t *testing.T) {
-	r := newRig(t)
-	_, exited := r.stray(false)
-	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" {
-		t.Fatalf("%+v", got)
-	}
-	select {
-	case <-exited:
-		t.Fatal("a process that is no gateway was stopped")
-	default:
+	for _, c := range [][2]string{{"handlined", "-x"}, {"other", "-gateway"}} { // a daemon, and a program that is no handlined
+		t.Run(c[0]+" "+c[1], func(t *testing.T) {
+			r := newRig(t)
+			_, exited := r.stray(c[0], c[1])
+			if got := r.s.Ensure(r.build("v1", false)); got.State != "started" {
+				t.Fatalf("%+v", got)
+			}
+			select {
+			case <-exited:
+				t.Fatal("a process that is no gateway was stopped")
+			default:
+			}
+		})
 	}
 }
 
@@ -936,7 +951,7 @@ func TestALoadedGatewayJobsOwnProcessIsLeftToLaunchd(t *testing.T) {
 	r := newRig(t)
 	app := r.build("v1", false)
 	r.s.Ensure(app)
-	_, exited := r.stray(true) // stands for the job's own gateway, which the pid file names
+	_, exited := r.stray("handlined", "-gateway") // stands for the job's own gateway, which the pid file names
 	r.s.Listen = "100.1.2.3:7443"
 	if got := r.s.Ensure(app); got.State != "running" {
 		t.Fatalf("%+v", got)
