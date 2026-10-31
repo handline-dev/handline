@@ -21,7 +21,7 @@ import {
   type TabParams,
   type Workspace,
 } from '@handline/app-core';
-import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
+import { Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { Badges } from '#src/Badges.tsx';
 import { WithKey } from '#src/WithKey.tsx';
 import { showPill } from '#src/Pill.tsx';
@@ -29,9 +29,9 @@ import { useWorkspace } from '#src/Workspace.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
 import { lineAt, slotAt } from '#src/tabSlots.ts';
 
-/** A tab's name; `agent` (two agents side by side) puts whose it is in front. */
+/** A tab's name; `agent` (two agents side by side) puts whose it is in front, as the sidebar names it (no team). */
 export const tabLabel = (t: Tab, structured = false, agent?: string): string =>
-  agent ? `${agent} · ${plainLabel(t, structured)}` : plainLabel(t, structured);
+  agent ? `${agent.slice(agent.indexOf('.') + 1)} · ${plainLabel(t, structured)}` : plainLabel(t, structured);
 
 const plainLabel = (t: Tab, structured: boolean): string =>
   t.kind === 'chat'
@@ -115,7 +115,7 @@ export function PaneTabs({ group }: { group: Group }) {
 function TabRun({ group, data: { me, closeShell, openShell } }: { group: Group; data: PaneData }) {
   const { choices, choose } = useChoices(openShell);
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, named, apply, show, drop, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, named, apply, show, drop, dragging, setDragging, closeSplit } = useWorkspace();
   const run = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [line, setLine] = useState<number | null>(null);
@@ -210,19 +210,22 @@ function TabRun({ group, data: { me, closeShell, openShell } }: { group: Group; 
                 ) : null}
               </>
             ) : null}
-            {id === CHAT ? null : (
+            {id === CHAT && !closeSplit ? null : (
               <button
                 className="x inline-flex border-0 bg-transparent p-0.5 text-ink-3 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-aria-selected:opacity-100"
                 aria-label={`Close ${label(t)}`}
                 title={
-                  t.kind === 'terminal' || t.kind === 'transcript'
-                    ? 'Close the tab; the agent keeps working'
-                    : t.kind === 'shell'
-                      ? 'Close the terminal'
-                      : 'Close the tab'
+                  id === CHAT
+                    ? `Close ${agent}'s half`
+                    : t.kind === 'terminal' || t.kind === 'transcript'
+                      ? 'Close the tab; the agent keeps working'
+                      : t.kind === 'shell'
+                        ? 'Close the terminal'
+                        : 'Close the tab'
                 }
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (id === CHAT) return closeSplit?.(); // the second agent's Chat tab: closing it closes its half
                   if (t.kind === 'terminal' && !structured && detail.session_open) showPill(`${agent} keeps working in the background`);
                   if (t.kind === 'shell') closeShell({ terminal: String(t.params.handle) }); // the shell ends with its tab
                   apply((w) => closeTab(w, id));
@@ -273,7 +276,7 @@ function TabRun({ group, data: { me, closeShell, openShell } }: { group: Group; 
 
 /** The bar's Split for `group`: the same chooser as the + after the tabs, so the new pane opens on what was chosen. */
 export function PaneActions({ group }: { group: Group }) {
-  const { agent, canSplit, closeSplit } = useWorkspace();
+  const { agent, canSplit } = useWorkspace();
   const { choices, choose } = useChoices(usePaneData(agent).openShell);
   // The new pane holds a "new" tab until what was chosen takes its place.
   const splitWith = (w: Workspace, kind: TabKind, params: TabParams): Workspace => {
@@ -281,10 +284,8 @@ export function PaneActions({ group }: { group: Group }) {
     const fresh = next && groupsOf(next.root).find((g) => g.id === next.active);
     return next && fresh ? fillTab(next, fresh.activeTab, kind, params) : w;
   };
-  return closeSplit ? (
-    <Button icon="close" size="sm" label="Close the split" className="shell:[-webkit-app-region:no-drag]" onClick={closeSplit} />
-  ) : (
-    <WithKey k="⌘\">
+  return (
+    <WithKey k="⌘\\">
       <MenuButton
         icon="split"
         size="sm"

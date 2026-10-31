@@ -32,7 +32,7 @@ function PaneView({ group, data: { openShell, hello } }: { group: Group; data: P
   const focused = ws.active === group.id;
   return (
     <section
-      className={`pane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas -outline-offset-1${ws.active === group.id ? ' focus outline-1 outline-[color-mix(in_srgb,var(--acc)_40%,transparent)]' : ''}`}
+      className={`pane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas${ws.active === group.id ? ' focus' : ''}`}
       data-group={group.id}
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
