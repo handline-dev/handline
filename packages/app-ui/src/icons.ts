@@ -66,6 +66,7 @@ export const ICON_SPEC = {
   booting: ['CircleDashed', 'Starting'],
   needs: ['Bell', 'Needs you'],
   blocked: ['TriangleAlert', 'Blocked'],
+  paused: ['CirclePause', 'Paused'],
   idle: ['Circle', 'Idle'],
   asleep: ['Moon', 'Waiting'],
   context: ['Database', 'Context'],

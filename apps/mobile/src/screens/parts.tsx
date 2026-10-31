@@ -170,7 +170,15 @@ export function Card(props: { children: React.ReactNode; testID?: string }) {
 }
 
 /** A rounded choice: the picked one is ringed and ticked. `role` is radio for one pick among several, button for a toggle. */
-export function Pill(props: { on: boolean; label: string; testID: string; onPress: () => void; role?: 'button' | 'radio' }) {
+export function Pill(props: {
+  on: boolean;
+  label: string;
+  testID: string;
+  onPress: () => void;
+  role?: 'button' | 'radio';
+  /** Shown after the label while the pill is on, e.g. the × that takes a chip off. */
+  trailing?: React.ReactNode;
+}) {
   const c = usePalette();
   return (
     <Pressable
@@ -190,7 +198,10 @@ export function Pill(props: { on: boolean; label: string; testID: string; onPres
     >
       {({ pressed }) => (
         <>
-          <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+            <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
+            {props.on ? props.trailing : null}
+          </View>
           <PressTint on={pressed} />
         </>
       )}
