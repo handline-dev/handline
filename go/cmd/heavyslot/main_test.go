@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -176,6 +177,46 @@ func TestARunWhoseParentDiedKillsItsCommandAndFreesTheSlot(t *testing.T) {
 	}
 	if syscall.Kill(sleep, 0) == nil {
 		t.Fatal("the command outlived the run's parent")
+	}
+}
+
+// A run still in line when its starter dies has no command to kill: it ends at once, and the slot goes on to the next run.
+func TestAQueuedRunWhoseParentDiedEndsWithoutTheSlot(t *testing.T) {
+	bin, slots := build(t)
+	holder, _ := start(t, bin, slots, nil, "sleep", "60")
+	waitHeld(t, slots)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	// The starter leaves once the run has taken its ticket (it is then past reading its parent), with the run's stderr on the pipe.
+	starter := exec.Command("sh", "-c", `"$0" -- true & while ! ls "$1"/ticket-* >/dev/null 2>&1; do sleep 0.02; done`, bin, slots)
+	starter.Env = append(os.Environ(), "HANDLINE_HEAVY_DIR="+slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=1", "OCP_AGENT=tester")
+	starter.Stderr = w
+	err = starter.Run()
+	w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The pipe closes when the last holder of its write end, the run, is gone.
+	said := make(chan string, 1)
+	go func() { b, _ := io.ReadAll(r); said <- string(b) }()
+	select {
+	case s := <-said:
+		if !strings.Contains(s, "the process that started this run is gone") {
+			t.Errorf("the run did not say why it ended: %q", s)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the queued run did not end when its parent died")
+	}
+	if syscall.Kill(holder.Process.Pid, 0) != nil {
+		t.Fatal("the first run ended too")
+	}
+	holder.Process.Kill()
+	b, berr := start(t, bin, slots, nil, "true")
+	if err := b.Wait(); err != nil {
+		t.Fatalf("%v %s", err, berr)
 	}
 }
 
