@@ -11,14 +11,19 @@ import (
 	"time"
 )
 
-// rig is a scratch home with a fake launchd; each daemon it builds is a script that prints its version, and answers the probe
-// with it unless it is broken.
+// rig is a scratch home with a fake launchd and one daemon process: launchd starts the binary current names, daemon.upgrade execs
+// another in the same process (the pid stays), and a daemon that does not answer dies and is started again from current, as
+// KeepAlive does. Each daemon is a script that prints its version, and answers the probe with it unless it is broken.
 type rig struct {
-	t      *testing.T
-	s      *Service
-	root   string
-	loaded bool
-	calls  []string
+	t       *testing.T
+	s       *Service
+	root    string
+	loaded  bool
+	exe     string // what the daemon process runs; "" when there is none
+	pid     int
+	calls   []string
+	refuse  error           // what daemon.upgrade answers instead of taking the binary
+	failing map[string]bool // versions whose daemon does not come up, whatever their bytes
 }
 
 func newRig(t *testing.T) *rig {
@@ -27,7 +32,7 @@ func newRig(t *testing.T) *rig {
 	os.MkdirAll(tools, 0o755)
 	os.WriteFile(filepath.Join(tools, "claude"), []byte("#!/bin/sh\n"), 0o755)
 	t.Setenv("PATH", tools+":"+os.Getenv("PATH"))
-	r := &rig{t: t, root: root}
+	r := &rig{t: t, root: root, failing: map[string]bool{}}
 	r.s = &Service{
 		Home: filepath.Join(root, "home"), Label: "test.handline.service", Bin: filepath.Join(root, "bin"),
 		Plist: filepath.Join(root, "LaunchAgents", "test.handline.service.plist"), Wait: 300 * time.Millisecond,
@@ -41,17 +46,60 @@ func newRig(t *testing.T) *rig {
 				}
 			case "bootstrap":
 				r.loaded = true
+				r.start()
 			case "bootout":
-				r.loaded = false
+				r.loaded, r.exe = false, ""
+			case "kickstart":
+				r.start()
 			}
 			return "", nil
 		},
 		Probe: func() (string, error) {
-			out, err := exec.Command(filepath.Join(r.s.Bin, current, "handlined"), "-health").Output()
-			return strings.TrimSpace(string(out)), err
+			if r.exe == "" {
+				return "", errors.New("not running")
+			}
+			out, err := exec.Command(r.exe, "-health").Output()
+			v := strings.TrimSpace(string(out))
+			if err != nil || r.failing[v] {
+				r.start() // it exits, and launchd starts the job again
+				return "", errors.New("not running")
+			}
+			return v, nil
+		},
+		Handover: func(exe, sha string) error {
+			r.calls = append(r.calls, "handover")
+			if r.exe == "" {
+				return errors.New("not running")
+			}
+			if r.refuse != nil {
+				return r.refuse
+			}
+			if got, err := builtVersion(exe); err != nil || (got != sha && !strings.Contains(got, "+"+sha)) {
+				return errors.New("refused: not that build")
+			}
+			r.exe = exe
+			return nil
 		},
 	}
 	return r
+}
+
+// start is launchd starting the job's program: the binary current names then, which keeps running when the link moves.
+func (r *rig) start() {
+	r.exe, r.pid = "", r.pid+1
+	if p, err := filepath.EvalSymlinks(filepath.Join(r.s.Bin, current, "handlined")); err == nil && r.loaded {
+		r.exe = p
+	}
+}
+
+func (r *rig) count(call string) int {
+	n := 0
+	for _, c := range r.calls {
+		if c == call {
+			n++
+		}
+	}
+	return n
 }
 
 // build is a folder holding handlined and hl at version v.
@@ -99,8 +147,8 @@ func TestABrokenUpgradeRollsBackToTheVersionThatRan(t *testing.T) {
 		t.Fatalf("broken upgrade: %v", err)
 	}
 	r.want("v2", "v1", "v1", "v2") // the broken one is not kept to be rolled back to
-	if n := strings.Count(strings.Join(r.calls, " "), "kickstart"); n != 3 {
-		t.Errorf("kickstarts %d, want 3 (v2, v3, back to v2): %v", n, r.calls)
+	if r.count("handover") != 2 || r.count("kickstart") != 0 || r.pid != 2 {
+		t.Errorf("handovers %d kickstarts %d pid %d, want 2 (v2, v3) 0 2 (v3 exited and launchd started v2): %v", r.count("handover"), r.count("kickstart"), r.pid, r.calls)
 	}
 
 	if msg, err := r.s.Rollback(); err != nil || msg != "rolled back v2 -> v1" {
@@ -182,13 +230,7 @@ func TestAFailedUpgradeToTheKeptVersionKeepsIt(t *testing.T) {
 	r := newRig(t)
 	r.s.Install(r.build("v1", false), false)
 	r.s.Upgrade(r.build("v2", false), false)
-	probe := r.s.Probe
-	r.s.Probe = func() (string, error) { // v1 no longer starts, say on a schema v2 changed
-		if r.s.Current() == "v1" {
-			return "", errors.New("not running")
-		}
-		return probe()
-	}
+	r.failing["v1"] = true                            // v1 no longer starts, say on a schema v2 changed
 	_, err := r.s.Upgrade(r.build("v1", false), true) // the same bytes as the kept v1
 	if err == nil || !strings.Contains(err.Error(), "rolled back to v2") {
 		t.Fatalf("upgrade to the kept v1: %v", err)
@@ -230,12 +272,12 @@ func TestUpgradeTakesAHandlineApp(t *testing.T) {
 
 func TestStatusJSON(t *testing.T) {
 	r := newRig(t)
-	if got := r.s.StatusJSON(); got != `{"current":"","installed":false,"path":"` + filepath.Join(r.s.Bin, current) + `","pid":0,"previous":"","running":false}` {
+	if got := r.s.StatusJSON(); got != `{"current":"","installed":false,"path":"`+filepath.Join(r.s.Bin, current)+`","pid":0,"previous":"","running":false}` {
 		t.Fatal(got)
 	}
 	r.s.Install(r.build("1.0.0", false), false)
 	r.s.Launchctl = func(args ...string) (string, error) { return "state = running\n\tpid = 4242\n", nil }
-	if got := r.s.StatusJSON(); got != `{"current":"1.0.0","installed":true,"path":"` + filepath.Join(r.s.Bin, current) + `","pid":4242,"previous":"","running":true}` {
+	if got := r.s.StatusJSON(); got != `{"current":"1.0.0","installed":true,"path":"`+filepath.Join(r.s.Bin, current)+`","pid":4242,"previous":"","running":true}` {
 		t.Fatal(got)
 	}
 }
@@ -248,5 +290,179 @@ func TestUpgradeBetweenUnstampedBuildsIsNotOrdered(t *testing.T) {
 	}
 	if _, err := r.s.Upgrade(r.build("1.0.0", false), false); err != nil {
 		t.Fatalf("sha to release: %v", err)
+	}
+}
+
+// handWritten is a job under the label written by hand: another program, flags the daemon now defaults or ignores, and the PATH
+// and claude the founder's shell had.
+func (r *rig) handWritten(program string) (claude, path string) {
+	claude = filepath.Join(r.root, "shell-bin", "claude")
+	os.MkdirAll(filepath.Dir(claude), 0o755)
+	os.WriteFile(claude, []byte("#!/bin/sh\n"), 0o755)
+	path = filepath.Dir(claude) + ":/opt/homebrew/bin:/usr/bin:/bin"
+	os.MkdirAll(filepath.Dir(r.s.Plist), 0o755)
+	os.WriteFile(r.s.Plist, []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>test.handline.service</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>`+program+`</string>
+		<string>-allow-real-home</string>
+		<string>-claude</string>
+		<string>`+claude+`</string>
+		<string>-terminal-tick</string>
+		<string>-land-repo</string>
+		<string>/Users/someone/repo</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>`+path+`</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+</dict>
+</plist>
+`), 0o644)
+	return claude, path
+}
+
+func TestEnsureTakesOverAHandWrittenJobOnce(t *testing.T) {
+	r := newRig(t)
+	old := r.build("v0", false)
+	claude, path := r.handWritten(filepath.Join(old, "handlined"))
+	r.loaded, r.exe, r.pid = true, filepath.Join(old, "handlined"), 1
+	t.Setenv("PATH", "/usr/bin:/bin") // an app opened from the Finder: no claude on its PATH
+	app := r.build("v1", false)
+
+	if got := r.s.Ensure(app); got != (Ensured{State: "started", Version: "v1", Reason: "the job file was not this one"}) {
+		t.Fatalf("%+v", got)
+	}
+	r.want("v1", "", "v1")
+	plist, _ := os.ReadFile(r.s.Plist)
+	for _, want := range []string{"<string>" + filepath.Join(r.s.Bin, "current", "handlined") + "</string>", "<string>-claude</string><string>" + claude + "</string>", "<key>PATH</key><string>" + path + "</string>"} {
+		if !strings.Contains(string(plist), want) {
+			t.Errorf("the job lacks %s:\n%s", want, plist)
+		}
+	}
+	if strings.Contains(string(plist), "land-repo") || strings.Contains(string(plist), old) {
+		t.Errorf("the hand-written job's program or flags are still there:\n%s", plist)
+	}
+	if want, _ := filepath.EvalSymlinks(filepath.Join(r.s.Bin, "v1", "handlined")); strings.Join(r.calls, " ") != "print bootout print bootstrap print enable" || r.exe != want {
+		t.Fatalf("calls %v, running %s", r.calls, r.exe)
+	}
+
+	r.calls = nil
+	if got := r.s.Ensure(app); got != (Ensured{State: "running", Version: "v1"}) {
+		t.Fatalf("a second ensure: %+v", got)
+	}
+	if after, _ := os.ReadFile(r.s.Plist); string(after) != string(plist) || strings.Join(r.calls, " ") != "print" || r.pid != 2 {
+		t.Fatalf("a second ensure changed something: calls %v pid %d", r.calls, r.pid)
+	}
+}
+
+func TestEnsureHandsANewVersionToTheRunningDaemon(t *testing.T) {
+	r := newRig(t)
+	if got := r.s.Ensure(r.build("1.0.0+aaa1111", false)); got.State != "started" || got.Reason != "the job was not loaded" {
+		t.Fatalf("first run: %+v", got)
+	}
+	r.calls = nil
+	if got := r.s.Ensure(r.build("1.1.0+bbb2222-dirty", false)); got != (Ensured{State: "upgraded", Version: "1.1.0+bbb2222-dirty", Reason: "from 1.0.0+aaa1111"}) {
+		t.Fatalf("%+v", got)
+	}
+	r.want("1.1.0+bbb2222-dirty", "1.0.0+aaa1111", "1.0.0+aaa1111", "1.1.0+bbb2222-dirty")
+	if r.pid != 1 || r.count("handover") != 1 || r.count("kickstart")+r.count("bootout") != 0 {
+		t.Fatalf("not handed over in place: pid %d calls %v", r.pid, r.calls)
+	}
+	if got := r.s.Ensure(r.build("0.9.0+ccc3333", false)); got.State != "upgraded" || r.s.Current() != "0.9.0+ccc3333" {
+		t.Fatalf("the app carries an older version, and the daemon follows it: %+v", got)
+	}
+}
+
+func TestEnsureKeepsTheRunningVersionWhenTheNewOneFails(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	got := r.s.Ensure(r.build("v2", true))
+	if got.State != "kept" || got.Version != "v1" || !strings.Contains(got.Reason, "rolled back to v1") {
+		t.Fatalf("%+v", got)
+	}
+	r.want("v1", "", "v1")
+	if v, err := r.s.Probe(); v != "v1" || err != nil {
+		t.Fatalf("running %q %v", v, err)
+	}
+
+	throttleWait = 0
+	t.Cleanup(func() { throttleWait = throttle * time.Second })
+	r.failing["v1"] = true // and now v1 will not start either
+	if got = r.s.Ensure(r.build("v2", true)); got.State != "failed" || !strings.Contains(got.Reason, "going back to v1 failed too") {
+		t.Fatalf("nothing answers: %+v", got)
+	}
+	delete(r.failing, "v1")
+	r.s.Ensure(r.build("v1", false))
+
+	r.calls = nil
+	r.refuse = errors.New("v3 does not start")
+	got = r.s.Ensure(r.build("v3", false))
+	if got.State != "kept" || !strings.Contains(got.Reason, "v3 does not start") || r.count("kickstart") != 0 {
+		t.Fatalf("a refused handover: %+v %v", got, r.calls)
+	}
+	r.want("v1", "v2", "v1", "v2") // as the double failure left them: v3 is gone
+}
+
+func TestEnsureRestartsAJobWhoseDaemonDoesNotAnswer(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	r.exe = "" // crashed, and launchd waits out its throttle
+	if got := r.s.Ensure(r.build("v1", false)); got != (Ensured{State: "started", Version: "v1", Reason: "the daemon was not answering"}) || r.count("kickstart") != 1 {
+		t.Fatalf("%+v %v", got, r.calls)
+	}
+	r.exe = ""
+	if got := r.s.Ensure(r.build("v2", false)); got.State != "upgraded" || r.count("handover") != 0 || r.count("kickstart") != 2 {
+		t.Fatalf("%+v %v", got, r.calls)
+	}
+	r.want("v2", "v1", "v1", "v2")
+}
+
+func TestEnsureFailsWithoutClaudeAndChangesNothing(t *testing.T) {
+	r := newRig(t)
+	t.Setenv("PATH", "/usr/bin:/bin")
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "failed" || !strings.Contains(got.Reason, "claude") || r.loaded {
+		t.Fatalf("%+v", got)
+	}
+	r.want("", "")
+	r.s.Label = LiveLabel
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "failed" || !strings.Contains(got.Reason, "not the live home") {
+		t.Fatalf("the live label on a scratch home: %+v", got)
+	}
+}
+
+func TestStopUnloadsTheJobAndKeepsItsFile(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	if msg, err := r.s.Stop(); err != nil || msg != "stopped test.handline.service" || r.loaded {
+		t.Fatalf("%q %v", msg, err)
+	}
+	if _, err := os.Stat(r.s.Plist); err != nil {
+		t.Fatal("the job file went with the stop")
+	}
+	if msg, _ := r.s.Stop(); msg != "test.handline.service was not running" {
+		t.Error(msg)
+	}
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" || !r.loaded {
+		t.Fatalf("the next app launch: %+v", got)
+	}
+	r.s.Label = LiveLabel
+	if _, err := r.s.Stop(); err == nil || !r.loaded {
+		t.Fatal("stopped the live label from a scratch home")
+	}
+}
+
+func TestShaOf(t *testing.T) {
+	for v, want := range map[string]string{"1.2.0+abc1234": "abc1234", "1.2.0+abc1234-dirty": "abc1234", "93c3e5b83": "93c3e5b83"} {
+		if got := shaOf(v); got != want {
+			t.Errorf("%s: %s", v, got)
+		}
 	}
 }

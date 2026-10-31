@@ -30,10 +30,14 @@ const (
 	previous   = "previous"
 )
 
+// throttleWait is how long launchd may hold the next start of a job that kept exiting; a test shortens it.
+var throttleWait = throttle * time.Second
+
 // binaries are what a version folder holds, copied from the folder the installing binary lives in.
 var binaries = []string{"handlined", "hl"}
 
-// Service is one home's job. Launchctl, Probe and Version are launchd, the running daemon's version and a binary's own; tests give their own.
+// Service is one home's job. Launchctl, Probe, Version and Handover are launchd, the running daemon's version, a binary's own, and
+// daemon.upgrade on the running daemon; tests give their own.
 type Service struct {
 	Home      string
 	Label     string
@@ -43,6 +47,7 @@ type Service struct {
 	Launchctl func(args ...string) (string, error)
 	Probe     func() (string, error)
 	Version   func(daemon string) (string, error)
+	Handover  func(exe, sha string) error
 }
 
 // New is home's service, labelled HANDLINE_SERVICE_LABEL when set (a rehearsal) and the live job's label otherwise.
@@ -63,9 +68,28 @@ func New(home string) *Service {
 			out, err := exec.Command("launchctl", args...).CombinedOutput()
 			return strings.TrimSpace(string(out)), err
 		},
-		Probe:   func() (string, error) { return running(home) },
-		Version: builtVersion,
+		Probe:    func() (string, error) { return running(home) },
+		Version:  builtVersion,
+		Handover: func(exe, sha string) error { return handover(home, exe, sha) },
 	}
+}
+
+// handover asks home's daemon, as the founder, to exec exe in its own process (daemon.upgrade): same pid, same arguments.
+func handover(home, exe, sha string) error {
+	c := hlclient.New()
+	c.Home, c.Dial, c.Kick = home, hlclient.Dialer(home, 2*time.Second), func() error { return errors.New("not running") }
+	if ok, said := c.Write("daemon.upgrade", map[string]any{"exe": exe, "sha": sha}); !ok {
+		return errors.New(said)
+	}
+	return nil
+}
+
+// shaOf is the git sha in a version: a release's <version>+<sha>[-dirty], or a checkout build's bare sha.
+func shaOf(v string) string {
+	if _, after, ok := strings.Cut(v, "+"); ok {
+		return strings.TrimSuffix(after, "-dirty")
+	}
+	return v
 }
 
 // running is the version the home's daemon says it runs in its hello, without asking launchd to start it.
@@ -233,7 +257,7 @@ func (s *Service) Install(src string, allowLive bool) (string, error) {
 	if err := os.MkdirAll(filepath.Join(s.Home, "logs"), 0o755); err != nil {
 		return "", err
 	}
-	body, err := s.plist() // built first: a refusal leaves the old file alone
+	body, err := s.plist(false) // built first: a refusal leaves the old file alone
 	if err != nil {
 		return "", err
 	}
@@ -242,12 +266,7 @@ func (s *Service) Install(src string, allowLive bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := s.point(v); err != nil {
-		return "", err
-	}
-	if err := s.load(body); err != nil {
-		s.setLink(current, cur)
-		s.setLink(previous, prev)
+	if err := s.startOn(body, v, cur, prev); err != nil {
 		return "", err
 	}
 	if err := s.up(v, s.Wait); err != nil {
@@ -258,6 +277,19 @@ func (s *Service) Install(src string, allowLive bool) (string, error) {
 	}
 	s.prune()
 	return fmt.Sprintf("installed %s (%s), label %s", v, s.Plist, s.Label), nil
+}
+
+// startOn points current at v and loads the job body onto it; a job that will not load leaves the links as they were.
+func (s *Service) startOn(body, v, cur, prev string) error {
+	if err := s.point(v); err != nil {
+		return err
+	}
+	if err := s.load(body); err != nil {
+		s.setLink(current, cur)
+		s.setLink(previous, prev)
+		return err
+	}
+	return nil
 }
 
 // load writes the job and has launchd take it, the old one gone first; a job that will not load puts the old file back.
@@ -386,7 +418,20 @@ func (s *Service) Rollback() (string, error) {
 	return fmt.Sprintf("rolled back %s -> %s", cur, prev), nil
 }
 
+// switchTo moves the daemon onto v. A daemon that answers is handed v in its own process (daemon.upgrade), and current moves once v
+// answers; only when none answers does current move first and launchd restart the job.
 func (s *Service) switchTo(v string, wait time.Duration) error {
+	if got, err := s.Probe(); err == nil {
+		if got != v {
+			if err := s.Handover(filepath.Join(s.Bin, v, "handlined"), shaOf(v)); err != nil {
+				return fmt.Errorf("daemon.upgrade to %s: %v", v, err)
+			}
+			if err := s.up(v, wait); err != nil {
+				return err
+			}
+		}
+		return s.point(v)
+	}
 	if err := s.point(v); err != nil {
 		return err
 	}
@@ -399,7 +444,7 @@ func (s *Service) switchTo(v string, wait time.Duration) error {
 // goBack restarts cur after v did not answer, with the links as they were, and removes v when this call added it. The wait is longer:
 // launchd may hold the next start of a job that kept exiting for its throttle.
 func (s *Service) goBack(cur, prev, v string, fresh bool, err error) error {
-	if back := s.switchTo(cur, s.Wait+throttle*time.Second); back != nil {
+	if back := s.switchTo(cur, s.Wait+throttleWait); back != nil {
 		return fmt.Errorf("%v; going back to %s failed too: %v", err, cur, back)
 	}
 	s.setLink(previous, prev)
@@ -467,11 +512,124 @@ func (s *Service) Uninstall() (string, error) {
 	return "removed " + s.Plist, nil
 }
 
-// plist is the job: the current version's daemon (its defaults are the service's), kept alive and throttled so a crash loop cannot run away.
-func (s *Service) plist() (string, error) {
-	claude, err := exec.LookPath("claude")
+// Ensured is what Ensure did, as the one JSON line the app shows: state is running (nothing to do), started (the job was loaded
+// onto version), upgraded, kept (version did not answer and the daemon is back on the one before) or failed.
+type Ensured struct {
+	State   string `json:"state"`
+	Version string `json:"version"`
+	Reason  string `json:"reason"`
+}
+
+// Ensure makes the job run the binaries in src (a folder holding them, or a Handline.app), as the app does at every launch: it adds
+// that version; when launchd does not hold this job file (a first run, or another hand-written job under the label) it writes it and
+// loads it onto that version; otherwise a daemon on another version is handed over in place (same pid, agents untouched). A second
+// run changes nothing. The version the app carries is the one run, older or not: app and daemon are one unit.
+func (s *Service) Ensure(src string) Ensured {
+	failed := func(err error) Ensured { return Ensured{State: "failed", Version: s.Current(), Reason: err.Error()} }
+	if err := s.Guard(true); err != nil {
+		return failed(err)
+	}
+	if err := os.MkdirAll(filepath.Join(s.Home, "logs"), 0o755); err != nil {
+		return failed(err)
+	}
+	body, err := s.plist(true)
 	if err != nil {
-		return "", fmt.Errorf("no claude binary on PATH for -claude")
+		return failed(err)
+	}
+	cur, prev := s.Current(), s.Previous()
+	v, fresh, err := s.add(BinDir(src))
+	if err != nil {
+		return failed(err)
+	}
+	back := func(err error) Ensured {
+		if cur == "" || cur == v {
+			return failed(err)
+		}
+		err = s.goBack(cur, prev, v, fresh, err)
+		if got, e := s.Probe(); e != nil || got != cur {
+			return failed(err)
+		}
+		return Ensured{State: "kept", Version: cur, Reason: err.Error()}
+	}
+	if prior, _ := os.ReadFile(s.Plist); string(prior) != body || !s.loaded() {
+		why := "the job was not loaded"
+		if prior != nil && string(prior) != body {
+			why = "the job file was not this one"
+		}
+		if err := s.startOn(body, v, cur, prev); err != nil {
+			return failed(err)
+		}
+		if err := s.up(v, s.Wait); err != nil {
+			return back(err)
+		}
+		s.prune()
+		return Ensured{State: "started", Version: v, Reason: why}
+	}
+	if got, err := s.Probe(); err == nil && got == v && cur == v {
+		return Ensured{State: "running", Version: v}
+	}
+	if err := s.switchTo(v, s.Wait); err != nil {
+		return back(err)
+	}
+	s.prune()
+	if cur == v {
+		return Ensured{State: "started", Version: v, Reason: "the daemon was not answering"}
+	}
+	return Ensured{State: "upgraded", Version: v, Reason: "from " + cur}
+}
+
+// Stop unloads the job and leaves its file, so the next Ensure (the next app launch) or login starts it again.
+func (s *Service) Stop() (string, error) {
+	if s.Label == LiveLabel && !paths.IsLive(s.Home) {
+		return "", fmt.Errorf("%s is not the live home, so the live service is not its to stop; nothing was done", s.Home)
+	}
+	if !s.loaded() {
+		return s.Label + " was not running", nil
+	}
+	_, target := s.target()
+	if out, err := s.Launchctl("bootout", target); err != nil {
+		return "", fmt.Errorf("launchctl bootout: %s", out)
+	}
+	return "stopped " + s.Label, nil
+}
+
+var (
+	plistPath   = regexp.MustCompile(`<key>PATH</key>\s*<string>([^<]*)</string>`)
+	plistClaude = regexp.MustCompile(`<string>-(?:claude|structured-cli)</string>\s*<string>([^<]*)</string>`)
+)
+
+// keptEnv is the claude binary and PATH the job file there now runs with, when it names them: an app opened from the Finder has neither
+// on its own PATH, and the job that works today has both.
+func (s *Service) keptEnv() (claude, path string) {
+	b, _ := os.ReadFile(s.Plist)
+	if m := plistClaude.FindSubmatch(b); m != nil {
+		claude = html.UnescapeString(string(m[1]))
+	}
+	if m := plistPath.FindSubmatch(b); m != nil {
+		path = html.UnescapeString(string(m[1]))
+	}
+	return claude, path
+}
+
+// plist is the job: the current version's daemon (its defaults are the service's), kept alive and throttled so a crash loop cannot
+// run away. keep takes the claude binary and PATH from the job file there, when it names them, over this process's.
+func (s *Service) plist(keep bool) (string, error) {
+	claude, path := "", os.Getenv("PATH")
+	if keep {
+		var keptPath string
+		claude, keptPath = s.keptEnv()
+		if keptPath != "" {
+			path = keptPath
+		}
+		if _, err := os.Stat(claude); err != nil {
+			claude = ""
+		}
+	}
+	if claude == "" {
+		var err error
+		if claude, err = exec.LookPath("claude"); err != nil {
+			return "", fmt.Errorf("no claude binary on PATH for -claude")
+		}
 	}
 	argv := []string{filepath.Join(s.Bin, current, "handlined")}
 	if paths.IsLive(s.Home) {
@@ -503,7 +661,7 @@ func (s *Service) plist() (string, error) {
 	b.WriteString("\n<key>WorkingDirectory</key>")
 	str(s.Home)
 	b.WriteString("\n<key>EnvironmentVariables</key><dict><key>PATH</key>")
-	str(os.Getenv("PATH"))
+	str(path)
 	b.WriteString("<key>HOME</key>")
 	str(os.Getenv("HOME"))
 	b.WriteString("<key>HANDLINE_HOME</key>")
