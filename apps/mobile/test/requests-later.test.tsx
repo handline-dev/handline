@@ -1,7 +1,7 @@
 // Later on the phone's Requests: from an item's page (quick times, or when a task is done), "Later N" at the foot of the list with when each returns,
 // an Undo line, and the PC's entry (NavPrefs.later) written either way.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ARCH, $, box, mount, press, text, until } from '#test/harness.tsx';
+import { ARCH, $, box, fill, mount, press, text, until } from '#test/harness.tsx';
 
 const DECISION = 3; // the fake's seeded decision
 const DECISION_TASK = 1684; // the founder's task the seeded decision belongs to
@@ -53,8 +53,8 @@ describe('Later on Requests', () => {
     await press(later);
     await until(() => $('request-page'), 'the item');
     expect(text($('request-position'))).toBe('Later');
-    expect(text($('request-later'))).toContain('Back to Requests now');
-    await press($('request-later'));
+    expect(text($('request-later'))).toMatch(/^Later: /);
+    await press($('request-return'));
     await until(() => Object.values(entries(m)).every((v) => v === null) || !Object.keys(entries(m)).length, 'the entry cleared');
     await until(() => text($('request-position')) !== 'Later', 'the item back in the list');
     m.store.stop();
@@ -66,6 +66,39 @@ describe('Later on Requests', () => {
     await press($('later-by-task'));
     await press($('later-task-9400'));
     await until(() => Object.values(entries(m)).some((v) => (v as { after_task?: number } | null)?.after_task === 9400), 'the entry');
+    m.store.stop();
+  });
+
+  it('puts the item off until a time of its own, and a put-off item changes its time from the same line', async () => {
+    const m = await opened();
+    await press($('request-later'));
+    await press($('later-by-time'));
+    await fill('later-day', '2031-03-04');
+    await fill('later-clock', '09:30');
+    await press($('later-pick-put'));
+    await until(
+      () => Object.values(entries(m)).some((v) => (v as { until?: string } | null)?.until?.startsWith('2031-03-04')),
+      'the entry',
+    );
+    await until(() => $('request-back') || $('later-fold'), 'the next item or the list');
+    if ($('request-back')) await press($('request-back'));
+    await until(() => $('later-fold'), 'the fold');
+    await press($('later-fold-head'));
+    await press(box.querySelector<HTMLElement>('[data-testid^="later-row-"]'));
+    await until(() => text($('request-later')).startsWith('Later: '), 'the put-off page');
+    await press($('request-later'));
+    await press($('later-time-0'));
+    await until(() => Object.values(entries(m)).some((v) => !(v as { until?: string } | null)?.until?.startsWith('2031')), 'the new time');
+    expect($('request-page')).not.toBeNull(); // changing the time keeps the page
+    m.store.stop();
+  });
+
+  it('refuses a time that is not ahead', async () => {
+    const m = await opened();
+    await press($('request-later'));
+    await press($('later-by-time'));
+    await fill('later-day', '2001-01-01');
+    expect($('later-pick-put')?.getAttribute('aria-disabled')).toBe('true');
     m.store.stop();
   });
 
