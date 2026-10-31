@@ -32,7 +32,27 @@ function solidPng(w: number, h: number): Buffer {
 export const CHAT_SEEDS: Record<string, Seed> = {
   /** Chat messages with one-tap actions: OK / No on an open task the founder owns. */
   'chat-actions': (d) => {
-    task(d, 6902, { id: 6902, from: ARCH, to: ME, title: 'Open task the founder owns', state: 'doing' });
+    const at = Date.now();
+    const iso = (min: number) => new Date(at + min * 60_000).toISOString();
+    task(d, 6902, {
+      id: 6902,
+      from: ARCH,
+      to: ME,
+      title: 'Open task the founder owns',
+      body: 'The plan has three steps: the chat first, then the task page, then Usage.\n\nSay if the order should change.',
+      state: 'doing',
+      priority: 2,
+      time_box: '1h',
+      clock: { length_s: 3600, default: false, start: iso(-18), end: iso(42), overdue_since: null, told: 0, left_s: 2520 },
+      segments: [
+        { kind: 'queued', on: null, text: 'queued', task: null, from: iso(-20), to: iso(-18), seconds: 120 },
+        { kind: 'working', on: null, text: '', task: null, from: iso(-18), to: iso(0), seconds: 1080 },
+      ],
+      memos: [
+        { id: 9501, task: 6902, author: ARCH, at: iso(-12), text: 'The plan is ready to read.' },
+        { id: 9502, task: 6902, author: ME, at: iso(-9), text: 'Reading it now.' },
+      ],
+    });
     d.chat.seed(ARCH, {
       from: ARCH,
       to: ME,
