@@ -4,7 +4,7 @@
 // gone sends nothing and says so.
 import { useEffect, useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { isAlways, promptTitle } from '@handline/app-core';
+import { checkedKeys, isAlways, promptTitle } from '@handline/app-core';
 import { usePromptAnswer } from '@handline/app-data';
 import type { Prompt } from '@handline/client';
 import { font, radius, space } from '@handline/tokens';
@@ -80,12 +80,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
           label={mark('submit', 'Submit')}
           kind="yes"
           disabled={answering || !picked.length}
-          onPress={() =>
-            send(
-              opts.map((o) => o.key).filter((k) => picked.includes(k)),
-              'submit',
-            )
-          }
+          onPress={() => send(checkedKeys(opts, picked), 'submit')}
         />
       )}
       {question &&

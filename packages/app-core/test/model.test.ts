@@ -11,6 +11,8 @@ import {
   loadLayout,
   needsConfirm,
   offered,
+  splitCancel,
+  checkedKeys,
   railRows,
   stuckUnder,
   workingUnder,
@@ -384,4 +386,23 @@ test('stuckUnder counts the sub-agents held for load, on a dialog or blocked, at
   assert.equal(stuckUnder(list, 'lead'), 3);
   assert.equal(stuckUnder(list, 'b'), 1);
   assert.equal(stuckUnder(list, 'd'), 0);
+});
+
+test('a question keeps Cancel out of its options, and a multi-select submits the checked keys in the order listed', () => {
+  const q = card('question');
+  const choices = [
+    { key: '1', label: 'a', answer: 'other' as const },
+    { key: '2', label: 'b', answer: 'other' as const },
+    { key: '3', label: 'c', answer: 'other' as const },
+    { key: 'esc', label: 'Cancel (Esc)', answer: 'other' as const },
+  ];
+  const { cancel, opts } = splitCancel(q, choices);
+  assert.equal(cancel?.key, 'esc');
+  assert.deepEqual(
+    opts.map((o) => o.key),
+    ['1', '2', '3'],
+  );
+  assert.equal(splitCancel(card('dialog'), choices).cancel, undefined);
+  assert.deepEqual(checkedKeys(opts, ['3', '1']), ['1', '3']);
+  assert.deepEqual(checkedKeys(opts, []), []);
 });

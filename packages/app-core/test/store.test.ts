@@ -3,8 +3,8 @@
 // `@handline/app-data` and the apps. Where each store test that went has gone:
 //   list and watched detail kept current by events      -> app-data test/hooks.test.tsx ("is kept current by events"), test/bridge.test.ts (agents)
 //   reload of the list after a reconnect                -> app-data test/hooks.test.tsx ("is read again after a reconnect and after a gap")
-//   start, stop, input, interrupt, take, release        -> app-data test/writes.test.tsx (every write), apps/web test/q2.test.tsx, test/u12.test.tsx
-//   permission prompt answered, a stale prompt refused  -> apps/web test/q2.test.tsx, apps/mobile test/screens.test.tsx
+//   start, stop, input, interrupt, take, release        -> app-data test/writes.test.tsx (every write)
+//   permission prompt answered, a stale prompt refused  -> app-data test/writes.test.tsx (a stale prompt is refused), app-core test/model.test.ts
 //   watch counted, a refresh whose detail load fails    -> gone with the watch: react-query counts the observers
 //   an agent that is gone while its page is open        -> below (the removed event), apps/mobile Loadable "is gone", apps/web Workspace
 import { test } from 'node:test';
