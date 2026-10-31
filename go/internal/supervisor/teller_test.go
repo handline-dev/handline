@@ -2,6 +2,8 @@ package supervisor
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -239,5 +241,51 @@ func TestTheTellerSendsATaskThatAnEditGaveToANewOwnerAndTellsTheOldOneToStop(t *
 	}
 	if !strings.Contains(strings.Join(r.term.typed, "\n"), "T1 moved to alice by human - stop work on it") {
 		t.Fatalf("the old owner is told to stop: %q", r.term.typed)
+	}
+}
+
+// A team like the live one: agents reach the founder and the founder reaches them, and nothing else is declared, so no edge leads from the
+// daemon to an agent, and none from one agent to another.
+const founderOnlyTeam = `agents:
+  alice: {}
+  bob: {}
+edges:
+  - { from: "*", to: "human" }
+  - { from: "human", to: "*" }
+`
+
+// The start-up hand-back of the founder's tasks is the daemon's own step: it moves each task to its agent though no edge declares daemon ->
+// agent, and leaves those it must; an agent's own handoff on the same team is still refused, and the step runs once.
+func TestFounderTasksGoBackWithNoTeamEdgeFromTheDaemon(t *testing.T) {
+	r := newRig(t)
+	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(founderOnlyTeam), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handed := r.newTask("human", "alice", "handed by bob")
+	opened := r.newTask("human", "alice", "opened by alice")
+	asked := r.newTask("human", "human", "the founder's own")
+	gone := r.newTask("human", "carol", "opened by a retired agent")
+	_, err := db.AddEvent(r.DB, "bob", "task_handoff", db.KV{K: "task_id", V: handed}, db.KV{K: "from", V: "bob"}, db.KV{K: "to", V: "human"},
+		db.KV{K: "note", V: "which one?"})
+	r.must(err)
+
+	said, err := taskwrites.ReturnFounderTasks(r.DB, r.home, r.Env)
+	if err != nil || fmt.Sprint(said) != fmt.Sprintf("[T%d goes back to bob T%d goes back to alice]", handed, opened) {
+		t.Fatalf("%q %v", said, err)
+	}
+	for tid, want := range map[int64]string{handed: "bob", opened: "alice", asked: "human", gone: "human"} {
+		if task, _ := db.GetTask(r.DB, tid); task == nil || task.Owner != want {
+			t.Errorf("T%d: owner %+v, want %s", tid, task, want)
+		}
+	}
+	if again, err := taskwrites.ReturnFounderTasks(r.DB, r.home, r.Env); err != nil || len(again) != 0 {
+		t.Fatalf("it runs once: %q %v", again, err)
+	}
+
+	tx, _ := r.DB.Begin()
+	defer tx.Rollback()
+	denied, err := r.TaskAsk(tx, taskwrites.AskReq{From: "alice", To: "bob", Kind: "task", Body: "x", Within: func(int64) error { return fmt.Errorf("not reached") }})
+	if err != nil || denied.OK || !strings.Contains(denied.Msg, "no edge declares alice -> bob") {
+		t.Fatalf("an agent's own handoff still needs its edge: %+v %v", denied, err)
 	}
 }
