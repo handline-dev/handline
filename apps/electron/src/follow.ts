@@ -107,9 +107,17 @@ export class Follower {
 
   /** One look at where main is. Never throws. */
   async look(): Promise<void> {
-    if (this.state === 'updating' || this.state === 'ready') return; // a built update waits for its restart
+    if (this.state === 'updating') return;
     try {
       const main = await this.d.peek();
+      if (this.state === 'ready') {
+        // A built update waits for its restart, but Restart now must land on the newest main: when main has moved on, build that one.
+        if (main.sha === this.built) return;
+        this.next = { ...main };
+        this.from = this.sha; // what changed since the app's own commit, so a page built for the first update is not cleared and left unbuilt
+        await this.prepare(true);
+        return;
+      }
       if (main.sha === this.sha) {
         this.next = null;
         this.set('current');
@@ -135,9 +143,9 @@ export class Follower {
     }
   }
 
-  /** Brings the checkout up to main and builds what changed (the page beside the running one), without touching what runs. Ends `ready`. */
-  async prepare(): Promise<void> {
-    if (this.state === 'updating' || this.state === 'ready') return;
+  /** Brings the checkout up to main and builds what changed (the page beside the running one), without touching what runs. Ends `ready`; `again` builds over a ready update that main has moved past. */
+  async prepare(again = false): Promise<void> {
+    if (this.state === 'updating' || (this.state === 'ready' && !again)) return;
     this.log = '';
     this.built = null;
     this.progress('Preparing', 0);
