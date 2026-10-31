@@ -19,6 +19,7 @@ import (
 
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/sessiontoken"
 )
 
 const (
@@ -29,9 +30,6 @@ const (
 	current    = "current"
 	previous   = "previous"
 )
-
-// throttleWait is how long launchd may hold the next start of a job that kept exiting; a test shortens it.
-var throttleWait = throttle * time.Second
 
 // binaries are what a version folder holds, copied from the folder the installing binary lives in.
 var binaries = []string{"handlined", "hl"}
@@ -44,6 +42,7 @@ type Service struct {
 	Bin       string
 	Plist     string
 	Wait      time.Duration
+	Throttle  time.Duration // how long launchd may hold the next start of a job that kept exiting
 	Launchctl func(args ...string) (string, error)
 	Probe     func() (string, error)
 	Version   func(daemon string) (string, error)
@@ -62,7 +61,7 @@ func New(home string) *Service {
 		bin = filepath.Join(support, "bin-"+label)
 	}
 	return &Service{
-		Home: home, Label: label, Bin: bin, Wait: upWait,
+		Home: home, Label: label, Bin: bin, Wait: upWait, Throttle: throttle * time.Second,
 		Plist: filepath.Join(paths.UserHome(), "Library", "LaunchAgents", label+".plist"),
 		Launchctl: func(args ...string) (string, error) {
 			out, err := exec.Command("launchctl", args...).CombinedOutput()
@@ -76,18 +75,24 @@ func New(home string) *Service {
 
 // handover asks home's daemon, as the founder, to exec exe in its own process (daemon.upgrade): same pid, same arguments.
 func handover(home, exe, sha string) error {
-	c := hlclient.New()
-	c.Home, c.Dial, c.Kick = home, hlclient.Dialer(home, 2*time.Second), func() error { return errors.New("not running") }
+	c := &hlclient.Client{Home: home, Key: sessiontoken.New(home).FounderKeyHeld(), Dial: hlclient.Dialer(home, 2*time.Second),
+		Kick: func() error { return errors.New("not running") }}
 	if ok, said := c.Write("daemon.upgrade", map[string]any{"exe": exe, "sha": sha}); !ok {
 		return errors.New(said)
 	}
 	return nil
 }
 
-// shaOf is the git sha in a version: a release's <version>+<sha>[-dirty], or a checkout build's bare sha.
+var shaShape = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// shaOf is the git sha in a version (a release's <version>+<sha>[-dirty], or a checkout build's bare sha), "" when it names none:
+// daemon.upgrade takes only a sha.
 func shaOf(v string) string {
 	if _, after, ok := strings.Cut(v, "+"); ok {
-		return strings.TrimSuffix(after, "-dirty")
+		v = strings.TrimSuffix(after, "-dirty")
+	}
+	if !shaShape.MatchString(v) {
+		return ""
 	}
 	return v
 }
@@ -292,6 +297,20 @@ func (s *Service) startOn(body, v, cur, prev string) error {
 	return nil
 }
 
+// unload boots the job out and waits until launchd no longer lists it.
+func (s *Service) unload() error {
+	_, target := s.target()
+	s.Launchctl("bootout", target)
+	deadline := time.Now().Add(unloadWait)
+	for s.loaded() {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the job was still exiting after %s; launchd still has %s", unloadWait, s.Label)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil
+}
+
 // load writes the job and has launchd take it, the old one gone first; a job that will not load puts the old file back.
 func (s *Service) load(body string) error {
 	prior, _ := os.ReadFile(s.Plist)
@@ -304,13 +323,8 @@ func (s *Service) load(body string) error {
 	}
 	domain, target := s.target()
 	if wasLoaded {
-		s.Launchctl("bootout", target)
-		deadline := time.Now().Add(unloadWait)
-		for s.loaded() {
-			if time.Now().After(deadline) {
-				return fmt.Errorf("the old job was still exiting after %s; launchd still has %s - install again once it is gone", unloadWait, s.Label)
-			}
-			time.Sleep(200 * time.Millisecond)
+		if err := s.unload(); err != nil {
+			return fmt.Errorf("%v - install again once it is gone", err)
 		}
 	}
 	if out, err := s.Launchctl("bootstrap", domain, s.Plist); err != nil {
@@ -419,9 +433,9 @@ func (s *Service) Rollback() (string, error) {
 }
 
 // switchTo moves the daemon onto v. A daemon that answers is handed v in its own process (daemon.upgrade), and current moves once v
-// answers; only when none answers does current move first and launchd restart the job.
+// answers; only when none answers, or v names no sha, does current move first and launchd restart the job.
 func (s *Service) switchTo(v string, wait time.Duration) error {
-	if got, err := s.Probe(); err == nil {
+	if got, err := s.Probe(); err == nil && (got == v || shaOf(v) != "") {
 		if got != v {
 			if err := s.Handover(filepath.Join(s.Bin, v, "handlined"), shaOf(v)); err != nil {
 				return fmt.Errorf("daemon.upgrade to %s: %v", v, err)
@@ -444,7 +458,7 @@ func (s *Service) switchTo(v string, wait time.Duration) error {
 // goBack restarts cur after v did not answer, with the links as they were, and removes v when this call added it. The wait is longer:
 // launchd may hold the next start of a job that kept exiting for its throttle.
 func (s *Service) goBack(cur, prev, v string, fresh bool, err error) error {
-	if back := s.switchTo(cur, s.Wait+throttleWait); back != nil {
+	if back := s.switchTo(cur, s.Wait+s.Throttle); back != nil {
 		return fmt.Errorf("%v; going back to %s failed too: %v", err, cur, back)
 	}
 	s.setLink(previous, prev)
@@ -551,15 +565,19 @@ func (s *Service) Ensure(src string) Ensured {
 		}
 		return Ensured{State: "kept", Version: cur, Reason: err.Error()}
 	}
-	if prior, _ := os.ReadFile(s.Plist); string(prior) != body || !s.loaded() {
+	prior, _ := os.ReadFile(s.Plist)
+	if wasLoaded := s.loaded(); string(prior) != body || !wasLoaded {
 		why := "the job was not loaded"
-		if prior != nil && string(prior) != body {
+		if wasLoaded {
 			why = "the job file was not this one"
 		}
 		if err := s.startOn(body, v, cur, prev); err != nil {
 			return failed(err)
 		}
 		if err := s.up(v, s.Wait); err != nil {
+			if cur == "" && wasLoaded && prior != nil { // a job this service did not write: put it back as it was
+				return s.restore(prior, v, err)
+			}
 			return back(err)
 		}
 		s.prune()
@@ -578,6 +596,16 @@ func (s *Service) Ensure(src string) Ensured {
 	return Ensured{State: "upgraded", Version: v, Reason: "from " + cur}
 }
 
+// restore puts back the job file another hand wrote, after v did not answer under this one, and removes v.
+func (s *Service) restore(prior []byte, v string, err error) Ensured {
+	s.setLink(current, "")
+	os.RemoveAll(filepath.Join(s.Bin, v))
+	if back := s.load(string(prior)); back != nil {
+		return Ensured{State: "failed", Reason: fmt.Sprintf("%v; putting the job that was there back failed too: %v", err, back)}
+	}
+	return Ensured{State: "kept", Reason: fmt.Sprintf("%v; the job that was there is back", err)}
+}
+
 // Stop unloads the job and leaves its file, so the next Ensure (the next app launch) or login starts it again.
 func (s *Service) Stop() (string, error) {
 	if s.Label == LiveLabel && !paths.IsLive(s.Home) {
@@ -586,9 +614,8 @@ func (s *Service) Stop() (string, error) {
 	if !s.loaded() {
 		return s.Label + " was not running", nil
 	}
-	_, target := s.target()
-	if out, err := s.Launchctl("bootout", target); err != nil {
-		return "", fmt.Errorf("launchctl bootout: %s", out)
+	if err := s.unload(); err != nil {
+		return "", err
 	}
 	return "stopped " + s.Label, nil
 }
@@ -611,6 +638,18 @@ func (s *Service) keptEnv() (claude, path string) {
 	return claude, path
 }
 
+// lookPath is name's executable in the first folder of path that holds one, "" when none does.
+func lookPath(name, path string) string {
+	for _, d := range filepath.SplitList(path) {
+		if f := filepath.Join(d, name); d != "" {
+			if fi, err := os.Stat(f); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+				return f
+			}
+		}
+	}
+	return ""
+}
+
 // plist is the job: the current version's daemon (its defaults are the service's), kept alive and throttled so a crash loop cannot
 // run away. keep takes the claude binary and PATH from the job file there, when it names them, over this process's.
 func (s *Service) plist(keep bool) (string, error) {
@@ -626,10 +665,10 @@ func (s *Service) plist(keep bool) (string, error) {
 		}
 	}
 	if claude == "" {
-		var err error
-		if claude, err = exec.LookPath("claude"); err != nil {
-			return "", fmt.Errorf("no claude binary on PATH for -claude")
-		}
+		claude = lookPath("claude", path)
+	}
+	if claude == "" {
+		return "", fmt.Errorf("no claude binary on PATH for -claude")
 	}
 	argv := []string{filepath.Join(s.Bin, current, "handlined")}
 	if paths.IsLive(s.Home) {

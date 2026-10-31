@@ -146,9 +146,9 @@ func TestABrokenUpgradeRollsBackToTheVersionThatRan(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "rolled back to v2") {
 		t.Fatalf("broken upgrade: %v", err)
 	}
-	r.want("v2", "v1", "v1", "v2") // the broken one is not kept to be rolled back to
-	if r.count("handover") != 2 || r.count("kickstart") != 0 || r.pid != 2 {
-		t.Errorf("handovers %d kickstarts %d pid %d, want 2 (v2, v3) 0 2 (v3 exited and launchd started v2): %v", r.count("handover"), r.count("kickstart"), r.pid, r.calls)
+	r.want("v2", "v1", "v1", "v2")                             // the broken one is not kept to be rolled back to
+	if r.count("handover") != 0 || r.count("kickstart") != 3 { // "v2" names no sha for daemon.upgrade: launchd restarts
+		t.Errorf("handovers %d kickstarts %d, want 0 3 (v2, v3, back to v2): %v", r.count("handover"), r.count("kickstart"), r.calls)
 	}
 
 	if msg, err := r.s.Rollback(); err != nil || msg != "rolled back v2 -> v1" {
@@ -350,7 +350,7 @@ func TestEnsureTakesOverAHandWrittenJobOnce(t *testing.T) {
 	if strings.Contains(string(plist), "land-repo") || strings.Contains(string(plist), old) {
 		t.Errorf("the hand-written job's program or flags are still there:\n%s", plist)
 	}
-	if want, _ := filepath.EvalSymlinks(filepath.Join(r.s.Bin, "v1", "handlined")); strings.Join(r.calls, " ") != "print bootout print bootstrap print enable" || r.exe != want {
+	if want, _ := filepath.EvalSymlinks(filepath.Join(r.s.Bin, "v1", "handlined")); strings.Join(r.calls, " ") != "print print bootout print bootstrap print enable" || r.exe != want {
 		t.Fatalf("calls %v, running %s", r.calls, r.exe)
 	}
 
@@ -383,32 +383,30 @@ func TestEnsureHandsANewVersionToTheRunningDaemon(t *testing.T) {
 
 func TestEnsureKeepsTheRunningVersionWhenTheNewOneFails(t *testing.T) {
 	r := newRig(t)
-	r.s.Ensure(r.build("v1", false))
-	got := r.s.Ensure(r.build("v2", true))
-	if got.State != "kept" || got.Version != "v1" || !strings.Contains(got.Reason, "rolled back to v1") {
+	r.s.Ensure(r.build("1+aaaaaaa", false))
+	got := r.s.Ensure(r.build("2+bbbbbbb", true))
+	if got.State != "kept" || got.Version != "1+aaaaaaa" || !strings.Contains(got.Reason, "rolled back to 1+aaaaaaa") {
 		t.Fatalf("%+v", got)
 	}
-	r.want("v1", "", "v1")
-	if v, err := r.s.Probe(); v != "v1" || err != nil {
+	r.want("1+aaaaaaa", "", "1+aaaaaaa")
+	if v, err := r.s.Probe(); v != "1+aaaaaaa" || err != nil {
 		t.Fatalf("running %q %v", v, err)
 	}
 
-	throttleWait = 0
-	t.Cleanup(func() { throttleWait = throttle * time.Second })
-	r.failing["v1"] = true // and now v1 will not start either
-	if got = r.s.Ensure(r.build("v2", true)); got.State != "failed" || !strings.Contains(got.Reason, "going back to v1 failed too") {
+	r.failing["1+aaaaaaa"] = true // and now 1+aaaaaaa will not start either
+	if got = r.s.Ensure(r.build("2+bbbbbbb", true)); got.State != "failed" || !strings.Contains(got.Reason, "going back to 1+aaaaaaa failed too") {
 		t.Fatalf("nothing answers: %+v", got)
 	}
-	delete(r.failing, "v1")
-	r.s.Ensure(r.build("v1", false))
+	delete(r.failing, "1+aaaaaaa")
+	r.s.Ensure(r.build("1+aaaaaaa", false))
 
 	r.calls = nil
-	r.refuse = errors.New("v3 does not start")
-	got = r.s.Ensure(r.build("v3", false))
-	if got.State != "kept" || !strings.Contains(got.Reason, "v3 does not start") || r.count("kickstart") != 0 {
+	r.refuse = errors.New("3+ccccccc does not start")
+	got = r.s.Ensure(r.build("3+ccccccc", false))
+	if got.State != "kept" || !strings.Contains(got.Reason, "3+ccccccc does not start") || r.count("kickstart") != 0 {
 		t.Fatalf("a refused handover: %+v %v", got, r.calls)
 	}
-	r.want("v1", "v2", "v1", "v2") // as the double failure left them: v3 is gone
+	r.want("1+aaaaaaa", "2+bbbbbbb", "1+aaaaaaa", "2+bbbbbbb") // as the double failure left them: 3+ccccccc is gone
 }
 
 func TestEnsureRestartsAJobWhoseDaemonDoesNotAnswer(t *testing.T) {
@@ -450,7 +448,7 @@ func TestStopUnloadsTheJobAndKeepsItsFile(t *testing.T) {
 	if msg, _ := r.s.Stop(); msg != "test.handline.service was not running" {
 		t.Error(msg)
 	}
-	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" || !r.loaded {
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" || got.Reason != "the job was not loaded" || !r.loaded {
 		t.Fatalf("the next app launch: %+v", got)
 	}
 	r.s.Label = LiveLabel
@@ -460,9 +458,51 @@ func TestStopUnloadsTheJobAndKeepsItsFile(t *testing.T) {
 }
 
 func TestShaOf(t *testing.T) {
-	for v, want := range map[string]string{"1.2.0+abc1234": "abc1234", "1.2.0+abc1234-dirty": "abc1234", "93c3e5b83": "93c3e5b83"} {
+	for v, want := range map[string]string{"1.2.0+abc1234": "abc1234", "1.2.0+abc1234-dirty": "abc1234", "93c3e5b83": "93c3e5b83", "1.2.0": "", "v1": ""} {
 		if got := shaOf(v); got != want {
 			t.Errorf("%s: %s", v, got)
 		}
 	}
+}
+
+func TestATakeoverThatDoesNotAnswerPutsTheHandWrittenJobBack(t *testing.T) {
+	r := newRig(t)
+	old := r.build("v0", false)
+	r.handWritten(filepath.Join(old, "handlined"))
+	hand, _ := os.ReadFile(r.s.Plist)
+	r.loaded, r.exe = true, filepath.Join(old, "handlined")
+	got := r.s.Ensure(r.build("v1", true))
+	if got.State != "kept" || !strings.Contains(got.Reason, "the job that was there is back") {
+		t.Fatalf("%+v", got)
+	}
+	if now, _ := os.ReadFile(r.s.Plist); string(now) != string(hand) || !r.loaded {
+		t.Fatalf("the hand-written job is not back (loaded %v):\n%s", r.loaded, now)
+	}
+	r.want("", "")
+}
+
+func TestEnsureFindsClaudeOnTheKeptPathWhenItsFileMoved(t *testing.T) {
+	r := newRig(t)
+	old := r.build("v0", false)
+	claude, _ := r.handWritten(filepath.Join(old, "handlined"))
+	moved := filepath.Join(filepath.Dir(claude), "claude")
+	os.Rename(claude, claude+".old")
+	os.WriteFile(moved, []byte("#!/bin/sh\n"), 0o755) // an update put it back under the same folder on the kept PATH
+	os.Remove(claude + ".old")
+	os.WriteFile(r.s.Plist, []byte(strings.Replace(mustRead(t, r.s.Plist), "<string>"+claude+"</string>", "<string>/gone/claude</string>", 1)), 0o644)
+	t.Setenv("PATH", "/usr/bin:/bin")
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" {
+		t.Fatalf("%+v", got)
+	}
+	if !strings.Contains(mustRead(t, r.s.Plist), "<string>-claude</string><string>"+moved+"</string>") {
+		t.Fatal(mustRead(t, r.s.Plist))
+	}
+}
+
+func mustRead(t *testing.T, p string) string {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
