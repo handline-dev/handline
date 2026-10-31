@@ -1,6 +1,7 @@
 // The task detail's presentational parts: the assignee, priority and time box chips, the link sections and the cancel sheet.
 import { useState } from 'react';
 import { Clock, Flag, User } from 'lucide-react';
+import { useTasks } from '@handline/app-data';
 import { isGate, taskRef, timeBoxText, watchLine } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { Icon, type IconName } from '#src/ui/Icon.tsx';
@@ -118,6 +119,7 @@ export function TaskChips({ t, now, me }: { t: Detail; now: number; me: string }
 
 /** The waits-on and sub-task lists: one heading, one link per row. */
 export function TaskLinks({ icon, label, items }: { icon: IconName; label: string; items: { task: number; reason?: string }[] }) {
+  const titles = new Map((useTasks({}).data?.items ?? []).map((x) => [x.id, x.title]));
   return (
     <>
       <h3 className={H3}>
@@ -127,6 +129,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
         {items.map((b) => (
           <li key={b.task} className={LI}>
             <Id href={`#/tasks/${b.task}`}>{taskRef(b.task)}</Id>{' '}
+            {titles.has(b.task) ? <span className="min-w-0 truncate">{titles.get(b.task)}</span> : null}{' '}
             {b.reason !== undefined ? <span className="muted">{b.reason}</span> : null}
           </li>
         ))}

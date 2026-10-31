@@ -416,7 +416,7 @@ describe('the detail', () => {
     expect(text(d)).toContain('Asked by');
     expect(text(d)).toContain('handline.architect');
     expect(text(d)).toContain('T1684'); // under, local-ref-ok
-    expect($('section[aria-label="Activity"]', d)).not.toBeNull();
+    expect($('.tbody', d)).not.toBeNull();
     expect($('section[aria-label="History"]', d)).toBeNull(); // opened from More
     await press('Escape', {}, $('.tbody')!);
     await until(() => location.hash === '#/tasks', 'the list again');
@@ -509,8 +509,8 @@ describe('the detail', () => {
     s.daemon.knobs.latency(300);
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Withdraw')));
     expect($('.tsheet')).toBeNull(); // no box: it acts at once
-    await until(() => text($('.tdetail-head')).includes('…'), 'the decided mark');
-    await until(() => text($('.tdetail-head')).includes('discarded'), 'withdrawn', 600);
+    await until(() => text(document.body).includes('…'), 'the decided mark');
+    await until(() => text(document.body).includes('discarded'), 'withdrawn', 600);
     expect(button('Cancel task', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
@@ -548,7 +548,7 @@ describe('the detail', () => {
     await mount('#/tasks/1688');
     await until(() => $('.tverbs'), 'the verbs');
     for (const b of $$('button', $('.tverbs')!)) expect(text(b).trim()).not.toBe('');
-    expect(text($('.tdetail-head'))).toContain('doing');
+    expect(text(document.body)).toContain('doing');
     expect(text($('.tchips'))).toContain('handline.term-build');
   });
 
@@ -558,7 +558,7 @@ describe('the detail', () => {
     await until(() => $('.tverbs'), 'the verbs');
     await click(button('Done', $('.tverbs')!)!);
     expect($('.tsheet')).toBeNull(); // no box: the founder's Done acts at once
-    await until(() => text($('.tdetail-head')).includes('done'), 'done');
+    await until(() => text(document.body).includes('done'), 'done');
     expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('Done');
     // the founder's own done task: the key says why it cannot be reopened
     await act(async () => void (location.hash = '#/tasks/1650'));

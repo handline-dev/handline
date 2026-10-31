@@ -3,7 +3,7 @@
 // A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { TaskNotes } from '#src/PhotoNotes.tsx';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { dateTime, dueOf, HELD, isPerson, splitNew, taskRef, watchResult } from '@handline/app-core';
+import { ago, dateTime, dueOf, HELD, isPerson, splitNew, taskRef, watchResult } from '@handline/app-core';
 import { useHello, useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
@@ -55,6 +55,7 @@ export function TaskDetail({
         <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
           {/* A flex-1 row, not a truncating heading: the title takes the bar's free width (a long one truncates), the field what the ref leaves and its focus ring is not clipped. */}
           <PageTitle className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            {q.data ? <TaskState t={q.data} /> : null}
             <span className="flex-none">{taskRef(id)}</span>
             {q.data ? (
               <span className="title-slot min-w-0 flex-1 [&>[role=button]]:block [&>[role=button]]:truncate">
@@ -93,6 +94,21 @@ export function TaskDetail({
   );
 }
 
+/** The state as one icon and word, the same shape for every state, with the mark of a change the daemon has not yet answered. */
+function TaskState({ t }: { t: Detail }) {
+  const authored = [...usePending('task.edit'), ...usePending('task.done'), ...usePending('task.queue'), ...usePending('task.draft')].some(
+    (v) => ('task' in v ? v.task === t.id : v.tasks.includes(t.id)),
+  );
+  const decided = [
+    ...usePending('task.withdraw'),
+    ...usePending('task.cancel'),
+    ...usePending('task.discard'),
+    ...usePending('task.reopen'),
+  ].some((v) => v.task === t.id);
+  const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
+  return <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />;
+}
+
 /** The task's title, where the person edits it: in the top bar on a page of its own, in the body's heading elsewhere. */
 function TitleEdit({ t, bar }: { t: Detail; bar?: boolean }) {
   const edit = useEditTask(t);
@@ -115,6 +131,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   const [dialog, setDialog] = useState<TaskDialog>(null);
   const [history, setHistory] = useState(false);
   const commentBox = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   const edit = useEditTask(t);
   const queue = useWrite('task.queue');
   const draft = useWrite('task.draft');
@@ -132,15 +149,6 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
     cancel: useCan('task.cancel'),
     release: useCan('task.release'),
   };
-  const authored = [...usePending('task.edit'), ...usePending('task.done'), ...usePending('task.queue'), ...usePending('task.draft')].some(
-    (v) => ('task' in v ? v.task === t.id : v.tasks.includes(t.id)),
-  );
-  const decided = [
-    ...usePending('task.withdraw'),
-    ...usePending('task.cancel'),
-    ...usePending('task.discard'),
-    ...usePending('task.reopen'),
-  ].some((v) => v.task === t.id);
   const open = !CLOSED.includes(t.state);
   const mine = t.from === me;
   const running = t.state === 'doing';
@@ -222,35 +230,32 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   ];
   const end = t.time?.end ? Date.parse(t.time.end) : NaN;
   const rest = open && !Number.isNaN(end) ? Math.max(0, (end - now) / 1000) : 0;
-  const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
-  const statusControl = status.length ? (
-    <MenuButton
-      label="Status"
-      variant="outline"
-      size="sm"
-      align="start"
-      trigger={<StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />}
-    >
-      {status.map((v) => (
-        <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
-          {v.label}
-        </MenuItem>
-      ))}
-    </MenuButton>
-  ) : (
-    <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
-  );
   return (
     <TaskNotes task={t.id}>
       <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
         <header className="tdetail-head flex flex-wrap items-baseline gap-2">
-          {statusControl}
           {barNamed ? null : (
-            <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
+            <h2 className={`m-0 flex min-w-0 items-baseline gap-1.5 text-lg font-semibold`}>
+              <TaskState t={t} />
               <span>{taskRef(t.id)}</span> <TitleEdit t={t} />
             </h2>
           )}
-          <span className="relative ml-auto inline-flex">
+          <div className="relative ml-auto inline-flex items-center gap-1.5">
+            <div className="tverbs flex items-center gap-1.5" role="toolbar" aria-label="Task actions">
+              {main ? (
+                <DsButton
+                  kind="primary"
+                  label={main.label}
+                  title={main.can.why ?? `${main.label} (${main.key})`}
+                  disabled={!main.can.ok || main.busy}
+                  className="max-sm:min-h-[44px]"
+                  onClick={main.run}
+                >
+                  {main.busy ? '…' : main.label}
+                </DsButton>
+              ) : null}
+            </div>
+
             <MenuButton size="sm" icon="ellipsis" label="More" className="max-sm:min-h-[44px]">
               {actions.map((v) => (
                 <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
@@ -260,11 +265,16 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
             </MenuButton>
             <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} />
             <HistoryPopup id={t.id} open={history} onClose={() => setHistory(false)} />
-          </span>
+          </div>
         </header>
         <p className="m-0 mt-1 text-xs text-ink-3">
-          Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
-          {t.done ? ` · closed ${dateTime(t.done)}` : ''}
+          Asked by <AgentLink name={t.from} /> · created <span title={dateTime(t.created)}>{ago(t.created, now)}</span>
+          {t.done ? (
+            <>
+              {' '}
+              · closed <span title={dateTime(t.done)}>{ago(t.done, now)}</span>
+            </>
+          ) : null}
           {t.parent ? (
             <>
               {' '}
@@ -300,26 +310,13 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
 
         <Result t={t} can={edit.can.ok && t.state === 'done'} />
 
-        <Activity t={t} box={commentBox} />
+        <Activity t={t} box={commentBox} slot={slot} />
 
         {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
         <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-inherit px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-1.5">
           <AskSheets t={t} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
-          <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
-            {main ? (
-              <DsButton
-                kind="primary"
-                label={main.label}
-                title={main.can.why ?? `${main.label} (${main.key})`}
-                disabled={!main.can.ok || main.busy}
-                className="max-sm:min-h-[44px]"
-                onClick={main.run}
-              >
-                {main.busy ? '…' : main.label}
-              </DsButton>
-            ) : null}
-          </div>
+          <div ref={setSlot} />
         </div>
       </div>
       <TaskDialogs t={t} which={dialog} onClose={() => setDialog(null)} />

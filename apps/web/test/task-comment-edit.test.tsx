@@ -24,7 +24,7 @@ const memory = (): KV => {
 
 let root: Root | null = null;
 let box: HTMLElement;
-const section = () => box.querySelector<HTMLElement>('section[aria-label="Activity"]');
+const section = () => box.querySelector<HTMLElement>('.tbody');
 const comments = () => [...section()!.querySelectorAll<HTMLElement>('.comment')];
 const button = (el: HTMLElement, label: string) =>
   [...el.querySelectorAll('button')].find((b) => b.textContent === label || b.getAttribute('aria-label') === label) as

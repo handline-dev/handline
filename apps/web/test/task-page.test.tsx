@@ -111,8 +111,8 @@ describe('the task page', () => {
     )!;
     row.notes = [1, 2, 3, 4, 5].map((n) => ({ at: `2026-01-0${n}T10:00:00.000Z`, who: 'handline.pc', text: `note ${n}` }));
     await mount('#/tasks/1688', s);
-    await until(() => $('section[aria-label="Activity"] .tevent'), 'the events');
-    const act_ = $('section[aria-label="Activity"]')!;
+    await until(() => $('.tbody .tevent'), 'the events');
+    const act_ = $('.tbody')!;
     expect($$('.tevent', act_)).toHaveLength(3);
     expect(text(act_)).toContain('Show 2 earlier events');
     expect(text(act_)).toContain('handline.pc sent it back');

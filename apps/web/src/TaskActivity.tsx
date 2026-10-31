@@ -1,6 +1,7 @@
 // The Activity of a task, one list: its comments and its events in words (the last three; older ones fold), and the composer under them.
 // `@agent` in a comment tells that agent; the assignee is told by default (the daemon's routing). Images go in as in the description.
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { activityOf, ago, dateTime, foldEvents, involved, isPerson, mentionState, noteIsLong, type ActivityItem } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useAgents, useOff, useWrite } from '@handline/app-data';
@@ -194,7 +195,8 @@ function Event({ item }: { item: ActivityItem }) {
   );
 }
 
-export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement | null> }) {
+/** `slot` is where the composer stands: pinned under the scrolling page; without one it follows the list. */
+export function Activity({ t, box, slot }: { t: Detail; box: RefObject<HTMLDivElement | null>; slot?: HTMLElement | null }) {
   const can = useCan('task.comment.add');
   const add = useWrite('task.comment.add', String(t.id));
   const [text, setText] = useState('');
@@ -218,94 +220,98 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
       { onSuccess: () => (setText(''), setFresh((n) => n + 1), setReplyTo(null)) },
     );
   };
+  const composer = (
+    <div ref={box} className="grid gap-1.5" title={can.why}>
+      {can.ok ? (
+        <>
+          {answering ? (
+            <p className="m-0 flex items-center gap-2 text-xs text-ink-2" data-replying={answering.id}>
+              <span className="min-w-0 flex-1 truncate">{`Replying to ${answering.author}: ${firstLine(answering.text)}`}</span>
+              <Button variant="outline" label="Cancel reply" onClick={() => setReplyTo(null)} />
+            </p>
+          ) : null}
+          <div
+            className="rounded-sm border border-line-strong bg-canvas focus-within:border-ink-3 [&_.body-editor]:border-0 [&_.body-editor]:bg-transparent [&_textarea]:border-0 [&_textarea]:bg-transparent"
+            title="@agent asks that agent. The assignee is told either way."
+          >
+            <BodyEditor
+              plain={editing > 0}
+              compact
+              key={fresh}
+              value={text}
+              onChange={setText}
+              onBusy={setBusy}
+              label="Comment"
+              onSubmit={send}
+              mentions={{ names, near, state: stateOf }}
+              controls={
+                <>
+                  <CommentPicture onAttach={(md) => (setText((v) => [v.trim(), md].filter(Boolean).join('\n')), setFresh((n) => n + 1))} />
+                  <Button
+                    variant="solid"
+                    size="sm"
+                    icon="send"
+                    label="Comment"
+                    keys="⌘↵"
+                    disabled={!text.trim() || busy || add.isPending}
+                    onClick={send}
+                  >
+                    {add.isPending ? 'Sending…' : 'Comment'}
+                  </Button>
+                </>
+              }
+            />
+          </div>
+        </>
+      ) : null}
+      {add.isError ? (
+        <p className="muted m-0" role="alert">
+          {sentence(classify(add.error))}
+        </p>
+      ) : null}
+    </div>
+  );
   return (
-    <section className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Activity">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="m-0 text-sm font-semibold">Activity</h3>
-        <Segmented
-          label="Show"
-          value={show}
-          onChange={setShow}
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'comments', label: 'Comments' },
-            { value: 'changes', label: 'Changes' },
-          ]}
-        />
-      </div>
-      {hidden ? (
-        <button type="button" className="justify-self-start border-0 bg-transparent p-0 text-acc-ink" onClick={() => setAll(true)}>
-          Show {hidden} earlier {hidden === 1 ? 'event' : 'events'}
-        </button>
-      ) : null}
-      {items.length ? (
-        <ul className="tmemos m-0 grid min-w-0 grid-cols-[minmax(0,1fr)] list-none gap-2 p-0">
-          {items.map((i, n) =>
-            i.kind === 'comment' ? (
-              <Comment
-                key={`${n}-${i.memo}`}
-                t={t}
-                item={i}
-                onReply={can.ok ? setReplyTo : undefined}
-                onEditing={(on) => setEditing((n) => Math.max(0, n + (on ? 1 : -1)))}
-              />
-            ) : (
-              <Event key={`${n}-${i.line}`} item={i} />
-            ),
-          )}
-        </ul>
-      ) : null}
-      <div ref={box} className="grid gap-1.5" title={can.why}>
-        {can.ok ? (
-          <>
-            {answering ? (
-              <p className="m-0 flex items-center gap-2 text-xs text-ink-2" data-replying={answering.id}>
-                <span className="min-w-0 flex-1 truncate">{`Replying to ${answering.author}: ${firstLine(answering.text)}`}</span>
-                <Button variant="outline" label="Cancel reply" onClick={() => setReplyTo(null)} />
-              </p>
-            ) : null}
-            <div
-              className="rounded-sm border border-line-strong bg-canvas focus-within:border-ink-3 [&_.body-editor]:border-0 [&_.body-editor]:bg-transparent [&_textarea]:border-0 [&_textarea]:bg-transparent"
-              title="@agent asks that agent. The assignee is told either way."
-            >
-              <BodyEditor
-                plain={editing > 0}
-                compact
-                key={fresh}
-                value={text}
-                onChange={setText}
-                onBusy={setBusy}
-                label="Comment"
-                onSubmit={send}
-                mentions={{ names, near, state: stateOf }}
-                controls={
-                  <>
-                    <CommentPicture
-                      onAttach={(md) => (setText((v) => [v.trim(), md].filter(Boolean).join('\n')), setFresh((n) => n + 1))}
-                    />
-                    <Button
-                      variant="solid"
-                      size="sm"
-                      icon="send"
-                      label="Comment"
-                      keys="⌘↵"
-                      disabled={!text.trim() || busy || add.isPending}
-                      onClick={send}
-                    >
-                      {add.isPending ? 'Sending…' : 'Comment'}
-                    </Button>
-                  </>
-                }
-              />
-            </div>
-          </>
+    <>
+      <section className="mt-8 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 border-t border-line pt-4" aria-label="Activity">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="m-0 text-sm font-semibold">Activity</h3>
+          <Segmented
+            label="Show"
+            value={show}
+            onChange={setShow}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'comments', label: 'Comments' },
+              { value: 'changes', label: 'Changes' },
+            ]}
+          />
+        </div>
+        {hidden ? (
+          <button type="button" className="justify-self-start border-0 bg-transparent p-0 text-acc-ink" onClick={() => setAll(true)}>
+            Show {hidden} earlier {hidden === 1 ? 'event' : 'events'}
+          </button>
         ) : null}
-        {add.isError ? (
-          <p className="muted m-0" role="alert">
-            {sentence(classify(add.error))}
-          </p>
+        {items.length ? (
+          <ul className="tmemos m-0 grid min-w-0 grid-cols-[minmax(0,1fr)] list-none gap-2 p-0">
+            {items.map((i, n) =>
+              i.kind === 'comment' ? (
+                <Comment
+                  key={`${n}-${i.memo}`}
+                  t={t}
+                  item={i}
+                  onReply={can.ok ? setReplyTo : undefined}
+                  onEditing={(on) => setEditing((n) => Math.max(0, n + (on ? 1 : -1)))}
+                />
+              ) : (
+                <Event key={`${n}-${i.line}`} item={i} />
+              ),
+            )}
+          </ul>
         ) : null}
-      </div>
-    </section>
+        {slot === undefined ? composer : null}
+      </section>
+      {slot ? createPortal(composer, slot) : null}
+    </>
   );
 }

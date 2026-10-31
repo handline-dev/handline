@@ -23,7 +23,7 @@ const memory = (): KV => {
 
 let root: Root | null = null;
 let box: HTMLElement;
-const section = () => box.querySelector<HTMLElement>('section[aria-label="Activity"]');
+const section = () => box.querySelector<HTMLElement>('.tbody');
 const send = () => [...section()!.querySelectorAll('button')].find((b) => /^Comment(?!s)/.test(b.textContent ?? '')) as HTMLButtonElement;
 const typeInto = async (value: string) => {
   const el = section()!.querySelector('.ProseMirror')!;

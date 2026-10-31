@@ -68,8 +68,8 @@ export function TimeLine({ id, left, rest, blocked }: { id: number; left?: strin
         className="grid w-full min-w-0 cursor-pointer gap-1.5 border-0 bg-transparent p-0 text-left text-sm text-ink-2"
         onClick={() => setOpen(!open)}
       >
-        <MiniBar rows={rows} whole={whole} className="h-1 w-full" />
-        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
+        <MiniBar rows={rows} whole={whole} className="h-1 w-1/3 min-w-40" />
+        <span className="flex min-w-0 items-center gap-x-3 overflow-hidden whitespace-nowrap">
           {spare && left ? (
             <span>
               <strong className="font-medium text-ink">{left}</strong> of {length(whole)}
@@ -79,12 +79,15 @@ export function TimeLine({ id, left, rest, blocked }: { id: number; left?: strin
               <strong className="font-medium text-ink">{length(seconds)}</strong> in all
             </span>
           )}
-          {totals.map((t) => (
-            <span key={t.label} className="inline-flex items-center gap-1">
-              <span className={`inline-block size-1.5 rounded-full ${TONE[t.label]}`} aria-hidden="true" />
-              {SAY[t.label]} {length(t.seconds)}
-            </span>
-          ))}
+          {[...totals]
+            .sort((a, b) => b.seconds - a.seconds)
+            .slice(0, 3)
+            .map((t) => (
+              <span key={t.label} className="inline-flex items-center gap-1">
+                <span className={`inline-block size-1.5 rounded-full ${TONE[t.label]}`} aria-hidden="true" />
+                {SAY[t.label]} {length(t.seconds)}
+              </span>
+            ))}
           {chip}
         </span>
       </button>

@@ -55,7 +55,7 @@ describe('writing a comment and mentioning an agent', () => {
     await act(
       async () => void area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true })),
     );
-    await until(() => text($('section[aria-label="Activity"]')).includes('sent with the keys'), 'the comment');
+    await until(() => text($('.tbody')).includes('sent with the keys'), 'the comment');
   });
 
   it('the Comment button sits inside the comment box with the editor, and a click on it sends', async () => {
@@ -69,7 +69,7 @@ describe('writing a comment and mentioning an agent', () => {
     const one = send.closest('[title^="@agent asks"]')!; // the one box: the hint is its tooltip
     expect(one.contains($('.body-editor'))).toBe(true);
     await act(async () => void send.click());
-    await until(() => text($('section[aria-label="Activity"]')).includes('sent with the button'), 'the comment');
+    await until(() => text($('.tbody')).includes('sent with the button'), 'the comment');
   });
 
   it('@ in the chat box lists agents and a pick puts the name in', async () => {
