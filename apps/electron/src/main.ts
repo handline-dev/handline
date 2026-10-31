@@ -2,11 +2,12 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, desktopCapturer, ipcMain, Notification, session, shell, type WebContents } from 'electron';
+import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { drawsTray, inBackground } from '#src/background.ts';
 import { isDebugWindow } from '#src/debug-window.ts';
+import { appMenu } from '#src/app-menu.ts';
 import { Desk } from '#src/desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from '#src/editor.ts';
 import { serveCapture } from '#src/capture.ts';
@@ -52,6 +53,7 @@ const gatewaySocket = path.join(home, 'gateway.sock');
 const root = path.resolve(import.meta.dirname, '../../..');
 /** The window always carries its daemon: a built page without `?daemon=` would take its own origin, which here is the static server. */
 let ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : 'ws://127.0.0.1:7777');
+app.setName('Handline'); // the menu bar and the About panel; the bundle name of an unpackaged run is set by launch.ts
 const APP_ICON = path.join(import.meta.dirname, '../assets/icon.png');
 const dist = env('WEB_DIST') ?? carried?.web ?? path.resolve(import.meta.dirname, '../../web/dist');
 
@@ -264,6 +266,12 @@ function handleFounderCalls(origin: string, client: DaemonClient, remote: Remote
   handleOpenIn(origin, client, tmp);
 }
 
+/** The application menu: its Go entries open the window if it is closed, then send the page to their screen. */
+function setMenu(openWindow: () => Promise<void>): void {
+  const go = (screen: string) => void openWindow().then(() => win?.webContents.send(CHANNELS.navigate, { screen, id: '', event: 'menu' }));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(appMenu({ mac: os.platform() === 'darwin', go })));
+}
+
 /** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
 function createWindow(origin: string, onReady: () => void): BrowserWindow {
   const w = new BrowserWindow({
@@ -410,6 +418,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       win = createWindow(origin, show);
       await win.loadURL(`${web.url}?daemon=${encodeURIComponent(ws)}${takeRoute()}`);
     };
+    setMenu(openWindow);
     // The app lives in the tray: closing the last window leaves it running.
     app.on('activate', () => void openWindow());
     app.on('window-all-closed', () => undefined);
