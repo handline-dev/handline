@@ -42,7 +42,14 @@ export class FakeTasks extends TaskVerbs {
 
   edit(p: Record<string, unknown>, agent = false): void {
     const t = this.find(p.task);
-    if (t.state === 'done' || t.state === 'discarded') throw new TaskFailure('refused', `task ${t.id} is closed`);
+    if (t.state === 'discarded' && Object.keys(p).some((k) => !['task', 'body', 'request_id'].includes(k)))
+      throw new TaskFailure('refused', `task ${t.id} is closed`);
+    if (p.evidence !== undefined && agent)
+      throw new TaskFailure('refused', `only the founder can change the result of a done task; add a comment to ${t.id} instead`);
+    if (p.evidence !== undefined && String(p.evidence).trim() === '')
+      throw new TaskFailure('refused', `a done task keeps a result - an empty one would reopen ${t.id}`);
+    if (p.evidence !== undefined && t.state !== 'done')
+      throw new TaskFailure('refused', `task ${t.id} is not done - it has no result to edit yet`);
     if (p.owner !== undefined && !this.isAgent(String(p.owner))) throw new TaskFailure('bad_request', `no agent ${String(p.owner)}`);
     if (p.body !== undefined) this.images(String(p.body), t.body, 'body', agent);
     const waitOn = typeof p.blocked_by === 'number' ? this.find(p.blocked_by).id : null;

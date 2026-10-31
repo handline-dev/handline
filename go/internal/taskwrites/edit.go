@@ -83,7 +83,7 @@ func estimateParam(p map[string]any) (int64, bool, error) {
 type change struct {
 	key      string
 	old, new string
-	body     bool
+	kept     bool // the words are kept apart from the event's text (a body, a result): the reply says only that they changed
 }
 
 // undeliverable is why task t cannot be moved to agent to, or "": the move asks to on behalf of whoever asked the old owner, or the
@@ -137,7 +137,7 @@ func waitIsOwnBookkeeping(tx *sql.Tx, home string, tid, other int64) (bool, erro
 
 // editTask is actions.edit_task: a task's owner, reporter, title, priority, estimate (0 clears it), timeout and/or body changed by anyone;
 // every change is kept as an edit_task event under who made it. It answers the refusal ("" when it edited) and the message.
-func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, title, body *string, priority, estimate, timeoutS *int64) (string, string, error) {
+func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, title, body, evidence *string, priority, estimate, timeoutS *int64) (string, string, error) {
 	t, err := getTask(tx, tid)
 	if err != nil {
 		return "", "", err
@@ -148,14 +148,14 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	if owner != nil && *owner == human && t.Owner != human && by != human {
 		return askFounderInstead, "", nil
 	}
-	reshape := title != nil || priority != nil || estimate != nil || timeoutS != nil || body != nil
+	reshape := title != nil || priority != nil || estimate != nil || timeoutS != nil || body != nil || evidence != nil
 	if owner != nil && *owner != t.Owner && *owner != human {
 		if why, err := undeliverable(tx, t, *owner, home); err != nil || why != "" {
 			return why, "", err
 		}
 	}
 	if owner == nil && reporter == nil && !reshape {
-		return "edit needs a new assignee, a new owner, a new title, a new priority, an estimate, --timeout, a new body, or any of them", "", nil
+		return "edit needs a new assignee, a new owner, a new title, a new priority, an estimate, --timeout, a new body, a new result, or any of them", "", nil
 	}
 	var changes []change
 	var newBody *string
@@ -177,7 +177,24 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 				return "", "", err
 			}
 			newBody, bodyRID = &text, rid
-			changes = append(changes, change{key: "body", old: old, new: text, body: true})
+			changes = append(changes, change{key: "body", old: old, new: text, kept: true})
+		}
+	}
+	var newEvidence *string
+	if evidence != nil {
+		if !t.done() {
+			return fmt.Sprintf("task T%d is not done - it has no result to edit yet; its result is what hl task done writes", tid), "", nil
+		}
+		text := strings.TrimSpace(textsafe.Text(*evidence))
+		if text == "" {
+			return fmt.Sprintf("a done task keeps a result - an empty one would reopen T%d", tid), "", nil
+		}
+		if by != human { // merge tooling lands a PR on this text: an agent adds a comment, it does not rewrite the result
+			return fmt.Sprintf("only the founder can change the result of a done task; add a comment to T%d instead", tid), "", nil
+		}
+		if text != strings.TrimSpace(t.DoneEvidence.String) {
+			newEvidence = &text
+			changes = append(changes, change{key: "evidence", old: t.DoneEvidence.String, new: text, kept: true})
 		}
 	}
 	var newOwner *string
@@ -270,6 +287,11 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 			}
 		}
 	}
+	if newEvidence != nil {
+		if _, err := tx.Exec("UPDATE tasks SET done_evidence = ? WHERE id = ?", *newEvidence, tid); err != nil {
+			return "", "", err
+		}
+	}
 	if newBody != nil {
 		if _, err := tx.Exec("UPDATE requests SET body = ? WHERE id = ?", *newBody, bodyRID); err != nil {
 			return "", "", err
@@ -279,8 +301,8 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	var said []string
 	for _, c := range changes {
 		payload = append(payload, kv{c.key, rpc.Pairs{{K: "old", V: c.old}, {K: "new", V: c.new}}})
-		if c.body {
-			said = append(said, "body changed")
+		if c.kept {
+			said = append(said, c.key+" changed")
 		} else {
 			said = append(said, fmt.Sprintf("%s %s -> %s", saidAs(c.key), pyRepr(c.old), pyRepr(c.new)))
 		}
@@ -348,11 +370,11 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			}
 			return &s, nil
 		}
-		var owner, reporter, title, body *string
+		var owner, reporter, title, body, evidence *string
 		for _, f := range []struct {
 			key string
 			dst **string
-		}{{"owner", &owner}, {"reporter", &reporter}, {"title", &title}, {"body", &body}} {
+		}{{"owner", &owner}, {"reporter", &reporter}, {"title", &title}, {"body", &body}, {"evidence", &evidence}} {
 			if *f.dst, err = optText(f.key); err != nil {
 				return nil, err
 			}
@@ -405,9 +427,9 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			}
 			pr = n
 		}
-		fields := owner != nil || reporter != nil || title != nil || body != nil || timeoutS != nil || priority != nil || estimate != nil
+		fields := owner != nil || reporter != nil || title != nil || body != nil || evidence != nil || timeoutS != nil || priority != nil || estimate != nil
 		if !fields && !hasBlocker && !hasUnblock && !hasTags && pr == 0 {
-			return nil, badParam("edit needs an owner, a reporter, a title, a priority, an estimate, a body, a time_box, blocked_by, unblock, add_tags, remove_tags or pr", "")
+			return nil, badParam("edit needs an owner, a reporter, a title, a priority, an estimate, a body, an evidence, a time_box, blocked_by, unblock, add_tags, remove_tags or pr", "")
 		}
 		for _, who := range []*string{owner, reporter} {
 			if who != nil && *who != human && !contains(paths.ListAgents(home), *who) {
@@ -428,7 +450,7 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			}
 			var msgs, tellMsgs []string
 			if fields {
-				why, msg, err := editTask(tx, tid, me, home, owner, reporter, title, body, priority, estimate, timeoutS)
+				why, msg, err := editTask(tx, tid, me, home, owner, reporter, title, body, evidence, priority, estimate, timeoutS)
 				if err != nil {
 					return nil, err
 				}
