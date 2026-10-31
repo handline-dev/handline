@@ -166,6 +166,57 @@
      }
     }
    ]
+  },
+  {
+   "name": "requests.list.each_row_tells_its_progress",
+   "spec": "requests.list",
+   "as": "founder",
+   "about": "Every row has `now` (an agent or null), `blocked` and a `progress` line.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "requests.list",
+      "params": {}
+     },
+     "result": {
+      "items": {
+       "$each": {
+        "now": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "blocked": {
+         "$type": "boolean"
+        },
+        "progress": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
   }
  ]
 }

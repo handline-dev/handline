@@ -1224,6 +1224,25 @@
       },
       "description": "PRs of the open tasks in the tree."
      },
+     "now": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The agent holding the open task with the latest activity under the request (the one at work now); null once done, when the founder holds the open one, or for a message."
+     },
+     "blocked": {
+      "type": "boolean",
+      "description": "The open task named by `now` waits on another open task (task_blocks, not dormant)."
+     },
+     "progress": {
+      "type": "string",
+      "description": "The request's state in one line for the list, from the same facts as the fields: `sub 3/5 done, now daemon-core, in review` (subtasks done of all under the request's own task; the agent at work now; `in review` with a PR, `waiting on you`, `blocked`). Without subtasks `now daemon-core, in review`; empty for a message; `done` once done."
+     },
      "reason": {
       "oneOf": [
        {
@@ -1261,6 +1280,9 @@
      "open",
      "done",
      "prs",
+     "now",
+     "blocked",
+     "progress",
      "reason",
      "unread_comments",
      "created",
@@ -1268,7 +1290,7 @@
      "cursor"
     ],
     "additionalProperties": true,
-    "description": "One row of the founder's requests."
+    "description": "One row of the founder's requests. A request is a task whose reporter is the founder (a task opened by them or made from their message), top of its tree."
    },
    "CommandRun": {
     "type": "object",
