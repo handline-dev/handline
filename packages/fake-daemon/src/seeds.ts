@@ -194,10 +194,10 @@ export const SEEDS: Record<string, Seed> = {
   ...CHAT_SEEDS,
 };
 
-/** Switches the named seeds on: a comma-separated list, or `all`. An unknown name is an error, not a silent no-op. */
+/** Switches the named seeds on: a comma-separated list, or `all`, which leaves out `my-requests`: its tasks grow the page the perf budget measures. An unknown name is an error, not a silent no-op. */
 export function applySeeds(d: FakeDaemon, names: string | string[]): string[] {
   const list = (Array.isArray(names) ? names : names.split(',')).map((n) => n.trim()).filter(Boolean);
-  const on = list.includes('all') ? Object.keys(SEEDS) : list;
+  const on = list.includes('all') ? Object.keys(SEEDS).filter((n) => n !== 'my-requests') : list;
   for (const n of on) {
     const seed = SEEDS[n];
     if (!seed) throw new Error(`no seed "${n}"; known: ${Object.keys(SEEDS).join(', ')}, all`);
