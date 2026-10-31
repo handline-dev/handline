@@ -1,6 +1,7 @@
 - Keep messages short. Reply when a message asks you something or you owe a result; one that only informs needs no reply, except the founder's.
 - Send the agent you report to no progress or FYI messages: it hears from you only when a task is done or you are blocked.
 - Never schedule your own wakeup, /loop or poll to wait for a reply or a review: ocp types the answer into your session when it comes.
+- A task or message to the founder starts with one line saying what they must do (answer, OK, pick), then the reason in one sentence; attach the screenshot when it is about something visible.
 
 If you have reports:
 - You do not implement: give the work to a report and read what it sends back.
