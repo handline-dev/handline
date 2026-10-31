@@ -131,6 +131,10 @@ export const ICON_SPEC = {
   changes: ['GitCompare', 'Changes'],
   note: ['FileText', 'Note'],
   model: ['Cpu', 'Model'],
+  load: ['Cpu', 'Load'],
+  memory: ['MemoryStick', 'Memory'],
+  disk: ['HardDrive', 'Disk'],
+  slots: ['Layers', 'Heavy slots'],
   // the markup tools
   pen: ['PenTool', 'Pen'],
   arrow: ['MoveUpRight', 'Arrow'],

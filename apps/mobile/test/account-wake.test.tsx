@@ -1,4 +1,4 @@
-// A stalled account on the phone's Accounts tab, on the fake daemon: STALLED and its reason on the list and the page, Wake ends it, a refusal says why.
+// A stalled account on the phone's Accounts tab, on the fake daemon: blocked and its reason on the list and the page, Wake ends it, a refusal says why.
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
 import { $, mount, press, text, until } from '#test/harness.tsx';
@@ -15,13 +15,13 @@ async function open(prepare = stall, role: 'founder' | 'member' = 'founder') {
 }
 
 describe('a stalled account', () => {
-  it('shows STALLED and its reason on the list, and Wake ends it', async () => {
+  it('shows blocked and its reason on the list, and Wake ends it', async () => {
     const m = await open();
-    expect(text($('stall-beta'))).toContain('STALLED');
+    expect(text($('stall-beta'))).toContain('blocked');
     expect(text($('stall-beta'))).toContain('login expired');
     expect($('stall-alpha')).toBeNull();
     await press($('wake-beta'));
-    await until(() => $('stall-beta') === null, 'the row to lose STALLED');
+    await until(() => $('stall-beta') === null, 'the row to lose blocked');
     await until(() => stalled(m) === null, 'the daemon');
     m.store.stop();
   }, 20000);
@@ -30,9 +30,9 @@ describe('a stalled account', () => {
     const m = await open();
     await press($('account-beta'));
     await until(() => $('account-detail'), 'the account');
-    expect(text($('account-detail'))).toContain('STALLED');
+    expect(text($('account-detail'))).toContain('blocked');
     await press($('wake-beta'));
-    await until(() => !text($('account-detail')).includes('STALLED'), 'the page to lose STALLED');
+    await until(() => !text($('account-detail')).includes('blocked'), 'the page to lose blocked');
     m.store.stop();
   }, 20000);
 
@@ -41,13 +41,13 @@ describe('a stalled account', () => {
     m.daemon.knobs.refuse('account.wake', 'state', 'the account is held by billing');
     await press($('wake-beta'));
     await until(() => text($('wake-error-beta')).includes('held by billing'), 'the reason', 3000);
-    expect(text($('stall-beta'))).toContain('STALLED');
+    expect(text($('stall-beta'))).toContain('blocked');
     m.store.stop();
   }, 20000);
 
   it('shows no Wake to a member phone', async () => {
     const member = await open(stall, 'member');
-    expect(text($('stall-beta'))).toContain('STALLED');
+    expect(text($('stall-beta'))).toContain('blocked');
     expect($('wake-beta')).toBeNull();
     member.store.stop();
   }, 20000);
@@ -57,7 +57,7 @@ describe('a stalled account', () => {
       stall(s);
       s.daemon.knobs.unserve('account.wake');
     });
-    expect(text($('stall-beta'))).toContain('STALLED');
+    expect(text($('stall-beta'))).toContain('blocked');
     expect($('wake-beta')).toBeNull();
     m.store.stop();
   }, 20000);
