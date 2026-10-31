@@ -7,11 +7,11 @@ import { useRequests, useTasks } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
-import { EmptyState } from '#src/screens/parts.tsx';
+import { EmptyState, Pill } from '#src/screens/parts.tsx';
 
 const GROUPS: [string, IconName][] = [
   ['Waiting on you', 'needs'],
-  ['Blocked', 'blocked'],
+  ['Blocked', 'paused'],
   ['Being worked', 'working'],
   ['Not taken yet', 'taskPending'],
 ];
@@ -37,33 +37,17 @@ export function useMyRequests() {
   };
 }
 
-/** "My requests 6" beside Open and Closed; on, it reads "My requests 6 ×" and the × takes it off. */
+/** "My requests 6" beside the scope pills; on, it reads "✓ My requests 6 ×" and the × takes it off. */
 export function MyRequestsChip(props: { count: number; on: boolean; onToggle: () => void }) {
   const c = usePalette();
   return (
-    <Pressable
+    <Pill
       testID="my-requests-chip"
-      accessibilityRole="button"
-      accessibilityState={{ selected: props.on }}
-      accessibilityLabel={props.on ? `My requests ${props.count}, show all tasks` : `My requests ${props.count}`}
+      on={props.on}
+      label={`My requests ${props.count}`}
       onPress={props.onToggle}
-      style={{
-        minHeight: 44,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: space.sm,
-        borderWidth: 1,
-        borderColor: c.line,
-        borderRadius: 999,
-        paddingHorizontal: space.md,
-        backgroundColor: props.on ? c.panel : undefined,
-      }}
-    >
-      <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>
-        My requests <Text style={{ color: c.muted }}>{props.count}</Text>
-      </Text>
-      {props.on ? <Icon name="close" color={c.muted} size={14} decorative /> : null}
-    </Pressable>
+      trailing={<Icon name="close" color={c.muted} size={14} decorative />}
+    />
   );
 }
 
@@ -75,15 +59,10 @@ function Line(props: { r: RequestRow; onTask: (id: number) => void }) {
   if (blockedNow(r) || waits != null)
     return (
       <View testID="my-request-blocked" style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-        <Icon name="blocked" color={c.wait} size={14} decorative />
+        <Icon name="paused" color={c.wait} size={14} decorative />
         <Text style={{ ...small, color: c.wait }}>{waits != null ? 'Blocked on' : 'Blocked'}</Text>
         {waits != null ? (
-          <Pressable
-            testID="my-request-blocker"
-            accessibilityRole="link"
-            onPress={() => props.onTask(waits)}
-            style={{ minHeight: 32, justifyContent: 'center' }}
-          >
+          <Pressable testID="my-request-blocker" accessibilityRole="link" onPress={() => props.onTask(waits)} hitSlop={space.sm}>
             <Text style={{ ...small, color: c.wait, textDecorationLine: 'underline' }}>{taskRef(waits)}</Text>
           </Pressable>
         ) : null}
@@ -92,7 +71,7 @@ function Line(props: { r: RequestRow; onTask: (id: number) => void }) {
   const total = r.open + r.done;
   const line = [
     total ? `${r.done} of ${total} done` : '',
-    nowOf(r) ? `now ${short(nowOf(r)!)}` : r.status === 'waiting_on_you' ? 'waiting on you' : 'not taken yet',
+    r.status === 'waiting_on_you' ? 'waiting on you' : nowOf(r) ? `now ${short(nowOf(r)!)}` : 'not taken yet',
     r.status === 'review' ? 'in review' : '',
   ]
     .filter(Boolean)

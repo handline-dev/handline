@@ -33,13 +33,22 @@ const seed = (s: ReturnType<typeof setup>) => {
   });
   s.daemon.requests.add({ title: 'Closed tasks by day', task: 7133, open: 0, done: 0 });
   s.daemon.requests.add({ title: 'Settings left bar', task: 7102, status: 'waiting_on_you', open: 1, done: 4 });
+  s.daemon.requests.add({
+    title: 'Which build is live',
+    task: 6020,
+    status: 'waiting_on_you',
+    open: 1,
+    done: 0,
+    now: 'handline',
+    holders: ['handline'],
+  });
   s.daemon.requests.add({ title: 'Already done', task: 7001, status: 'done', done: 2 });
 };
 const openList = async () => {
   const m = await mount(seed, undefined, 'founder');
   await press($('nav-tasks'));
   await until(() => $('my-requests-chip'), 'the chip');
-  await until(() => text($('my-requests-chip')).includes('4'), 'the count');
+  await until(() => text($('my-requests-chip')).includes('5'), 'the count');
   await press($('my-requests-chip'));
   await until(() => $('my-requests'), 'the list');
   return m;
@@ -51,6 +60,7 @@ describe('the My requests chip', () => {
     const group = (name: string) => document.querySelector(`[aria-label="${name}"]`);
     expect(text(group('Waiting on you') as HTMLElement)).toContain('Settings left bar');
     expect(text($('my-request-7102'))).toContain('waiting on you'); // not 'not taken yet'
+    expect(text($('my-request-6020'))).toContain('0 of 1 done · waiting on you'); // in this group the line says so, not who works now
     expect(text($('my-request-7110'))).toContain('3 of 5 done · now daemon-core');
     expect(text($('my-request-7133'))).toContain('not taken yet');
     expect(text(group('Blocked') as HTMLElement)).toContain('Status line shape');
@@ -75,5 +85,14 @@ describe('the My requests chip', () => {
     await press($('my-requests-chip'));
     await until(() => !$('my-requests'), 'the list off');
     n.store.stop();
+  });
+
+  it('turns off when Assigned to me or Closed is picked', async () => {
+    for (const scope of ['mine', 'closed']) {
+      const m = await openList();
+      await press($(`scope-${scope}`));
+      await until(() => !$('my-requests'), 'the list off');
+      m.store.stop();
+    }
   });
 });

@@ -1,5 +1,5 @@
 // The Tasks tab: the open tasks the daemon lists (done and discarded are out of the way, as on the web), one task's detail, and the verbs
-// of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Mine / Closed and the state
+// of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Assigned to me / Closed and the state
 // chips narrow the list as on the web.
 import { useState } from 'react';
 import {
@@ -47,7 +47,7 @@ import { MyRequestsChip, MyRequestsList, useMyRequests } from '#src/screens/MyRe
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [
   ['open', 'Open'],
-  ['mine', 'Mine'],
+  ['mine', 'Assigned to me'],
   ['closed', 'Closed'],
 ];
 
@@ -87,7 +87,7 @@ function List(props: { onSelect: (id: number) => void }) {
   const [graph, setGraph] = useHistoryValue('tasks.graph', false);
   const [mineOn, setMineOn] = useHistoryValue('tasks.myRequests', false);
   const my = useMyRequests();
-  const myList = mineOn && scope !== 'closed';
+  const myList = mineOn;
   const [menu, setMenu] = useState(false);
   const [filtering, setFiltering] = useState(false);
   const narrowed = states.size !== defaultFilter().states.size;
@@ -135,9 +135,15 @@ function List(props: { onSelect: (id: number) => void }) {
           {!myList && <TaskSearch value={search} onChange={setSearch} />}
           <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.lg }}>
             {SCOPES.map(([id, label]) => (
-              <Pill key={id} testID={`scope-${id}`} on={scope === id} label={label} onPress={() => setScope(id)} />
+              <Pill
+                key={id}
+                testID={`scope-${id}`}
+                on={scope === id}
+                label={label}
+                onPress={() => (setScope(id), id !== 'open' && setMineOn(false))}
+              />
             ))}
-            {scope !== 'closed' && <MyRequestsChip count={my.rows.length} on={mineOn} onToggle={() => setMineOn(!mineOn)} />}
+            <MyRequestsChip count={my.rows.length} on={mineOn} onToggle={() => (setMineOn(!mineOn), setScope('open'))} />
             {scope !== 'closed' && (
               <Pill testID="filter-toggle" on={filtering || narrowed} label="Filter" onPress={() => setFiltering(!filtering)} />
             )}
