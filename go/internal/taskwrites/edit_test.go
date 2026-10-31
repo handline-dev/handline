@@ -103,15 +103,23 @@ func TestAWaitChangeIsToldToTheLeadOnlyWhenTheBlockerIsHeldOutsideTheTeam(t *tes
 	}
 }
 
-func TestEditAllowsAnEmptyBody(t *testing.T) {
-	db, mk := discardEnv(t)
-	exec(t, db,
-		"INSERT INTO tasks(id, title, owner, opened_by, created_at, priority) VALUES(1, 'old title', 'worker', 'manager', 1, 2)",
-		"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts) VALUES(10, 'manager', 'worker', 'the brief', 'queued', 'task', 10, 1)",
-		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
-	r := call(t, mk("manager", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.edit","params":{"task":1,"body":"  ","request_id":"e1"}}`)
-	if r[0]["result"] == nil || count(t, db, "SELECT COUNT(*) FROM requests WHERE id = 10 AND body = ''") != 1 {
-		t.Fatalf("%v", r[0])
+// The brief is rewritten whatever the task's state, and may become empty.
+func TestEditAllowsAnEmptyBodyAndABodyOnADiscardedTask(t *testing.T) {
+	for _, c := range []struct{ name, task, body, want string }{
+		{"empty", "'old title', 'worker', 'manager', 1, NULL", "  ", ""},
+		{"discarded", "'gone', 'worker', 'manager', 1, 'manager'", "better words", "better words"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			db, mk := discardEnv(t)
+			exec(t, db,
+				"INSERT INTO tasks(id, title, owner, opened_by, created_at, discarded_by) VALUES(1, "+c.task+")",
+				"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts) VALUES(10, 'manager', 'worker', 'the brief', 'queued', 'task', 10, 1)",
+				"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
+			r := call(t, mk("manager", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.edit","params":{"task":1,"body":"`+c.body+`","request_id":"e1"}}`)
+			if r[0]["result"] == nil || count(t, db, "SELECT COUNT(*) FROM requests WHERE id = 10 AND body = '"+c.want+"'") != 1 {
+				t.Fatalf("%v", r[0])
+			}
+		})
 	}
 }
 
@@ -151,18 +159,6 @@ func TestADoneTaskKeepsItsBriefAndResultEditable(t *testing.T) {
 		if n := count(t, db, q); n != want {
 			t.Errorf("%s = %d, want %d", q, n, want)
 		}
-	}
-}
-
-func TestTheBriefOfADiscardedTaskIsEditable(t *testing.T) {
-	db, mk := discardEnv(t)
-	exec(t, db,
-		"INSERT INTO tasks(id, title, owner, opened_by, created_at, discarded_by) VALUES(1, 'gone', 'worker', 'manager', 1, 'manager')",
-		"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts) VALUES(10, 'manager', 'worker', 'the brief', 'queued', 'task', 10, 1)",
-		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
-	r := call(t, mk("manager", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.edit","params":{"task":1,"body":"better words","request_id":"g1"}}`)
-	if r[0]["result"] == nil || count(t, db, "SELECT COUNT(*) FROM requests WHERE id = 10 AND body = 'better words'") != 1 {
-		t.Fatalf("%v", r[0])
 	}
 }
 
