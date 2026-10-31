@@ -56,7 +56,7 @@ describe('Requests: From you', () => {
     expect(text(group('Waiting on you'))).toContain('Which build is live?');
     expect(text(group('Being worked'))).toContain('Show the usage graph first');
     expect(text(group('Being worked'))).toContain('1 of 3'); // one done, two open
-    expect(text(group('Being worked'))).toContain('T6071');
+    expect(text(group('Being worked'))).toContain('T6071'); // local-ref-ok
     expect(text(group('Not taken yet'))).toContain('Why is the build so slow today?');
     expect(group('Done')).toBeNull(); // closed ones are behind Closed
     await click(button('Closed'));
