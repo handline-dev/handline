@@ -8,6 +8,8 @@ import {
   closeTab,
   fitTabs,
   moveTab,
+  fillTab,
+  groupsOf,
   moveTabBy,
   openTab,
   splitPane,
@@ -22,13 +24,16 @@ import {
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { Badges } from '#src/Badges.tsx';
 import { WithKey } from '#src/WithKey.tsx';
-import { OpenInItems } from '#src/OpenInItems.tsx';
 import { showPill } from '#src/Pill.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
 import { lineAt, slotAt } from '#src/tabSlots.ts';
 
-export const tabLabel = (t: Tab, structured = false): string =>
+/** A tab's name; `agent` (two agents side by side) puts whose it is in front. */
+export const tabLabel = (t: Tab, structured = false, agent?: string): string =>
+  agent ? `${agent} · ${plainLabel(t, structured)}` : plainLabel(t, structured);
+
+const plainLabel = (t: Tab, structured: boolean): string =>
   t.kind === 'chat'
     ? 'Chat'
     : t.kind === 'new'
@@ -107,15 +112,17 @@ export function PaneTabs({ group }: { group: Group }) {
   return <TabRun group={group} data={usePaneData(agent)} />;
 }
 
-function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneData }) {
+function TabRun({ group, data: { me, closeShell, openShell } }: { group: Group; data: PaneData }) {
+  const { choices, choose } = useChoices(openShell);
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, apply, show, drop, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, named, apply, show, drop, dragging, setDragging } = useWorkspace();
   const run = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [line, setLine] = useState<number | null>(null);
   const at = useRef(-1);
   const badges = badgesOf(detail, me);
   const structured = detail.structured === true;
+  const label = (t: Tab) => tabLabel(t, structured, named ? agent : undefined);
   useLayoutEffect(() => {
     const el = run.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -193,8 +200,8 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
               } else if (e.key === 'Enter' || e.key === ' ') show(id);
             }}
           >
-            <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={tabLabel(t, structured)} aria-hidden />
-            <span className="tab-label overflow-hidden text-ellipsis">{tabLabel(t, structured)}</span>
+            <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={label(t)} aria-hidden />
+            <span className="tab-label overflow-hidden text-ellipsis">{label(t)}</span>
             {t.kind === 'terminal' || t.kind === 'transcript' ? (
               <>
                 <Badges badges={badges} onClick={{ dialog: () => show(CHAT) }} />
@@ -206,7 +213,7 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
             {id === CHAT ? null : (
               <button
                 className="x inline-flex border-0 bg-transparent p-0.5 text-ink-3 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-aria-selected:opacity-100"
-                aria-label={`Close ${tabLabel(t, structured)}`}
+                aria-label={`Close ${label(t)}`}
                 title={
                   t.kind === 'terminal' || t.kind === 'transcript'
                     ? 'Close the tab; the agent keeps working'
@@ -238,29 +245,13 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
         >
           {more.map((id) => (
             <MenuItem key={id} icon={TAB_ICON[ws.tabs[id]!.kind] ?? 'tasks'} onSelect={() => show(id)}>
-              {tabLabel(ws.tabs[id]!, structured)}
+              {label(ws.tabs[id]!)}
             </MenuItem>
           ))}
         </MenuButton>
       ) : null}
-      {line != null ? (
-        <div className="drop-line pointer-events-none absolute top-1 h-6 w-0.5 rounded-full bg-acc" style={{ left: line - 1 }} />
-      ) : null}
-    </div>
-  );
-}
-
-/** The bar's + and Split for `group`. */
-export function PaneActions({ group }: { group: Group }) {
-  const { agent, detail, apply, canSplit, closeSplit } = useWorkspace();
-  const { choices, choose } = useChoices(usePaneData(agent).openShell);
-  return (
-    <>
-      <MenuButton size="sm" label="Open in" name="Open in" align="end" trigger="Open in" className="shell:[-webkit-app-region:no-drag]">
-        <OpenInItems agent={agent} cwd={detail.cwd} />
-      </MenuButton>
       <WithKey k="⌘T">
-        <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="shell:[-webkit-app-region:no-drag]">
+        <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="flex-none shell:[-webkit-app-region:no-drag]">
           {choices.map((c) => (
             <MenuItem
               key={c.label}
@@ -273,21 +264,42 @@ export function PaneActions({ group }: { group: Group }) {
           ))}
         </MenuButton>
       </WithKey>
-      {closeSplit ? (
-        <Button icon="close" size="sm" label="Close the split" className="shell:[-webkit-app-region:no-drag]" onClick={closeSplit} />
-      ) : (
-        <WithKey k="⌘\">
-          <Button
-            icon="split"
-            size="sm"
-            label="Split this pane"
-            title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
-            disabled={!canSplit(group.id)}
-            className="shell:[-webkit-app-region:no-drag]"
-            onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
-          />
-        </WithKey>
-      )}
-    </>
+      {line != null ? (
+        <div className="drop-line pointer-events-none absolute top-1 h-6 w-0.5 rounded-full bg-acc" style={{ left: line - 1 }} />
+      ) : null}
+    </div>
+  );
+}
+
+/** The bar's Split for `group`: the same chooser as the + after the tabs, so the new pane opens on what was chosen. */
+export function PaneActions({ group }: { group: Group }) {
+  const { agent, canSplit, closeSplit } = useWorkspace();
+  const { choices, choose } = useChoices(usePaneData(agent).openShell);
+  // The new pane holds a "new" tab until what was chosen takes its place.
+  const splitWith = (w: Workspace, kind: TabKind, params: TabParams): Workspace => {
+    const next = splitPane(w, group.id);
+    const fresh = next && groupsOf(next.root).find((g) => g.id === next.active);
+    return next && fresh ? fillTab(next, fresh.activeTab, kind, params) : w;
+  };
+  return closeSplit ? (
+    <Button icon="close" size="sm" label="Close the split" className="shell:[-webkit-app-region:no-drag]" onClick={closeSplit} />
+  ) : (
+    <WithKey k="⌘\">
+      <MenuButton
+        icon="split"
+        size="sm"
+        label="Split this pane"
+        name="Split this pane"
+        align="end"
+        disabled={!canSplit(group.id)}
+        className="shell:[-webkit-app-region:no-drag]"
+      >
+        {choices.map((c) => (
+          <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => void choose(c, splitWith)}>
+            {c.label}
+          </MenuItem>
+        ))}
+      </MenuButton>
+    </WithKey>
   );
 }

@@ -1,6 +1,6 @@
 // One pane: the active tab of its group, a thin handle when the window is split (its tabs are in the top bar, PaneTabs), and while a tab is dragged, the edges it can be dropped on.
 import { useRef } from 'react';
-import { fillTab, groupsOf, moveTab, CHAT, type Group } from '@handline/app-core';
+import { fillTab, groupsOf, type Group } from '@handline/app-core';
 import { ChatTab } from '#src/ChatTab.tsx';
 import { Icon } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
@@ -23,20 +23,13 @@ export function Pane({ group }: { group: Group }) {
 }
 
 function PaneView({ group, data: { openShell, hello } }: { group: Group; data: PaneData }) {
-  const { ws, detail, agent, storage, apply, merged, dragging } = useWorkspace();
+  const { ws, detail, agent, named, storage, apply, merged, dragging } = useWorkspace();
   const handle = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
   const structured = detail.structured === true;
   const { choices, choose } = useChoices(openShell);
   const split = !merged && groupsOf(ws.root).length > 1;
   const focused = ws.active === group.id;
-  // Closing a pane keeps its tabs: they move to the next pane, Chat back to its first place.
-  const closePane = () =>
-    apply((w) => {
-      const into = groupsOf(w.root).find((g) => g.id !== group.id);
-      return into ? group.tabs.reduce((acc, id) => moveTab(acc, id, into.id, id === CHAT ? 0 : undefined), w) : w;
-    });
-
   return (
     <section
       className={`pane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas -outline-offset-1${ws.active === group.id ? ' focus outline-1 outline-[color-mix(in_srgb,var(--acc)_40%,transparent)]' : ''}`}
@@ -50,18 +43,7 @@ function PaneView({ group, data: { openShell, hello } }: { group: Group; data: P
           ref={handle}
         >
           <Icon name={TAB_ICON[tab?.kind ?? 'tasks'] ?? 'tasks'} size={12} aria-hidden />
-          <span className="min-w-0 flex-1 truncate">{tab ? tabLabel(tab, structured) : ''}</span>
-          <button
-            className="pane-close tint inline-flex border-0 bg-transparent p-0.5 text-ink-3"
-            aria-label="Close this pane"
-            title="Close this pane; its tabs move to the next pane"
-            onClick={(e) => {
-              e.stopPropagation();
-              closePane();
-            }}
-          >
-            <Icon name="close" size={12} label="Close this pane" aria-hidden />
-          </button>
+          <span className="min-w-0 flex-1 truncate">{tab ? tabLabel(tab, structured, named ? agent : undefined) : ''}</span>
         </div>
       ) : null}
       <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">

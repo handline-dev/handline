@@ -39,11 +39,14 @@ export function ChatStrip({
   detail,
   to = 'terminal',
   model = true,
+  view = true,
 }: {
   detail: AgentDetail;
   to?: 'chat' | 'terminal';
   /** The model menu: a chat has it in its composer instead. */
   model?: boolean;
+  /** The icon that switches between the chat and Claude Code: the chat's own foot has none (a new tab opens the terminal). */
+  view?: boolean;
 }) {
   const cache = until(detail.cache_until, useNow(30_000));
   const strip = useAgentStrip(detail.name).data;
@@ -52,7 +55,7 @@ export function ChatStrip({
   const used = strip?.ctx_used;
   const limit = strip?.ctx_limit;
   return (
-    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs text-ink-2">
+    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-[12.5px] text-ink-2">
       <AgentGauges
         ctx={ctxPct == null ? null : Math.round(ctxPct)}
         cacheMin={null}
@@ -67,13 +70,13 @@ export function ChatStrip({
         }
       />
       {detail.worktree ? (
-        <span className="branch hidden min-w-0 @[44rem]:inline-flex">
+        <span className="branch inline-flex min-w-0">
           <BranchMenu branch={detail.worktree.branch} changed={changed} />
         </span>
       ) : null}
       <AccountMenu detail={detail} />
       {model ? <ModelMenu detail={detail} /> : null}
-      <ViewSwitch to={to} />
+      {view ? <ViewSwitch to={to} /> : null}
     </div>
   );
 }

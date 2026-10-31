@@ -103,7 +103,7 @@ export function AccountMenu({ detail }: { detail: AgentDetail }) {
       disabled={!served || moving}
       trigger={
         <>
-          <Icon name="accounts" size={13} aria-hidden />
+          <Icon name="owner" size={13} aria-hidden />
           {detail.account}
           {moving ? <span className="muted">moving…</span> : null}
         </>

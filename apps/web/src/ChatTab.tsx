@@ -404,8 +404,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             running={chat.working.turn_running}
           />
           <div className="chat-foot flex h-8 items-center">
-            <div className="mx-3 flex max-w-[680px] min-w-0 flex-1 px-4">
-              <ChatStrip detail={detail} model={false} />
+            <div className="mx-3 flex max-w-[48rem] min-w-0 flex-1 px-4">
+              <ChatStrip detail={detail} model={false} view={false} />
             </div>
           </div>
         </section>

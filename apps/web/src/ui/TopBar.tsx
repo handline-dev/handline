@@ -34,20 +34,22 @@ function TopBar({ lead, notice, slot }: { lead?: ReactNode; notice?: ReactNode; 
 }
 
 /**
- * The bar of a page that has more than a title: the name, then `tabs` taking the free width, then `tools`. It lands in the bar's slot; with no
+ * The bar of a page that has more than a title: the name (an agent page has none: its tabs start the bar), then `tabs` taking the free width, then `tools`. It lands in the bar's slot; with no
  * shell around it stays where it is rendered.
  */
-export function PageBar({ title, tabs, tools }: { title: ReactNode; tabs?: ReactNode; tools?: ReactNode }) {
+export function PageBar({ title, tabs, tools }: { title?: ReactNode; tabs?: ReactNode; tools?: ReactNode }) {
   const slot = usePageBarSlot();
   if (slot === null) return null;
   const bar = (
     <div className="flex min-h-8 min-w-0 flex-1 items-center gap-2">
-      <h2
-        className="m-0 min-w-0 max-w-[45%] flex-none truncate text-xl font-semibold text-ink"
-        title={typeof title === 'string' ? title : undefined}
-      >
-        {title}
-      </h2>
+      {title ? (
+        <h2
+          className="m-0 min-w-0 max-w-[45%] flex-none truncate text-xl font-semibold text-ink"
+          title={typeof title === 'string' ? title : undefined}
+        >
+          {title}
+        </h2>
+      ) : null}
       <div className="flex min-w-0 flex-1 items-center">{tabs}</div>
       <div className="flex flex-none items-center gap-0.5">{tools}</div>
     </div>

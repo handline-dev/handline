@@ -81,13 +81,4 @@ describe('the tabs in the top bar', () => {
     expect(shown().some((id) => id?.startsWith('markdown'))).toBe(true); // picking it shows it, and it takes a place in the run
   });
 
-  it('closing a pane moves its tabs to the next pane; the tabs stay, Chat first', async () => {
-    const w = defaultWorkspace({ terminal: `term:${ARCH}` });
-    await mount(storageWith(splitTab(w, `terminal:term:${ARCH}`, 'g1', 'right')!));
-    await until(() => $$('.pane').length === 2, 'two panes');
-    await click($$('.pane-close')[0]!);
-    await until(() => $$('.pane').length === 1, 'one pane');
-    expect($$('.pane-handle')).toHaveLength(0); // alone again: no handle
-    expect($$('.topbar [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
-  });
 });

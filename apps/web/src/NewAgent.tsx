@@ -3,25 +3,18 @@
 import { EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
 import { useHello } from '@handline/app-react';
 import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from '#src/ui/index.ts';
-import { NAV } from '#src/NavRows.tsx';
 import { goNew, useNewAgentRoute } from '#src/route.ts';
 import { forgetFirstTask, keepFirstTask, NewAgentProgress } from '#src/NewAgentProgress.tsx';
 
 /** Shown only by a daemon without agent.options, which cannot say what accounts there are. */
 const ACCOUNT_NOTE = "A new agent's account is chosen when it starts; none can be named yet.";
 
-/** The sidebar's button; only for the founder, and only on a daemon that lists agent.create. */
+/** The sidebar's + on the Agents line; only for the founder, and only on a daemon that lists agent.create. */
 export function NewAgentButton() {
   const founder = useHello()?.role === 'founder';
   const { served } = useServes('agent.create');
   if (!founder || !served) return null;
-  return (
-    <div className="px-1.5 pb-1">
-      <button className={NAV} onClick={() => goNew()}>
-        <Icon name="plus" size={14} aria-hidden /> New agent
-      </button>
-    </div>
-  );
+  return <Button icon="plus" label="New agent" onClick={() => goNew()} />;
 }
 
 export function NewAgent({ onClose }: { onClose: () => void }) {

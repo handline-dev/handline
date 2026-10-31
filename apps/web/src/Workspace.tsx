@@ -25,12 +25,12 @@ import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useChat, useServes } from '@handline/app-data';
 import { useDecided } from '#src/ChatCards.tsx';
-import { goSettings, recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
+import { recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
 import { onCommand, type CommandName } from '#src/commands.ts';
 import { View } from '#src/View.tsx';
 import { Pane } from '#src/Pane.tsx';
 import { PaneActions, PaneTabs } from '#src/PaneTabs.tsx';
-import { Button, PageBar } from '#src/ui/index.ts';
+import { PageBar } from '#src/ui/index.ts';
 import { isSwitchChord, isTerminalSwitch, terminalOwnsKey } from '#src/terminal/core.ts';
 
 const CELL = 'cell flex min-h-0 min-w-0 [&>*]:min-h-0 [&>*]:min-w-0 [&>*]:flex-1';
@@ -51,6 +51,8 @@ export interface WorkspaceCtx {
   canSplit: (group: string) => boolean;
   /** The groups render as one strip (a narrow window): a drop can only reorder or merge, never split. */
   merged: boolean;
+  /** Two agents sit side by side: a tab says whose it is ("harbor · Chat"). */
+  named: boolean;
   closeSplit?: () => void;
   dragging: string | null;
   setDragging: (tab: string | null) => void;
@@ -88,11 +90,14 @@ export function AgentWorkspace({
   daemon,
   storage,
   active = true,
+  named = false,
   onCloseSplit,
 }: {
   agent: string;
   daemon: string;
   storage: KV | null;
+  /** Two agents are side by side: a tab says whose it is. */
+  named?: boolean;
   /** Whether this is the half the keys and commands go to (always, when the page holds one agent). */
   active?: boolean;
   /** Set on the second half of a two-agent split: its Split button closes the split. */
@@ -119,7 +124,9 @@ export function AgentWorkspace({
         </View>
       </div>
     );
-  return <Loaded agent={agent} detail={q.data} daemon={daemon} storage={storage} active={active} onCloseSplit={onCloseSplit} />;
+  return (
+    <Loaded agent={agent} detail={q.data} daemon={daemon} storage={storage} active={active} named={named} onCloseSplit={onCloseSplit} />
+  );
 }
 
 function Loaded({
@@ -128,6 +135,7 @@ function Loaded({
   daemon,
   storage,
   active: focused,
+  named,
   onCloseSplit,
 }: {
   agent: string;
@@ -135,6 +143,7 @@ function Loaded({
   daemon: string;
   storage: KV | null;
   active: boolean;
+  named: boolean;
   onCloseSplit?: () => void;
 }) {
   // Two halves are mounted at once, but the keys and commands belong to the focused one.
@@ -271,6 +280,7 @@ function Loaded({
       const next = splitPane(ws, id);
       return !!next && !arrange(next, size.w, size.h).merged;
     },
+    named,
     closeSplit: onCloseSplit,
     dragging,
     setDragging,
@@ -291,18 +301,10 @@ function Loaded({
   return (
     <Ctx.Provider value={value}>
       <PageBar
-        title={agent}
         tabs={<PaneTabs group={barGroup} />}
         tools={
           <>
             <PaneActions group={barGroup} />
-            <Button
-              icon="settings"
-              size="sm"
-              label={`${agent} settings`}
-              className="shell:[-webkit-app-region:no-drag]"
-              onClick={() => goSettings(agent)}
-            />
           </>
         }
       />

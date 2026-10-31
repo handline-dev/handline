@@ -125,7 +125,7 @@ export function Sidebar({
       aria-label="Agents"
     >
       {/* The shell's drag strip: row as tall as the top bar, centred on the traffic lights (--h-top and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
-      <div className="rail-top flex items-center gap-0.5 h-[var(--h-top)] px-2.5 shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
+      <div className="rail-top flex items-center justify-end gap-0.5 h-[var(--h-top)] px-2.5 shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
         <WithKey k="⌘B">
           <Button
             className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
@@ -192,8 +192,9 @@ export function Sidebar({
           <Icon name="stats" size={14} aria-hidden /> Usage
         </button>
       </div>
-      <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
-        <span className="rail-opts relative ml-auto inline-flex">
+      <div className="rail-read flex items-center gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
+        <h3 className="agents-head m-0 flex-1 text-xs font-normal uppercase tracking-wide text-ink-3">Agents</h3>
+        <span className="rail-opts relative inline-flex">
           <MenuButton icon="filter" label={nav.hidden.length ? `View: ${nav.hidden.length} hidden` : 'View'} name="View">
             <MenuLabel>Show agents that are</MenuLabel>
             {RAIL_FILTERS.map((f) => {
@@ -231,6 +232,7 @@ export function Sidebar({
             />
           ) : null}
         </span>
+        <NewAgentButton />
       </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
@@ -256,7 +258,6 @@ export function Sidebar({
           })}
         </View>
       </div>
-      <NewAgentButton />
       <footer className="rail-foot flex gap-0.5 border-t border-line px-2 py-1">
         <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
         <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />

@@ -63,6 +63,7 @@ export function SplitView({ agent, beside, daemon, storage }: { agent: string; b
         daemon={daemon}
         storage={storage}
         active={!beside || focus === side}
+        named={!!beside}
         onCloseSplit={side === 'right' ? () => goSplit(agent, null) : undefined}
       />
     </div>

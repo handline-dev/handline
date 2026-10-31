@@ -148,7 +148,8 @@ describe('the workspace', () => {
       expect(p.querySelectorAll('.pane-handle')).toHaveLength(1); // two panes: each has its thin handle, first in the pane
       expect(p.firstElementChild!.classList.contains('pane-handle')).toBe(true);
     }
-    expect(text($('.topbar h2'))).toBe(ARCH); // the agent's name leads the bar
+    expect($('.topbar h2')).toBeNull(); // no agent name in the bar: the tabs start it
+    expect($$('.pane-close')).toHaveLength(0); // a pane has no x of its own: the tabs close
     await focusPane('Chat');
     expect($$('[data-tab="chat"]')).toHaveLength(1);
     expect($('[data-tab="chat"] .x')).toBeNull();

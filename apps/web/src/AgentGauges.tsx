@@ -53,8 +53,11 @@ export function AgentGauges({
     <>
       {ctx !== null ? (
         <Gauge name="Context window" info={ctxInfo}>
-          <Icon name="context" size={12} aria-hidden />
-          <Meter pct={Math.min(100, ctx)} label="Context window" title={`Context window ${ctx}% full`} fill="bg-working" />
+          {/* In words (the chat's foot) the gauge icon and the number say it; the sidebar row has the icon and the bar. */}
+          <Icon name={ctxText ? 'stats' : 'context'} size={ctxText ? 13 : 12} aria-hidden />
+          {ctxText ? null : (
+            <Meter pct={Math.min(100, ctx)} label="Context window" title={`Context window ${ctx}% full`} fill="bg-working" />
+          )}
           {ctxText ? <span className="whitespace-nowrap">{ctxText}</span> : null}
         </Gauge>
       ) : null}
