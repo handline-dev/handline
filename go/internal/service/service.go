@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,8 +16,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessiontoken"
@@ -26,6 +29,7 @@ const (
 	LiveLabel  = "dev.orcapipe.daemon"
 	unloadWait = 30 * time.Second
 	upWait     = 60 * time.Second
+	gatewayUp  = 30 * time.Second
 	throttle   = 30 // seconds launchd waits between starts of a job that keeps exiting
 	current    = "current"
 	previous   = "previous"
@@ -35,7 +39,7 @@ const (
 var binaries = []string{"handlined", "hl"}
 
 // Service is one home's job. Launchctl, Probe, Version and Handover are launchd, the running daemon's version, a binary's own, and
-// daemon.upgrade on the running daemon; tests give their own.
+// daemon.upgrade on the running daemon; tests give their own. Ensure also runs the gateway as a second job beside it.
 type Service struct {
 	Home      string
 	Label     string
@@ -47,6 +51,11 @@ type Service struct {
 	Probe     func() (string, error)
 	Version   func(daemon string) (string, error)
 	Handover  func(exe, sha string) error
+
+	Listen, Advertise string                 // the gateway's -listen and -advertise from the app; an empty Listen keeps the gateway job's
+	GatewayWait       time.Duration          // how long Ensure waits for the gateway to answer
+	GatewayProbe      func() (string, error) // the version the gateway answers on gateway.sock
+	GatewayPid        string                 // the pid file every gateway writes, a hand-run one too
 }
 
 // New is home's service, labelled HANDLINE_SERVICE_LABEL when set (a rehearsal) and the live job's label otherwise.
@@ -67,9 +76,15 @@ func New(home string) *Service {
 			out, err := exec.Command("launchctl", args...).CombinedOutput()
 			return strings.TrimSpace(string(out)), err
 		},
-		Probe:    func() (string, error) { return running(home) },
-		Version:  builtVersion,
-		Handover: func(exe, sha string) error { return handover(home, exe, sha) },
+		Probe:       func() (string, error) { return running(home, hlclient.Dialer(home, 2*time.Second)) },
+		Version:     builtVersion,
+		Handover:    func(exe, sha string) error { return handover(home, exe, sha) },
+		GatewayWait: gatewayUp,
+		GatewayProbe: func() (string, error) {
+			gw := filepath.Join(home, "gateway.sock")
+			return running(home, func() (net.Conn, error) { return net.DialTimeout("unix", gw, 2*time.Second) })
+		},
+		GatewayPid: filepath.Join(authority.Root(home), "gateway", "pid"),
 	}
 }
 
@@ -97,9 +112,9 @@ func shaOf(v string) string {
 	return v
 }
 
-// running is the version the home's daemon says it runs in its hello, without asking launchd to start it.
-func running(home string) (string, error) {
-	c := &hlclient.Client{Home: home, Dial: hlclient.Dialer(home, 2*time.Second), Kick: func() error { return errors.New("not running") }}
+// running is the version the daemon or gateway dial reaches says it runs in its hello, without asking launchd to start it.
+func running(home string, dial func() (net.Conn, error)) (string, error) {
+	c := &hlclient.Client{Home: home, Dial: dial, Kick: func() error { return errors.New("not running") }}
 	res, err := c.Call("hello", nil)
 	if err != nil {
 		return "", err
@@ -217,10 +232,15 @@ func (s *Service) point(v string) error {
 
 // up waits until the daemon answers with version v, for wait.
 func (s *Service) up(v string, wait time.Duration) error {
+	return waitFor(s.Probe, v, wait, filepath.Join(s.Home, "logs", "daemon.err.log"))
+}
+
+// waitFor waits until probe answers with version v, for wait; the error names log.
+func waitFor(probe func() (string, error), v string, wait time.Duration, log string) error {
 	deadline := time.Now().Add(wait)
 	got, err := "", error(nil)
 	for {
-		if got, err = s.Probe(); err == nil && got == v {
+		if got, err = probe(); err == nil && got == v {
 			return nil
 		}
 		if time.Now().After(deadline) {
@@ -231,7 +251,7 @@ func (s *Service) up(v string, wait time.Duration) error {
 	if err == nil {
 		err = fmt.Errorf("it answers as %s", got)
 	}
-	return fmt.Errorf("%s did not come up within %s (%v); see %s", v, wait, err, filepath.Join(s.Home, "logs", "daemon.err.log"))
+	return fmt.Errorf("%s did not come up within %s (%v); see %s", v, wait, err, log)
 }
 
 func (s *Service) restart() error {
@@ -262,7 +282,7 @@ func (s *Service) Install(src string, allowLive bool) (string, error) {
 	if err := os.MkdirAll(filepath.Join(s.Home, "logs"), 0o755); err != nil {
 		return "", err
 	}
-	body, err := s.plist(false) // built first: a refusal leaves the old file alone
+	body, _, err := s.plist(false) // built first: a refusal leaves the old file alone
 	if err != nil {
 		return "", fmt.Errorf("%w: no claude binary on PATH for -claude", err)
 	}
@@ -513,11 +533,15 @@ func (s *Service) StatusJSON() string {
 
 var pidLine = regexp.MustCompile(`(?m)^\s*pid = (\d+)`)
 
-// Uninstall unloads the job and removes its file; the version folders stay.
+// Uninstall unloads the job and the gateway's and removes their files; the version folders stay.
 func (s *Service) Uninstall() (string, error) {
 	if s.Label == LiveLabel && !paths.IsLive(s.Home) {
 		return "", fmt.Errorf("%s is not the live home, so the live service is not its to remove; nothing was done", s.Home)
 	}
+	gw := s.gatewayJob()
+	_, gwTarget := gw.target()
+	gw.Launchctl("bootout", gwTarget)
+	os.Remove(gw.Plist)
 	_, target := s.target()
 	s.Launchctl("bootout", target)
 	if err := os.Remove(s.Plist); err != nil {
@@ -528,7 +552,8 @@ func (s *Service) Uninstall() (string, error) {
 
 // Ensured is what Ensure did, as the one JSON line the app shows: state is running (the daemon was on version; at most current moved),
 // started (the job was loaded onto version), upgraded, kept (version did not answer and the daemon is back on the one before) or
-// failed (reason missing:claude or missing:tmux when the job's PATH lacks one; nothing was written).
+// failed (reason missing:claude or missing:tmux when the job's PATH lacks one, and nothing was written; gateway:<cause> when the
+// daemon runs version but the gateway does not answer).
 type Ensured struct {
 	State   string `json:"state"`
 	Version string `json:"version"`
@@ -538,19 +563,38 @@ type Ensured struct {
 // Ensure makes the job run the binaries in src (a folder holding them, or a Handline.app), as the app does at every launch: it adds
 // that version; when launchd does not hold this job file (a first run, or another hand-written job under the label) it writes it and
 // loads it onto that version; otherwise a daemon on another version is handed over in place (same pid, agents untouched). A second
-// run changes nothing. The version the app carries is the one run, older or not: app and daemon are one unit.
+// run changes nothing. The version the app carries is the one run, older or not: app and daemon are one unit. Once the daemon runs
+// it, the gateway job runs it too (ensureGateway), and Ensure reports only when both answer.
 func (s *Service) Ensure(src string) Ensured {
 	failed := func(err error) Ensured { return Ensured{State: "failed", Version: s.Current(), Reason: err.Error()} }
 	if err := s.Guard(true); err != nil {
 		return failed(err)
 	}
-	body, err := s.plist(true) // first: a missing tool fails before anything is written
+	body, path, err := s.plist(true) // first: a missing tool fails before anything is written
 	if err != nil {
 		return failed(err)
+	}
+	gw := s.gatewayJob()
+	gbody, err := s.gatewayPlist(gw, path)
+	if err != nil {
+		return failed(fmt.Errorf("gateway:%v", err))
 	}
 	if err := os.MkdirAll(filepath.Join(s.Home, "logs"), 0o755); err != nil {
 		return failed(err)
 	}
+	e := s.ensureDaemon(src, body)
+	if e.State == "failed" || e.State == "kept" {
+		return e
+	}
+	if err := s.ensureGateway(gw, gbody, e.Version); err != nil {
+		return Ensured{State: "failed", Version: e.Version, Reason: fmt.Sprintf("gateway:%v", err)}
+	}
+	return e
+}
+
+// ensureDaemon is Ensure's daemon half, with the job body already built.
+func (s *Service) ensureDaemon(src, body string) Ensured {
+	failed := func(err error) Ensured { return Ensured{State: "failed", Version: s.Current(), Reason: err.Error()} }
 	cur, prev := s.Current(), s.Previous()
 	v, fresh, err := s.add(BinDir(src))
 	if err != nil {
@@ -601,6 +645,93 @@ func (s *Service) Ensure(src string) Ensured {
 	return Ensured{State: "upgraded", Version: v, Reason: "from " + got}
 }
 
+// gatewayJob is the gateway's job beside this one: dev.orcapipe.gateway for the live daemon's, <label>.gateway for a rehearsal's.
+func (s *Service) gatewayJob() *Service {
+	g := *s
+	g.Label = strings.TrimSuffix(s.Label, ".daemon") + ".gateway"
+	g.Plist = filepath.Join(filepath.Dir(s.Plist), g.Label+".plist")
+	return &g
+}
+
+// gatewayPlist is the gateway job on the current version: Listen and Advertise when the app gives Listen, otherwise the ones the
+// gateway job there names.
+func (s *Service) gatewayPlist(gw *Service, path string) (string, error) {
+	listen, advertise := s.Listen, s.Advertise
+	if listen == "" {
+		b, _ := os.ReadFile(gw.Plist)
+		listen, advertise = argAfter(b, "-listen"), argAfter(b, "-advertise")
+	}
+	if listen == "" {
+		return "", errors.New("no address to listen on: pass --listen")
+	}
+	argv := append(s.program(), "-gateway", "-listen", listen)
+	if advertise != "" {
+		argv = append(argv, "-advertise", advertise)
+	}
+	return s.job(gw.Label, argv, path, "gateway"), nil
+}
+
+// argAfter is the argument after flag in a job file, "" when it has none.
+func argAfter(job []byte, flag string) string {
+	m := regexp.MustCompile(`<string>` + regexp.QuoteMeta(flag) + `</string>\s*<string>([^<]*)</string>`).FindSubmatch(job)
+	if m == nil {
+		return ""
+	}
+	return html.UnescapeString(string(m[1]))
+}
+
+// ensureGateway has the gateway job run v and waits for it to answer. A job launchd does not hold as written is (re)loaded, after
+// a gateway that no job runs is stopped (it holds the port and the pid file); a loaded one on another version is restarted, as it
+// holds no agents.
+func (s *Service) ensureGateway(gw *Service, body, v string) error {
+	prior, _ := os.ReadFile(gw.Plist)
+	if loaded := gw.loaded(); string(prior) != body || !loaded {
+		if !loaded {
+			if err := s.stopStrayGateway(); err != nil {
+				return err
+			}
+		}
+		if err := gw.load(body); err != nil {
+			return err
+		}
+	} else if got, err := s.GatewayProbe(); err != nil || got != v {
+		if err := gw.restart(); err != nil {
+			return err
+		}
+	}
+	return waitFor(s.GatewayProbe, v, s.GatewayWait, filepath.Join(s.Home, "logs", "gateway.err.log"))
+}
+
+// stopStrayGateway stops the gateway the pid file names when it still runs: one started by hand, outside any job. Only a process
+// that is a handlined -gateway is stopped, since a pid can be reused.
+func (s *Service) stopStrayGateway() error {
+	b, err := os.ReadFile(s.GatewayPid)
+	if err != nil {
+		return nil
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 0 {
+		return nil
+	}
+	cmd, _ := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+	if !strings.Contains(string(cmd), "handlined") || !strings.Contains(string(cmd), "-gateway") {
+		return nil
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		return fmt.Errorf("stopping the gateway that runs outside the job (pid %d): %v", pid, err)
+	}
+	deadline := time.Now().Add(unloadWait)
+	for alive(pid) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the gateway that runs outside the job (pid %d) did not exit within %s", pid, unloadWait)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil
+}
+
+func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+
 // restore puts back the job file another hand wrote, after v did not answer under this one, and removes v.
 func (s *Service) restore(prior []byte, v string, err error) Ensured {
 	s.setLink(current, "")
@@ -611,10 +742,15 @@ func (s *Service) restore(prior []byte, v string, err error) Ensured {
 	return Ensured{State: "kept", Reason: fmt.Sprintf("%v; the job that was there is back", err)}
 }
 
-// Stop unloads the job and leaves its file, so the next Ensure (the next app launch) or login starts it again.
+// Stop unloads the job and the gateway's and leaves their files, so the next Ensure (the next app launch) or login starts them again.
 func (s *Service) Stop() (string, error) {
 	if s.Label == LiveLabel && !paths.IsLive(s.Home) {
 		return "", fmt.Errorf("%s is not the live home, so the live service is not its to stop; nothing was done", s.Home)
+	}
+	if gw := s.gatewayJob(); gw.loaded() {
+		if err := gw.unload(); err != nil {
+			return "", err
+		}
 	}
 	if !s.loaded() {
 		return s.Label + " was not running", nil
@@ -662,8 +798,8 @@ func lookPath(name, path string) string {
 
 // plist is the job: the current version's daemon (its defaults are the service's), kept alive and throttled so a crash loop cannot
 // run away. keep takes the claude binary and PATH from the job file there, when it names them, over this process's. It fails with
-// missing when that PATH has no claude, or, with keep (the app's ensure), no tmux.
-func (s *Service) plist(keep bool) (string, error) {
+// missing when that PATH has no claude, or, with keep (the app's ensure), no tmux. path is the PATH the job runs with.
+func (s *Service) plist(keep bool) (body, path string, err error) {
 	claude, path := "", os.Getenv("PATH")
 	if keep {
 		var keptPath string
@@ -679,25 +815,32 @@ func (s *Service) plist(keep bool) (string, error) {
 		claude = lookPath("claude", path)
 	}
 	if claude == "" {
-		return "", missing("claude")
+		return "", "", missing("claude")
 	}
 	if keep && lookPath("tmux", path) == "" { // the daemon's agents run in tmux; only the app's ensure checks it
-		return "", missing("tmux")
+		return "", "", missing("tmux")
 	}
+	return s.job(s.Label, append(s.program(), "-claude", claude), path, "daemon"), path, nil
+}
+
+// program is the current version's handlined and the home it runs on.
+func (s *Service) program() []string {
 	argv := []string{filepath.Join(s.Bin, current, "handlined")}
 	if paths.IsLive(s.Home) {
-		argv = append(argv, "-allow-real-home")
-	} else {
-		argv = append(argv, "-home", s.Home)
+		return append(argv, "-allow-real-home")
 	}
-	argv = append(argv, "-claude", claude)
+	return append(argv, "-home", s.Home)
+}
+
+// job is a launchd job file running argv with PATH path, logging to <home>/logs/<logName>.{out,err}.log.
+func (s *Service) job(label string, argv []string, path, logName string) string {
 	var b strings.Builder
 	str := func(v string) { fmt.Fprintf(&b, "<string>%s</string>", html.EscapeString(v)) }
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key>`)
-	str(s.Label)
+	str(label)
 	b.WriteString("\n<key>ProgramArguments</key><array>")
 	for _, a := range argv {
 		str(a)
@@ -708,9 +851,9 @@ func (s *Service) plist(keep bool) (string, error) {
 <key>ThrottleInterval</key><integer>` + fmt.Sprint(throttle) + `</integer>
 <key>SoftResourceLimits</key><dict><key>NumberOfFiles</key><integer>4096</integer></dict>
 <key>StandardOutPath</key>`)
-	str(filepath.Join(s.Home, "logs", "daemon.out.log"))
+	str(filepath.Join(s.Home, "logs", logName+".out.log"))
 	b.WriteString("\n<key>StandardErrorPath</key>")
-	str(filepath.Join(s.Home, "logs", "daemon.err.log"))
+	str(filepath.Join(s.Home, "logs", logName+".err.log"))
 	b.WriteString("\n<key>WorkingDirectory</key>")
 	str(s.Home)
 	b.WriteString("\n<key>EnvironmentVariables</key><dict><key>PATH</key>")
@@ -720,5 +863,5 @@ func (s *Service) plist(keep bool) (string, error) {
 	b.WriteString("<key>HANDLINE_HOME</key>")
 	str(s.Home)
 	b.WriteString("</dict>\n</dict></plist>\n")
-	return b.String(), nil
+	return b.String()
 }

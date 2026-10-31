@@ -72,3 +72,27 @@ func TestEnsureLineExitsOneWhenTheCarriedVersionIsNotRunning(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureArgsTakeTheGatewayAddress(t *testing.T) {
+	for _, c := range []struct {
+		args              []string
+		ok                bool
+		src, listen, name string
+	}{
+		{nil, true, ownDir(), "", ""},
+		{[]string{"/A.app"}, true, "/A.app", "", ""},
+		{[]string{"--listen", "100.1.2.3:7443", "--advertise", "mac.ts.net", "/A.app"}, true, "/A.app", "100.1.2.3:7443", "mac.ts.net"},
+		{[]string{"--advertise", "", "--listen", "127.0.0.1:7443"}, true, ownDir(), "127.0.0.1:7443", ""},
+		{[]string{"--advertise", "mac.ts.net"}, false, "", "", ""}, // a name with no address
+		{[]string{"--listen", ""}, false, "", "", ""},
+		{[]string{"--listen"}, false, "", "", ""},
+		{[]string{"/A.app", "/B.app"}, false, "", "", ""},
+		{[]string{"--force"}, false, "", "", ""},
+	} {
+		s := &service.Service{}
+		src, ok := ensureArgs(s, c.args)
+		if ok != c.ok || (ok && (src != c.src || s.Listen != c.listen || s.Advertise != c.name)) {
+			t.Errorf("%q: %q %v listen %q advertise %q", c.args, src, ok, s.Listen, s.Advertise)
+		}
+	}
+}
