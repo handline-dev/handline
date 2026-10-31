@@ -1,5 +1,6 @@
 // "My requests" on the Tasks page: the founder's own open tasks (not their subtasks), by what is happening to each, every row with one line that
 // says how far it is, who works on it now, or what it waits on. A row opens the task as any row of Tasks does.
+import { memo, useMemo } from 'react';
 import { CirclePause, X } from 'lucide-react';
 import { taskRef } from '@handline/app-core';
 import type { RequestRow } from '@handline/client';
@@ -23,18 +24,21 @@ function groupOf(r: RequestRow): Group {
 }
 
 /** The founder's open tasks, grouped in the order the list reads. */
-export function useMyRequests(): { rows: RequestRow[]; groups: { name: Group; rows: RequestRow[] }[]; pending: boolean } {
+function useMyRequests() {
   const q = useRequests();
-  const rows = (q.data?.items ?? []).filter((r) => r.kind === 'task' && r.task != null && r.status !== 'done' && r.status !== 'no_work');
-  return {
-    rows,
-    groups: GROUPS.map((name) => ({ name, rows: rows.filter((r) => groupOf(r) === name) })).filter((g) => g.rows.length),
-    pending: q.isPending,
-  };
+  return useMemo(() => {
+    const rows = (q.data?.items ?? []).filter((r) => r.kind === 'task' && r.task != null && r.status !== 'done' && r.status !== 'no_work');
+    return {
+      rows,
+      groups: GROUPS.map((name) => ({ name, rows: rows.filter((r) => groupOf(r) === name) })).filter((g) => g.rows.length),
+      pending: q.isPending,
+    };
+  }, [q.data, q.isPending]);
 }
 
 /** "My requests 6" beside Open and Closed; on, it reads "My requests 6 ×" and the × takes it off. */
-export function MyRequestsChip({ count, on, onToggle }: { count: number; on: boolean; onToggle: () => void }) {
+export const MyRequestsChip = memo(function MyRequestsChip({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  const count = useMyRequests().rows.length;
   return (
     <button
       type="button"
@@ -47,10 +51,9 @@ export function MyRequestsChip({ count, on, onToggle }: { count: number; on: boo
       {on ? <X width={12} height={12} strokeWidth={1.75} aria-hidden /> : null}
     </button>
   );
-}
+});
 
-function Line({ r }: { r: RequestRow }) {
-  const waits = (useTasks({}).data?.items ?? []).find((t) => t.id === r.task)?.blocked_by?.[0];
+function Line({ r, waits }: { r: RequestRow; waits: number | undefined }) {
   if (blockedNow(r) || waits != null)
     return (
       <span className="flex items-center gap-1 text-xs text-wait" data-line="blocked">
@@ -87,7 +90,10 @@ function Line({ r }: { r: RequestRow }) {
 }
 
 /** The list the chip turns on, in place of the table. */
-export function MyRequestsList({ groups, pending }: { groups: { name: Group; rows: RequestRow[] }[]; pending: boolean }) {
+export function MyRequestsList() {
+  const { groups, pending } = useMyRequests();
+  const items = useTasks({}).data?.items;
+  const waitsOn = useMemo(() => new Map((items ?? []).map((t) => [t.id, t.blocked_by?.[0]])), [items]);
   if (pending) return <p className="muted px-4">Loading…</p>;
   if (!groups.length)
     return (
@@ -117,7 +123,7 @@ export function MyRequestsList({ groups, pending }: { groups: { name: Group; row
                 {r.prs.length ? <Chip>{r.prs.map((n) => `#${n}`).join(' ')}</Chip> : null}
               </span>
               <span className="pl-[calc(3.5rem+0.75rem)]">
-                <Line r={r} />
+                <Line r={r} waits={waitsOn.get(r.task!)} />
               </span>
             </button>
           ))}

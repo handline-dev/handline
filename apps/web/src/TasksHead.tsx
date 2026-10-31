@@ -25,7 +25,7 @@ export function TasksHead(props: {
   scope: Scope;
   onScope: (s: Scope) => void;
   /** The My requests chip: how many it lists, whether it is on, and its switch. */
-  requests: { count: number; on: boolean; toggle: () => void };
+  requests: { on: boolean; toggle: () => void };
   filtering: boolean;
   query: string;
   onQuery: (q: string) => void;
@@ -60,7 +60,7 @@ export function TasksHead(props: {
           { value: 'closed', label: 'Closed' },
         ]}
       />
-      <MyRequestsChip count={props.requests.count} on={props.requests.on} onToggle={props.requests.toggle} />
+      <MyRequestsChip on={props.requests.on} onToggle={props.requests.toggle} />
       <span className="tfilters relative inline-flex">
         <Button
           label="Filter"
