@@ -27,8 +27,8 @@ describe('task time', () => {
     expect(text($('time-segment-founder'))).not.toContain('waiting on you');
     expect(text($('time-segment-task'))).toContain('blocked by T1688');
     expect(text($('time-segment-account'))).toContain('at a usage limit');
-    expect(text($('time-total-working'))).toContain('3 h');
-    expect(text($('time-total-founder'))).toContain('30 m');
+    expect(text($('time-total-working'))).toContain('3h');
+    expect(text($('time-total-founder'))).toContain('30m');
     const t = await m.client.call('task.time', { task: TASK });
     expect($('task-time')!.getAttribute('aria-label')).toBe(
       `${(Date.parse(t.segments.at(-1)!.to) - Date.parse(t.start)) / 1000} seconds in all`,

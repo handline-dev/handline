@@ -7,7 +7,7 @@ import { useServes, useTaskTime } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 
-const length = (seconds: number) => span(seconds * 1000);
+const length = (seconds: number) => span(seconds * 1000).replace(/ ([dhm])\b/g, '$1');
 
 const TONE = (c: ReturnType<typeof usePalette>): Record<TimeLabel, string> => ({
   working: c.accent,
