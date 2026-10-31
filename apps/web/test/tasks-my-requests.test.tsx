@@ -114,6 +114,11 @@ describe('the My requests chip', () => {
     await until(() => [...box.querySelectorAll('button')].find((b) => text(b) === 'Closed'), 'Closed');
     await click(chip());
     await until(() => $('[data-request]'), 'the list on');
+    await click([...box.querySelectorAll('[role="radio"]')].find((b) => text(b) === 'Assigned to me'));
+    await until(() => !$('[data-request]'), 'the list off for Assigned to me');
+    expect(chip()!.getAttribute('aria-pressed')).toBe('false');
+    await click(chip());
+    await until(() => $('[data-request]'), 'the list on again');
     await click([...box.querySelectorAll('[role="radio"]')].find((b) => text(b) === 'Closed'));
     await until(() => !$('[data-request]'), 'the list off');
     expect(chip()!.getAttribute('aria-pressed')).toBe('false');

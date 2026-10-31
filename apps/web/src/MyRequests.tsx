@@ -1,6 +1,6 @@
 // "My requests" on the Tasks page: the founder's own open tasks (not their subtasks), by what is happening to each, every row with one line that
 // says how far it is, who works on it now, or what it waits on. A row opens the task as any row of Tasks does.
-import { CircleAlert, X } from 'lucide-react';
+import { CirclePause, X } from 'lucide-react';
 import { taskRef } from '@handline/app-core';
 import type { RequestRow } from '@handline/client';
 import { useRequests, useTasks } from '@handline/app-data';
@@ -54,7 +54,7 @@ function Line({ r }: { r: RequestRow }) {
   if (blockedNow(r) || waits != null)
     return (
       <span className="flex items-center gap-1 text-xs text-wait" data-line="blocked">
-        <CircleAlert width={12} height={12} strokeWidth={1.75} aria-hidden />
+        <CirclePause width={12} height={12} strokeWidth={1.75} aria-hidden />
         {waits != null ? (
           <>
             Blocked on{' '}

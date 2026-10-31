@@ -1,4 +1,4 @@
-// The header of the Tasks page: Open / Mine / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
+// The header of the Tasks page: Open / Assigned to me / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
 import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
 import { Filter, Plus, ScanLine } from 'lucide-react';
@@ -56,7 +56,7 @@ export function TasksHead(props: {
         onChange={props.onScope}
         choices={[
           { value: 'open', label: 'Open' },
-          { value: 'mine', label: 'Mine' },
+          { value: 'mine', label: 'Assigned to me' },
           { value: 'closed', label: 'Closed' },
         ]}
       />

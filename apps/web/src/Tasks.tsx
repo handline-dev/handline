@@ -40,7 +40,7 @@ type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys
 
 const DAY = 86_400_000;
 
-/** The pills: Closed keeps only the closed tasks, Mine the ones I own; Open and Mine list what closed in the last day (the graph picks its own). */
+/** The pills: Closed keeps only the closed tasks, Assigned to me the ones I own; Open and Assigned to me list what closed in the last day (the graph picks its own). */
 const inScope = (tasks: Task[], scope: Scope, me: string, now: number, graph: boolean): Task[] =>
   scope === 'closed'
     ? tasks.filter((t) => CLOSED.includes(t.state))
@@ -348,7 +348,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         agents={taskAgents(all)}
         filter={filter}
         scope={scope}
-        onScope={(s) => (setScope(s), s === 'closed' && setMineOnly(false))}
+        onScope={(s) => (setScope(s), s !== 'open' && setMineOnly(false))}
         requests={{ count: mine.rows.length, on: mineOnly, toggle: () => (setMineOnly(!mineOnly), setScope('open')) }}
         filtering={open === 'states'}
         view={graph ? 'graph' : 'list'}
