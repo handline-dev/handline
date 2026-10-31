@@ -255,8 +255,9 @@ async function attach(
   const remote = o.current.remote;
   if (remote) {
     try {
-      link.setVersion(await helloOf(remote, openRemote));
+      const version = await helloOf(remote, openRemote);
       link.set('connected', { address: remote.host });
+      link.setVersion(version);
     } catch (e) {
       fail(remote.host, e);
     }
@@ -422,10 +423,7 @@ export function ownDaemon(o: {
     pair,
     phone: () => (o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),
     async ready() {
-      if (o.service && !o.current.remote) {
-        await svc!.ensure();
-        for (let i = 0; i < 20 && owner.state === 'running' && !(await answers(o.gatewaySocket)); i++) await sleep(500);
-      }
+      if (o.service && !o.current.remote) await svc!.ensure(); // returns once the daemon and its gateway answer
       if (o.current.mode === 'connect') return connect();
       if (!o.gateway) return undefined;
       await owner.start();
