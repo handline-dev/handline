@@ -697,7 +697,7 @@ export interface TasksMethods {
   title?: string;
   /** The new brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
-  /** The new result of a done task (Task.evidence), Markdown, may be empty. A task that is not done has no result to edit: it is refused. */
+  /** The new result of a done task (Task.evidence), Markdown, not empty: a done task keeps a result. By whoever may mark the task done (its assignee, owner, its parent's owner, a lead of its team, the founder); a task that is not done has no result to edit and is refused. */
   evidence?: string;
   time_box?: Duration;
   /** 1 high, 2 default, 3 low (written P1-P3). */

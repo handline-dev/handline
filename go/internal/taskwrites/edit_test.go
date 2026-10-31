@@ -119,28 +119,48 @@ func TestEditAllowsAnEmptyBody(t *testing.T) {
 func TestADoneTaskKeepsItsBriefAndResultEditable(t *testing.T) {
 	db, mk := discardEnv(t)
 	exec(t, db,
-		"INSERT INTO tasks(id, title, owner, opened_by, created_at, done_evidence, done_at, done_via) VALUES(1, 'closed', 'worker', 'manager', 1, 'old result', 5, 'reason')",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, done_evidence, done_at, done_via) VALUES(1, 'closed', 'worker', 'manager', 1, 'FAIL PR 7', 5, 'reason')",
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(2, 'open', 'worker', 'manager', 1)",
 		"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts) VALUES(10, 'manager', 'worker', 'the brief', 'queued', 'task', 10, 1)",
 		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
-	srv := mk("manager", &fakeTeller{})
-	r := call(t, srv,
-		`{"jsonrpc":"2.0","id":2,"method":"task.edit","params":{"task":1,"body":"new brief","evidence":"**new** result","request_id":"d1"}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"task.edit","params":{"task":1,"evidence":"","request_id":"d2"}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"task.edit","params":{"task":2,"evidence":"early","request_id":"d3"}}`)
-	if r[0]["result"] == nil || r[1]["result"] == nil || r[2]["error"] == nil {
+	edit := func(who string, id int, params, rid string) map[string]any {
+		return call(t, mk(who, &fakeTeller{}), fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.edit","params":{%s,"request_id":%q}}`, id, params, rid))[0]
+	}
+	if r := edit("manager", 2, `"task":1,"body":"new brief","evidence":"PASS PR 7"`, "d1"); r["result"] == nil {
 		t.Fatalf("%v", r)
 	}
+	for name, r := range map[string]map[string]any{
+		"an empty result would reopen the task": edit("manager", 3, `"task":1,"evidence":""`, "d2"),
+		"so would a blank one":                  edit("manager", 4, `"task":1,"evidence":"  \n"`, "d3"),
+		"an open task has no result":            edit("manager", 5, `"task":2,"evidence":"early"`, "d4"),
+		"a stranger may not rewrite a verdict":  edit("worker2", 6, `"task":1,"evidence":"PASS PR 8"`, "d5"),
+	} {
+		if r["error"] == nil {
+			t.Errorf("%s: accepted: %v", name, r)
+		}
+	}
 	for q, want := range map[string]int{
-		"SELECT COUNT(*) FROM requests WHERE id = 10 AND body = 'new brief'":                                                  1,
-		"SELECT COUNT(*) FROM tasks WHERE id = 1 AND done_evidence = '' AND done_at = 5":                                      1,
-		"SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND json_extract(payload, '$.evidence.old') = '**new** result'": 1,
-		"SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND json_extract(payload, '$.evidence.old') = 'old result'":     1,
-		"SELECT COUNT(*) FROM tasks WHERE id = 2 AND done_evidence IS NULL":                                                   1,
+		"SELECT COUNT(*) FROM requests WHERE id = 10 AND body = 'new brief'":                                             1,
+		"SELECT COUNT(*) FROM tasks WHERE id = 1 AND done_evidence = 'PASS PR 7' AND done_at = 5":                        1, // still done, with the one edit
+		"SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND json_extract(payload, '$.evidence.old') = 'FAIL PR 7'": 1,
+		"SELECT COUNT(*) FROM events WHERE kind = 'edit_task'":                                                           1,
+		"SELECT COUNT(*) FROM tasks WHERE id = 2 AND done_evidence IS NULL":                                              1,
 	} {
 		if n := count(t, db, q); n != want {
 			t.Errorf("%s = %d, want %d", q, n, want)
 		}
+	}
+}
+
+func TestTheBriefOfADiscardedTaskIsEditable(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, discarded_by) VALUES(1, 'gone', 'worker', 'manager', 1, 'manager')",
+		"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts) VALUES(10, 'manager', 'worker', 'the brief', 'queued', 'task', 10, 1)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
+	r := call(t, mk("manager", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.edit","params":{"task":1,"body":"better words","request_id":"g1"}}`)
+	if r[0]["result"] == nil || count(t, db, "SELECT COUNT(*) FROM requests WHERE id = 10 AND body = 'better words'") != 1 {
+		t.Fatalf("%v", r[0])
 	}
 }
 

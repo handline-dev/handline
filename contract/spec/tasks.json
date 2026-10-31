@@ -3864,7 +3864,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner (an agent giving it to `human` is refused, as task.handoff does), reporter, title, priority, body, result and time box, by anyone (the body and the result at any state, a closed task included; the time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.",
+   "summary": "Change a task: owner (an agent giving it to `human` is refused, as task.handoff does), reporter, title, priority, body, result and time box, by anyone (the body at any state, a closed task included; the time box until it is delivered), except the result, which only whoever may mark the task done changes. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3909,7 +3909,7 @@
      "required": false,
      "schema": {
       "type": "string",
-      "description": "The new result of a done task (Task.evidence), Markdown, may be empty. A task that is not done has no result to edit: it is refused."
+      "description": "The new result of a done task (Task.evidence), Markdown, not empty: a done task keeps a result. By whoever may mark the task done (its assignee, owner, its parent's owner, a lead of its team, the founder); a task that is not done has no result to edit and is refused."
      }
     },
     {

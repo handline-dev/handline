@@ -16,7 +16,7 @@ test('a done task keeps its brief and result editable, and an open one has no re
   await s.client.call('task.edit', { task, body: 'new brief', evidence: 'rebuilt', request_id: 'e4' });
   const t = await s.client.call('task.get', { task });
   assert.deepEqual([t.state, t.body, t.evidence], ['done', 'new brief', 'rebuilt']);
-  assert.equal(code(await s.client.call('task.edit', { task, title: 'x', request_id: 'e5' }).catch((e) => e)), 'refused');
+  assert.equal(code(await s.client.call('task.edit', { task, evidence: ' ', request_id: 'e5' }).catch((e) => e)), 'refused');
   const h = await s.client.call('task.history', { task });
   assert.ok(h.rows.some((r) => r.field === 'evidence' && r.was === 'built' && r.now === 'rebuilt'));
   s.client.close();

@@ -186,6 +186,14 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 			return fmt.Sprintf("task T%d is not done - it has no result to edit yet; its result is what hl task done writes", tid), "", nil
 		}
 		text := strings.TrimSpace(textsafe.Text(*evidence))
+		if text == "" {
+			return fmt.Sprintf("a done task keeps a result - an empty one would reopen T%d", tid), "", nil
+		}
+		if ok, err := mayClose(tx, home, by, t); err != nil {
+			return "", "", err
+		} else if !ok {
+			return fmt.Sprintf("task T%d's result can only be edited by whoever may mark it done: its assignee (%s), owner (%s), its parent's owner, a lead of its team or the founder", tid, t.Owner, t.reporter()), "", nil
+		}
 		if text != strings.TrimSpace(t.DoneEvidence.String) {
 			newEvidence = &text
 			changes = append(changes, change{key: "evidence", old: t.DoneEvidence.String, new: text, kept: true})
