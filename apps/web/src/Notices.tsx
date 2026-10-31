@@ -1,9 +1,8 @@
 // The notices: the bell at the status bar's right end with the unread count, the list that opens upward from it (what happened, newest first), and the short results stacked above it.
 import { UpdateNotice } from '#src/UpdateNotice.tsx';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
+import { clockTime, targetOf, type Notice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
-import { useTasks, useWrite } from '@handline/app-data';
 import { Button, Icon, Popup } from '#src/ui/index.ts';
 
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
@@ -31,7 +30,6 @@ export function NoticeBell() {
   const store = useStore();
   const unread = useSelector((s) => s.notices.unread());
   const list = useSelector((s) => s.notices.list());
-  const spare = useSpareNotices();
   const [open, setOpen] = useState(false);
   return (
     <span className="relative inline-flex">
@@ -49,12 +47,7 @@ export function NoticeBell() {
       </button>
       <Popup open={open} onClose={() => setOpen(false)} title="Notices" align="right" up bare>
         <div className="max-h-[60vh] w-[360px] max-w-[90vw] overflow-y-auto">
-          {spare.map((n) => (
-            <div key={n.task} className="border-b border-line">
-              <SpareCard n={n} />
-            </div>
-          ))}
-          {list.length === 0 && !spare.length ? <p className="m-0 px-3 py-2 text-xs text-ink-3">Nothing new.</p> : null}
+          {list.length === 0 ? <p className="m-0 px-3 py-2 text-xs text-ink-3">Nothing new.</p> : null}
           {list.map((n) => (
             <Row key={n.id} n={n} onOpened={() => setOpen(false)} />
           ))}
@@ -166,7 +159,6 @@ function useAway(onChange: (away: boolean) => void) {
 const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['done', 'text-ok'], info: ['info', 'text-ink-3'] } as const;
 /** The stack shows the newest three; the bell lists the rest. */
 const MAX_TOASTS = 3;
-const SPARE_STAYS_MS = 10_000;
 const CHIP = 'bg-raised! tint';
 
 /** The buttons of a kept notice: the main one filled, the rest grey chips. The notice is read once one is pressed. */
@@ -318,15 +310,6 @@ function useLift(shown: boolean) {
 function Toasts({ hidden }: { hidden: boolean }) {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
-  const [left, setLeft] = useState<ReadonlySet<number>>(new Set());
-  const spare = useSpareNotices().filter((n) => !left.has(n.task));
-  // The weekly-loss card steps aside to the bell after a while, so it never keeps covering the composer's Send button.
-  const ids = spare.map((n) => n.task).join();
-  useEffect(() => {
-    if (!ids) return;
-    const t = setTimeout(() => setLeft((l) => new Set([...l, ...ids.split(',').map(Number)])), SPARE_STAYS_MS);
-    return () => clearTimeout(t);
-  }, [ids]);
   useAway((away) => store.notices.setAway(away));
   // Escape closes the toast the focus is in, else the newest one.
   const first = toasts[0]?.id;
@@ -341,7 +324,7 @@ function Toasts({ hidden }: { hidden: boolean }) {
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);
   }, [first, hidden, store]);
-  const shown = (toasts.length > 0 || spare.length > 0) && !hidden;
+  const shown = toasts.length > 0 && !hidden;
   const stack = useLift(shown);
   if (!shown) return null;
   return (
@@ -350,69 +333,9 @@ function Toasts({ hidden }: { hidden: boolean }) {
       className="toasts absolute right-0 bottom-full z-10 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5"
       role="status"
     >
-      {spare.map((n) => (
-        <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow)]">
-          <SpareCard n={n} />
-        </div>
-      ))}
       {toasts.slice(0, MAX_TOASTS).map((n) => (
         <Toast key={n.id} n={n} />
       ))}
-    </div>
-  );
-}
-
-/** The weekly-loss notices the daemon has open for the person, as task rows. */
-function useSpareNotices(): SpareNotice[] {
-  const items = useTasks({}).data?.items;
-  return (items ?? []).flatMap((t) => spareNotice(t) ?? []);
-}
-
-/** The agent's own name: `handline.architect` is `architect`. */
-const shortName = (agent: string) => agent.split('.').at(-1) ?? agent;
-
-/** The notice that an account will lose weekly use: its sentence, the first spare tasks, and a button that starts them all. It stays until Start or the X. */
-function SpareCard({ n }: { n: SpareNotice }) {
-  const rows = new Map((useTasks({}).data?.items ?? []).map((t) => [t.id, t]));
-  const answer = useWrite('task.done');
-  const reply = (evidence: string) => answer.mutate({ task: n.task, evidence, reason: true });
-  const open = () => void (location.hash = `#/tasks/${n.task}`);
-  return (
-    <div className="notice-spare tint flex cursor-pointer items-start gap-2 px-3 py-2 text-md text-ink" data-notice="spare" onClick={open}>
-      <Icon name="waiting" size={14} className="mt-0.5 flex-none text-wait" aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="m-0">{n.text}</p>
-        <div className="mt-1.5 flex flex-col gap-0.5">
-          {n.ids.slice(0, SPARE_SHOWN).map((id) => (
-            <span key={id} className="flex min-w-0 gap-1.5 text-xs text-ink-2">
-              <b className="flex-none font-mono font-semibold text-ink">{`T${id}`}</b>
-              <span className="min-w-0 flex-1 truncate">{rows.get(id)?.title ?? ''}</span>
-              {rows.get(id) ? <span className="flex-none text-ink-3">{shortName(rows.get(id)!.to)}</span> : null}
-            </span>
-          ))}
-          {n.ids.length > SPARE_SHOWN ? <span className="text-xs text-ink-3">{`and ${n.ids.length - SPARE_SHOWN} more`}</span> : null}
-        </div>
-        {n.ids.length ? (
-          <Button
-            variant="solid"
-            size="sm"
-            icon="play"
-            label="Start the spare tasks"
-            className="mt-2"
-            disabled={answer.isPending}
-            onClick={(e) => (e.stopPropagation(), reply('start'))}
-          >
-            {n.ids.length === 1 ? 'Start 1 task' : `Start ${n.ids.length} tasks`}
-          </Button>
-        ) : null}
-      </div>
-      <Button
-        size="sm"
-        icon="close"
-        label="Close this notice"
-        disabled={answer.isPending}
-        onClick={(e) => (e.stopPropagation(), reply('dismiss'))}
-      />
     </div>
   );
 }

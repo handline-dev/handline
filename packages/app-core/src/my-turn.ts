@@ -3,6 +3,7 @@
 import type { AgentView, InboxItem, MachineNeed, Task } from '@handline/client';
 import { isPerson } from '#src/chat.ts';
 import { CLOSED } from '#src/task-table.ts';
+import { spareNotice } from '#src/spare-notice.ts';
 
 export type CardKind = 'decision' | 'approval' | 'dialog' | 'attention' | 'machine' | 'task';
 
@@ -107,7 +108,8 @@ function taskCards(
     .map((t) => ({
       key: `task:${t.id}`,
       kind: 'task',
-      title: t.title,
+      // A weekly-loss offer is headed by its sentence; the spare tasks it names are listed under it.
+      title: spareNotice(t)?.text.replace(/\.?\s*These spare tasks can use it:?$/, '') ?? t.title,
       detail: '',
       agent: null,
       from: t.from && !isPerson(t.from, me) ? t.from : null,

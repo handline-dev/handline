@@ -1,4 +1,4 @@
-// The header of the Tasks page: Open / Mine / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
+// The header of the Tasks page: Open / Assigned to me / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
 import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
 import { Filter, Plus, ScanLine } from 'lucide-react';
@@ -7,6 +7,7 @@ import { Button } from '#src/ds/Button.tsx';
 import { Segmented } from '#src/ds/Field.tsx';
 import { STATE_GLYPH } from '#src/taskui.tsx';
 import { canCapture, requestCapture } from '#src/Capture.tsx';
+import { MyRequestsChip } from '#src/MyRequests.tsx';
 
 /** Which tasks the pills show: the open ones, the ones I own, or the closed ones. */
 export type Scope = 'open' | 'mine' | 'closed';
@@ -23,6 +24,8 @@ export function TasksHead(props: {
   view: 'list' | 'graph';
   scope: Scope;
   onScope: (s: Scope) => void;
+  /** The My requests chip: how many it lists, whether it is on, and its switch. */
+  requests: { on: boolean; toggle: () => void };
   filtering: boolean;
   query: string;
   onQuery: (q: string) => void;
@@ -53,10 +56,11 @@ export function TasksHead(props: {
         onChange={props.onScope}
         choices={[
           { value: 'open', label: 'Open' },
-          { value: 'mine', label: 'Mine' },
+          { value: 'mine', label: 'Assigned to me' },
           { value: 'closed', label: 'Closed' },
         ]}
       />
+      <MyRequestsChip on={props.requests.on} onToggle={props.requests.toggle} />
       <span className="tfilters relative inline-flex">
         <Button
           label="Filter"

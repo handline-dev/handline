@@ -167,18 +167,18 @@ describe('the list', () => {
     expect(rowIds()).toContain(1700);
   });
 
-  it('has the Open, Mine and Closed pills: Mine is what I own', async () => {
+  it('has the Open, Assigned to me and Closed pills: Assigned to me is what I own', async () => {
     const s = setup();
     await mount('#/tasks', s);
     await loaded();
     const me = s.client.hello!.caller.name;
-    await click(button('Mine')!);
+    await click(button('Assigned to me')!);
     expect(
       rowIds().every(
         (id) => (s.daemon.tasks as unknown as { rows: { id: number; to: string }[] }).rows.find((r) => r.id === id)!.to === me,
       ),
     ).toBe(true);
-    expect($('[role=radio][aria-checked=true]')!.textContent).toBe('Mine'); // the chosen pill is raised and marked, not only coloured
+    expect($('[role=radio][aria-checked=true]')!.textContent).toBe('Assigned to me'); // the chosen pill is raised and marked, not only coloured
     await click(button('Open')!);
     expect(rowIds().length).toBe(4);
   });
@@ -268,7 +268,7 @@ describe('writes', () => {
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move', undefined, 1);
     await press('o');
     await choose($('select[aria-label="Assign to"]') as HTMLSelectElement, 'handline.auditor');
-    await click(button('Assign')!);
+    await click($$('button').find((b) => text(b) === 'Assign')); // not the 'Assigned to me' pill
     await until(() => text($('.toast')).includes('1 of 2 changed'), 'the partial toast');
     expect($$('.not-changed')).toHaveLength(1);
     const owners = [1684, 1700].map((id) => s.daemon.tasks.get({ task: id }).to);
@@ -346,7 +346,7 @@ describe('writes', () => {
     await loaded();
     await mark(1684);
     expect(button('Merge')!.title).toBe('This daemon does not serve task.merge yet');
-    expect((button('Assign') as HTMLButtonElement).disabled).toBe(false);
+    expect(($$('button').find((b) => text(b) === 'Assign') as HTMLButtonElement).disabled).toBe(false);
     await click(button('More', $('.tbar')!));
     expect(document.querySelector('[role="menuitem"][title="This daemon does not serve task.discard yet"]')).not.toBeNull();
     await press('Escape');

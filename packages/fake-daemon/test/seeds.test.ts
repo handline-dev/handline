@@ -53,3 +53,12 @@ test('review: a task tagged review whose first comment names two pictures the da
   assert.equal(images.length, 2);
   assert.equal(daemon.uploads.get({ id: images[0] }).mime, 'image/png');
 });
+
+test('my-requests: the founder has five open requests, one waiting on them and one blocked', () => {
+  const d = new FakeDaemon();
+  applySeeds(d, 'my-requests');
+  const items = d.requests.rows;
+  assert.equal(items.filter((r) => r.kind === 'task').length, 5);
+  assert.equal(items.filter((r) => r.status === 'waiting_on_you').length, 1);
+  assert.equal(items.filter((r) => r.blocked === true).length, 1);
+});

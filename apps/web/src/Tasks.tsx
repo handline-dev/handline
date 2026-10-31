@@ -1,6 +1,16 @@
 // The Tasks page (docs/design/inbox-tasks-prompts.md §4): what the daemon lists, grouped by status, with filters, sort, ticks, the bridge's keys,
 // and a click on a row opens the task on its own page. Writes go through `useWrite`: an authored one shows at once with a hollow dot, a decided one shows "…".
-import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import {
   CLOSED,
   defaultFilter,
@@ -23,6 +33,7 @@ import { TaskDetail } from '#src/TaskDetail.tsx';
 import { TaskColumns } from '#src/TaskGraph.tsx';
 import { NewTask } from '#src/NewTask.tsx';
 import { Row } from '#src/TaskRows.tsx';
+import { MyRequestsList } from '#src/MyRequests.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from '#src/TasksHead.tsx';
 import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from '#src/TaskSheets.tsx';
 import { Button, ScrollPage } from '#src/ui/index.ts';
@@ -39,7 +50,7 @@ type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys
 
 const DAY = 86_400_000;
 
-/** The pills: Closed keeps only the closed tasks, Mine the ones I own; Open and Mine list what closed in the last day (the graph picks its own). */
+/** The pills: Closed keeps only the closed tasks, Assigned to me the ones I own; Open and Assigned to me list what closed in the last day (the graph picks its own). */
 const inScope = (tasks: Task[], scope: Scope, me: string, now: number, graph: boolean): Task[] =>
   scope === 'closed'
     ? tasks.filter((t) => CLOSED.includes(t.state))
@@ -128,6 +139,8 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const now = useNow();
   const [filter, setFilter] = useState<TaskFilter>(defaultFilter);
   const [scope, setScope] = useState<Scope>('open');
+  const [mineOnly, setMineOnly] = useState(false); // the My requests chip: the founder's own open tasks, with how far each is
+  const toggleMine = useCallback(() => (setMineOnly((on) => !on), setScope('open')), []);
   const me = useMe();
   const [sort, setSort] = useState<{ by: TaskColumn; reverse: boolean }>({ by: 'priority', reverse: false });
   const [cursor, setCursor] = useState<number | null>(null);
@@ -345,7 +358,8 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         agents={taskAgents(all)}
         filter={filter}
         scope={scope}
-        onScope={setScope}
+        onScope={(s) => (setScope(s), s !== 'open' && setMineOnly(false))}
+        requests={{ on: mineOnly, toggle: toggleMine }}
         filtering={open === 'states'}
         view={graph ? 'graph' : 'list'}
         query={query}
@@ -356,7 +370,9 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
       />
       <AnimatedList>{open === 'new' ? <NewTask key="NewTask" agents={agents} onClose={shut} /> : null}</AnimatedList>
       <View q={q} served={listServed} shape="tasks" what="tasks">
-        {rows.length === 0 ? (
+        {mineOnly && !graph ? (
+          <MyRequestsList />
+        ) : rows.length === 0 ? (
           <div className="empty">
             {none ? (
               <>

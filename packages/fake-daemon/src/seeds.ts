@@ -112,6 +112,47 @@ export const SEEDS: Record<string, Seed> = {
     d.requests.add({ title: 'Why is the build so slow today?', kind: 'message', agent: 'handline' });
   },
 
+  /** The founder's open requests for the Tasks page's My requests chip: one waiting on them, one blocked, two being worked, one not taken yet. */
+  'my-requests': (d) => {
+    d.tasks.seed({ id: 7031, from: ME, to: 'handline.pc-shell', title: '[결정] 상태 줄 모양', state: 'doing' });
+    d.tasks.seed({
+      id: 7121,
+      from: ME,
+      to: 'handline.pc-shell',
+      title: '상태 줄 모양 정하기',
+      state: 'doing',
+      blockers: [{ task: 7031, reason: '' }],
+    });
+    d.requests.add({ title: '설정 화면 목차를 좌측으로', task: 7102, status: 'waiting_on_you', open: 1, done: 4 });
+    d.requests.add({
+      title: '상태 줄 모양 정하기',
+      task: 7121,
+      open: 1,
+      done: 0,
+      now: 'handline.pc-chat',
+      blocked: true,
+      holders: ['handline.pc-chat'],
+    });
+    d.requests.add({
+      title: '요청 화면 키보드로 처리',
+      task: 7110,
+      open: 2,
+      done: 3,
+      now: 'handline.daemon-core',
+      holders: ['handline.daemon-core'],
+      prs: [884],
+    });
+    d.requests.add({
+      title: '업데이트 준비 중 로딩 표시',
+      task: 7125,
+      open: 2,
+      done: 1,
+      now: 'handline.pc-shell',
+      holders: ['handline.pc-shell'],
+    });
+    d.requests.add({ title: '닫힌 태스크를 날짜별로 보기', task: 7133 });
+  },
+
   /** The architect is held back for the machine's load: its chat and row say so, and agent.force_start starts it. */
   'agent-held': (d) => {
     const s = d.sessions.get(ARCH)!;
