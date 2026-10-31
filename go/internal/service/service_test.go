@@ -314,7 +314,7 @@ func (r *rig) handWritten(program string) (claude, path string) {
 		<string>`+claude+`</string>
 		<string>-terminal-tick</string>
 		<string>-land-repo</string>
-		<string>/Users/someone/repo</string>
+		<string>/somewhere/repo</string>
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
