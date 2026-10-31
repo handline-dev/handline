@@ -25,6 +25,7 @@ import { Cli, Connection, Page, Settings, Update, CHANNELS } from '#src/bridge.t
 import { serveDir } from '#src/serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from '#src/update.ts';
 import { UpdateFlow } from '#src/update-flow.ts';
+import { startPkgUpdate } from '#src/pkg-update-app.ts';
 import { bundleAt } from '#src/bundle.ts';
 import { readBuildSha } from '#src/build-id.ts';
 import { upgradeNow } from '#src/daemon-upgrade.ts';
@@ -212,16 +213,18 @@ function upgrader(client: DaemonClient, remote: Remote | null): (sha?: string) =
         });
 }
 
+/** True when nothing on screen would be lost by an update's question. The page says when it holds something unsent; until it has said so once, the shell looks into the page itself. */
+const idleOf = (page: Page, composer: Composer) => async (): Promise<boolean> => {
+  if (background || !win || win.isDestroyed() || composer.running) return false; // an open editor counts as unsent
+  if (page.unsent !== null) return !page.unsent;
+  return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
+};
+
 function makeUpdater(page: Page, composer: Composer, upgrade: () => Promise<void>, flow: UpdateFlow): Updater {
   return new Updater(
     {
       build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
-      // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
-      idle: async () => {
-        if (background || !win || win.isDestroyed() || composer.running) return false; // an open editor counts as unsent
-        if (page.unsent !== null) return !page.unsent;
-        return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
-      },
+      idle: idleOf(page, composer),
       // The daemon moves onto the new build first; if it will not, the app stays and the notice says why.
       restart: async () => {
         await upgrade();
@@ -435,6 +438,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       .then(() => following?.start());
     const checking = setInterval(() => void updater.check().catch(() => undefined), 30_000);
     app.on('quit', () => clearInterval(checking));
+    app.on('quit', startPkgUpdate({ flow, idle: idleOf(page, composer), upgrade: (sha) => upgradeTo(sha) }));
 
     const desk = new Desk(client, {
       setBadge: (t, n) => {
