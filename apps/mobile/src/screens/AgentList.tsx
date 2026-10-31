@@ -10,7 +10,6 @@ import {
   queuedBehind,
   waitingTasks,
   taskRef,
-  statusText,
   chipCounts,
   chipChanges,
   chipOf,
@@ -39,7 +38,7 @@ const CHIPS: { id: NavChip; label: string }[] = [
 ];
 
 /** The words the daemon uses for a state that a person reads differently. */
-const WORDS: Record<string, string> = { wall: 'at limit' };
+const WORDS: Record<string, string> = { wall: 'At limit', asks: 'Needs you', parked: 'Parked' };
 
 export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 'requests') => void }) {
   const c = usePalette();
@@ -204,9 +203,9 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
               );
             const a = item.agent;
             const need = a.needs_you ? (a.needs_you.text ?? KIND[a.needs_you.kind]) : '';
-            const doing =
-              need || a.task?.title || (a.state === 'running' && !a.handoff ? a.doing?.text : '') || statusText(a) || a.state_detail || '';
-            const word = asks(a) ? 'asks' : (WORDS[rowWord(a)] ?? rowWord(a));
+            const doing = a.task?.title ?? ''; // the subtitle is the task it holds; its state is said once, on the right
+            const raw = asks(a) ? 'asks' : rowWord(a);
+            const word = WORDS[raw] ?? (raw ? raw[0]!.toUpperCase() + raw.slice(1) : '');
             const queued = queuedBehind(a) || 0;
             const age = a.needs_you ? a.needs_you.since : (a.status?.since ?? a.state_since);
             return (
@@ -247,16 +246,16 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
                       </Pressable>
                     ) : null}
                   </View>
-                  <Text
-                    numberOfLines={1}
-                    testID={need ? `needs-${a.name}` : undefined}
-                    style={{ color: need ? c.wait : c.muted, fontSize: font.size.sm }}
-                  >
-                    {doing || ' '}
-                  </Text>
+                  {doing ? (
+                    <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.sm }}>
+                      {doing}
+                    </Text>
+                  ) : null}
                 </View>
                 <Text style={{ color: c.muted, fontSize: font.size.sm }}>
-                  <Text style={{ color: need ? c.wait : a.block ? c.block : c.muted }}>{word}</Text>
+                  <Text testID={need ? `needs-${a.name}` : undefined} style={{ color: need ? c.wait : a.block ? c.block : c.muted }}>
+                    {word}
+                  </Text>
                   {age ? `${word ? ' · ' : ''}${ago(age)}` : ''}
                 </Text>
               </Pressable>

@@ -162,8 +162,9 @@ export function Pill(props: {
       style={{
         minHeight: 36,
         justifyContent: 'center',
-        borderWidth: props.on && !props.state ? 2 : 1,
-        borderColor: props.on && !props.state ? c.ink : c.line,
+        borderWidth: 1,
+        borderColor: props.on && !props.state ? c.accent : c.line,
+        backgroundColor: props.on && !props.state ? c.panel : 'transparent',
         borderRadius: 999,
         paddingHorizontal: space.md,
         overflow: 'hidden',
@@ -173,8 +174,8 @@ export function Pill(props: {
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
             {props.icon ? <Icon name={props.icon} decorative size={16} color={c.ink} /> : null}
-            <Text style={{ color: c.ink, fontWeight: props.on && !props.state ? '700' : '400' }}>
-              {props.on && !props.state ? `✓ ${props.label}` : props.label}
+            <Text style={{ color: props.on && !props.state ? c.accent : c.ink, fontWeight: props.on && !props.state ? '700' : '400' }}>
+              {props.label}
             </Text>
             {props.on || props.state ? props.trailing : null}
           </View>

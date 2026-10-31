@@ -133,7 +133,13 @@ function List(props: { onSelect: (id: number) => void }) {
       ) : (
         <>
           {!myList && <TaskSearch value={search} onChange={setSearch} />}
-          <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.lg }}>
+          <ScrollView
+            horizontal
+            accessibilityRole="toolbar"
+            showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0 }}
+            contentContainerStyle={{ gap: space.sm, paddingHorizontal: space.lg }}
+          >
             {SCOPES.map(([id, label]) => (
               <Pill
                 key={id}
@@ -147,7 +153,7 @@ function List(props: { onSelect: (id: number) => void }) {
             {scope !== 'closed' && (
               <Pill testID="filter-toggle" on={filtering || narrowed} label="Filter" onPress={() => setFiltering(!filtering)} />
             )}
-          </View>
+          </ScrollView>
           {scope !== 'closed' && !myList && filtering && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, padding: space.lg }}>
               {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (

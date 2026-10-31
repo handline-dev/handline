@@ -21,8 +21,11 @@ export function useRequestLater(held: Held): Deferred[] {
   return useMyTurn().later.filter((l) => !held.away.includes(l.card.key));
 }
 
-/** The cards in the order the list shows them, group by group. */
-const inOrder = (cards: Card[]) => REQUEST_GROUPS.flatMap((g) => cards.filter((c) => requestGroup(c) === g));
+/** The cards in the order the list shows them: what runs out first, then the rest group by group. */
+const inOrder = (cards: Card[]) => {
+  const timed = cards.filter((c) => c.due != null).sort((a, b) => a.due! - b.due!);
+  return [...timed, ...REQUEST_GROUPS.flatMap((g) => cards.filter((c) => c.due == null && requestGroup(c) === g))];
+};
 
 export function RequestsTab(props: {
   held: Held;

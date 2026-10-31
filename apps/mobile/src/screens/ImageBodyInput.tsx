@@ -65,7 +65,7 @@ export function ImageBodyInput(props: {
             color: c.ink,
             ...(props.send ? {} : { borderWidth: 1, borderColor: c.line, borderRadius: radius.m }),
             padding: space.md,
-            minHeight: 96,
+            minHeight: props.send ? 48 : 96,
             textAlignVertical: 'top',
           }}
         />

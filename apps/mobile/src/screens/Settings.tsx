@@ -1,7 +1,7 @@
-// The phone's Home settings (docs/pc-app-gaps.md G11): default cap and idle close as fields that save on Save, three switches, and the standing
+// The phone's Home settings (docs/pc-app-gaps.md G11): default cap and idle close as fields that save when left, three switches, and the standing
 // answers with Add and Remove. All of it is authored: a change shows at once and goes back with the daemon's reason when refused.
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { INVALID, capField, idleField, parseSeconds, type PageSettings } from '@handline/app-core';
 import { classify, sentence, useOff, useServes, useSettings, useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
@@ -84,7 +84,6 @@ function Field<T extends number | string>(props: {
           }}
         />
         {props.unit ? <Text style={{ color: c.muted }}>{props.unit}</Text> : null}
-        <Button testID={`${props.id}-save`} label="Save" onPress={commit} disabled={!!why} />
       </View>
       {why ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{why}</Text> : null}
       <Note testID={`${props.id}-note`} error={save.error} pending={save.isPending} bad={bad} />
@@ -175,7 +174,12 @@ function Toggle(props: { id: string; label: string; hint: string; on: boolean; c
           <Text style={{ color: c.ink, fontWeight: '600' }}>{props.label}</Text>
           <Text style={{ color: c.muted, fontSize: font.size.sm }}>{props.hint}</Text>
         </View>
-        <Text style={{ color: props.on ? c.run : c.muted, fontWeight: '700' }}>{props.on ? 'On' : 'Off'}</Text>
+        <Switch
+          value={props.on}
+          disabled={!!why}
+          onValueChange={() => save.mutate({ changes: props.change(!props.on) })}
+          accessibilityLabel={props.label}
+        />
       </Pressable>
       <Note testID={`${props.id}-note`} error={save.error} pending={save.isPending} />
     </View>
@@ -230,7 +234,11 @@ function Settings(props: { footer: React.ReactNode }) {
   const { served } = useServes('settings.get');
   const v = query.data?.values;
   return (
-    <ScrollView testID="settings-page" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
+    <ScrollView
+      testID="settings-page"
+      keyboardDismissMode="on-drag"
+      contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}
+    >
       <AppUpdate />
       <Text style={{ color: c.muted }}>Defaults for every agent. Each change saves as you make it.</Text>
       <Loadable query={query} served={served} skeleton="settings" label="settings" empty="No settings to show.">
