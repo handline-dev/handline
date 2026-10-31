@@ -8,7 +8,6 @@
   },
   "scripts": {
     "app": "node apps/electron/follow-start.ts",
-    "app:install": "node apps/electron/app-install.ts",
     "dev": "node apps/electron/dev.ts",
     "dev:team": "node apps/electron/dev-team.ts",
     "test": "turbo test",

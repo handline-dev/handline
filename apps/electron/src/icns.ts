@@ -13,7 +13,9 @@ export function makeIcns(out: string, scratch: string): void {
     for (const size of [16, 32, 128, 256, 512]) {
       for (const scale of [1, 2]) {
         const name = `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`;
-        execFileSync('sips', ['-z', String(size * scale), String(size * scale), ICON_PNG, '--out', path.join(set, name)], { stdio: 'ignore' });
+        execFileSync('sips', ['-z', String(size * scale), String(size * scale), ICON_PNG, '--out', path.join(set, name)], {
+          stdio: 'ignore',
+        });
       }
     }
     execFileSync('iconutil', ['-c', 'icns', set, '-o', out]);

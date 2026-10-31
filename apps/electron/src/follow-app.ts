@@ -4,7 +4,7 @@ import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, type BrowserWindow } from 'electron';
-import { relaunchCommand } from '#src/launcher-app.ts';
+import { relaunchCommand } from '#src/relaunch.ts';
 import { Follower, peekMain, watchMain, WEB_NEXT } from '#src/follow.ts';
 import type { UpdateFlow } from '#src/update-flow.ts';
 
