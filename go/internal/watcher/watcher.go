@@ -100,9 +100,10 @@ func (w *Watcher) scanMoved(ctx context.Context, conn *sql.Conn, all bool) {
 		if !run {
 			continue
 		}
-		w.counted[d] = at
 		if err := d.Scan(w.DB, w.Emit); err != nil {
-			w.Log("  stream: %s: %v", d.Name(), err)
+			w.Log("  stream: %s: %v", d.Name(), err) // its counts stay as they were: the next look runs it again
+		} else {
+			w.counted[d] = at
 		}
 	}
 }
@@ -166,7 +167,7 @@ func (w *Watcher) Run(stop <-chan struct{}) {
 				conn.Close()
 				conn, wait = nil, Retry
 			} else if now := w.signature(); v != version || now != sig || w.pending() {
-				all := now != sig || version == -1
+				all := now != sig
 				version, sig = v, now
 				w.scanMoved(ctx, conn, all)
 			}
