@@ -31,7 +31,7 @@ export function laterChoices(now: number): { label: string; until: string }[] {
   return [
     ...(afternoon.getTime() > now ? [{ label: 'This afternoon 15:00', until: iso(afternoon) }] : []),
     { label: 'Tomorrow 09:00', until: iso(tomorrow) },
-    { label: 'Next Mon 09:00', until: iso(monday) },
+    { label: 'Monday 09:00', until: iso(monday) },
   ];
 }
 

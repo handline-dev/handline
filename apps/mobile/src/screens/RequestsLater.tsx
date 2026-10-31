@@ -74,7 +74,7 @@ export function LaterSheet(props: { card: Card; now: number; onPut: (at: LaterAt
   const open = (useTasks({}).data?.items ?? []).filter((t) => t.id !== props.card.task && !['done', 'discarded'].includes(t.state));
   const put = (at: LaterAt) => (props.onPut(at), props.onClose());
   return (
-    <MenuSheet testID="later-sheet" onClose={props.onClose}>
+    <MenuSheet testID="later-sheet" title="Later" onClose={props.onClose}>
       {step === 'time' ? (
         <PickTime now={props.now} onPut={put} />
       ) : step === 'task' ? (

@@ -10,7 +10,7 @@ import { Team } from '#src/screens/Team.tsx';
 
 export function TeamButton(props: { onPress: () => void }) {
   const count = useHrCount();
-  return <MenuItem testID="team-open" icon="team" label={count ? `Team ${count}` : 'Team'} onPress={props.onPress} />;
+  return <MenuItem testID="team-open" icon="team" label={count ? `Team · ${count} waiting` : 'Team'} onPress={props.onPress} />;
 }
 
 export function TeamPage(props: { onClose: () => void }) {

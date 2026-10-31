@@ -28,7 +28,7 @@ import { Icon } from '#src/screens/Icon.tsx';
 import { AskChange, ReviewPictures } from '#src/screens/ReviewAsk.tsx';
 import { LaterLine } from '#src/screens/RequestsLater.tsx';
 import { SpareTasks } from '#src/screens/SpareCard.tsx';
-import { Button, MenuItem, MenuSheet } from '#src/screens/parts.tsx';
+import { BackLink, Button, MenuItem, MenuSheet } from '#src/screens/parts.tsx';
 
 const BIG = { minHeight: 48 } as const;
 
@@ -120,7 +120,6 @@ export function RequestItem(props: {
   // An item whose only first action is Open (a session at its limit) has its other answers as the buttons, not behind More.
   const main = first.length ? first : others;
   const rest = first.length ? others : [];
-  const openAct = card.actions.slice(0, card.primary).find((a) => a.type === 'open');
   const answer = wt ? undefined : card.actions.find((a) => a.type === 'answer');
   const sendAnswer = () => {
     if (!text.trim() || answer?.type !== 'answer') return;
@@ -159,102 +158,89 @@ export function RequestItem(props: {
         <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>{card.title}</Text>
         {spare ? <SpareTasks n={spare} /> : facts ? <Facts text={facts} command={command} /> : null}
         {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
-      </ScrollView>
-      <View
-        testID="request-answers"
-        style={{ borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.panel, padding: space.md, gap: space.sm }}
-      >
-        {refused ? (
-          <Text accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.sm }}>
-            {sentence(classify(refused))}
-          </Text>
-        ) : null}
-        {answer && !card.review ? (
-          <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-end' }}>
-            <TextInput
-              testID="request-text"
-              multiline
-              value={text}
-              onChangeText={setText}
-              placeholder={change ? 'What to change' : 'Write an answer'}
-              placeholderTextColor={c.muted}
-              accessibilityLabel="Your answer"
-              style={{
-                flex: 1,
-                color: c.ink,
-                borderWidth: 1,
-                borderColor: c.line,
-                borderRadius: radius.m,
-                padding: space.md,
-                minHeight: 48,
-              }}
-            />
-            <Button testID="request-send" kind="yes" label="Send" disabled={!text.trim()} onPress={sendAnswer} style={BIG} />
-          </View>
-        ) : null}
-        {sure ? (
-          <View style={{ gap: space.sm }}>
-            <Text style={{ color: c.block }}>Remove for good? Uncommitted files are lost.</Text>
-            <View style={{ flexDirection: 'row', gap: space.sm }}>
-              <Button
-                testID="request-sure"
-                kind="no"
-                label="Remove"
-                style={{ ...BIG, flex: 1 }}
-                onPress={() => run(main.find((a) => a.type === 'worktree' && a.answer === 'force')!)}
+        <View testID="request-answers" style={{ gap: space.sm }}>
+          {refused ? (
+            <Text accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.sm }}>
+              {sentence(classify(refused))}
+            </Text>
+          ) : null}
+          {answer && !card.review ? (
+            <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-end' }}>
+              <TextInput
+                testID="request-text"
+                multiline
+                value={text}
+                onChangeText={setText}
+                placeholder={change ? 'What to change' : 'Write an answer'}
+                placeholderTextColor={c.muted}
+                accessibilityLabel="Your answer"
+                style={{
+                  flex: 1,
+                  color: c.ink,
+                  borderWidth: 1,
+                  borderColor: c.line,
+                  borderRadius: radius.m,
+                  padding: space.md,
+                  minHeight: 48,
+                }}
               />
-              <Button testID="request-sure-cancel" label="Cancel" style={{ ...BIG, flex: 1 }} onPress={() => setSure(false)} />
+              <Button testID="request-send" kind="yes" label="Send" disabled={!text.trim()} onPress={sendAnswer} style={BIG} />
             </View>
-          </View>
-        ) : (
-          <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
-            {spare ? (
-              <>
+          ) : null}
+          {sure ? (
+            <View style={{ gap: space.sm }}>
+              <Text style={{ color: c.block }}>Remove for good? Uncommitted files are lost.</Text>
+              <View style={{ flexDirection: 'row', gap: space.sm }}>
                 <Button
-                  testID="request-start"
-                  kind="yes"
-                  icon="play"
-                  label={spare.ids.length === 1 ? 'Start 1 task' : `Start ${spare.ids.length} tasks`}
-                  disabled={!spare.ids.length}
+                  testID="request-sure"
+                  kind="no"
+                  label="Remove"
                   style={{ ...BIG, flex: 1 }}
-                  onPress={() => hold('Started', [finish(spare.task, 'start')])}
+                  onPress={() => run(main.find((a) => a.type === 'worktree' && a.answer === 'force')!)}
                 />
-                <Button
-                  testID="request-dismiss"
-                  label="Dismiss"
-                  style={{ ...BIG, flex: 1 }}
-                  onPress={() => hold('Dismissed', [finish(spare.task, 'dismiss')])}
-                />
-              </>
-            ) : (
-              main.map((a, i) => (
-                <Button
-                  key={a.type + i}
-                  testID={testID(a)}
-                  kind={i === 0 ? 'yes' : a.type === 'worktree' && a.answer === 'force' ? 'no' : undefined}
-                  label={label(a)}
-                  style={{ ...BIG, flex: 1 }}
-                  onPress={() => run(a)}
-                />
-              ))
-            )}
-            {rest.length ? <Button testID="request-more" label="More" style={BIG} onPress={() => setMore(true)} /> : null}
-          </View>
-        )}
-        {laterKeyOf(card) ? <LaterLine card={card} now={now} at={props.later} onPut={props.onLater} onLeave={props.onAnswered} /> : null}
-        {openAct ? (
-          <Pressable
-            testID="request-open"
-            accessibilityRole="button"
-            onPress={() => run(openAct)}
-            style={{ minHeight: 44, justifyContent: 'center' }}
-          >
-            <Text style={{ color: c.accent }}>{card.task != null ? `Open T${card.task}` : 'Open chat'}</Text>
-          </Pressable>
-        ) : null}
-      </View>
+                <Button testID="request-sure-cancel" label="Cancel" style={{ ...BIG, flex: 1 }} onPress={() => setSure(false)} />
+              </View>
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
+              {spare ? (
+                <>
+                  <Button
+                    testID="request-start"
+                    kind="yes"
+                    icon="play"
+                    label={spare.ids.length === 1 ? 'Start 1 task' : `Start ${spare.ids.length} tasks`}
+                    disabled={!spare.ids.length}
+                    style={{ ...BIG, flex: 1 }}
+                    onPress={() => hold('Started', [finish(spare.task, 'start')])}
+                  />
+                  <Button
+                    testID="request-dismiss"
+                    label="Dismiss"
+                    style={{ ...BIG, flex: 1 }}
+                    onPress={() => hold('Dismissed', [finish(spare.task, 'dismiss')])}
+                  />
+                </>
+              ) : (
+                main.map((a, i) => (
+                  <Button
+                    key={a.type + i}
+                    testID={testID(a)}
+                    kind={i === 0 ? 'yes' : a.type === 'worktree' && a.answer === 'force' ? 'no' : undefined}
+                    label={label(a)}
+                    style={{ ...BIG, flex: 1 }}
+                    onPress={() => run(a)}
+                  />
+                ))
+              )}
+              {rest.length ? <Button testID="request-more" label="More" style={BIG} onPress={() => setMore(true)} /> : null}
+            </View>
+          )}
+          {laterKeyOf(card) ? <LaterLine card={card} now={now} at={props.later} onPut={props.onLater} onLeave={props.onAnswered} /> : null}
+        </View>
+      </ScrollView>
       {more ? (
-        <MenuSheet testID="request-menu" onClose={() => setMore(false)}>
+        <MenuSheet testID="request-menu" title="More" onClose={() => setMore(false)}>
           {rest.map((a, i) => (
             <MenuItem key={a.type + i} testID={testID(a)} label={label(a)} onPress={() => (setMore(false), run(a))} />
           ))}
@@ -311,16 +297,7 @@ function ItemBar(props: { at: { n: number; of: number } | null; onBack: () => vo
   const c = usePalette();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, minHeight: 48 }}>
-      <Pressable
-        testID="request-back"
-        accessibilityRole="button"
-        accessibilityLabel="Requests"
-        onPress={props.onBack}
-        style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: space.sm, gap: space.xs }}
-      >
-        <Icon name="back" decorative size={18} color={c.accent} />
-        <Text style={{ color: c.accent, fontSize: font.size.md }}>Requests</Text>
-      </Pressable>
+      <BackLink testID="request-back" label="Requests" accessibilityLabel="Requests" onPress={props.onBack} />
       <View style={{ flex: 1 }} />
       <Text testID="request-position" style={{ color: c.muted, fontSize: font.size.md, marginRight: space.sm }}>
         {props.at ? `${props.at.n} of ${props.at.of}` : 'Later'}

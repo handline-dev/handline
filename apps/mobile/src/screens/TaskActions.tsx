@@ -9,7 +9,7 @@ import type { TaskDetail } from '@handline/client';
 import { useOff, usePendingAny, useServes, useTaskActions, useTaskTime } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
-import type { IconName } from '#src/screens/Icon.tsx';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { BottomSheet, Button, MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
 import { AskAbout } from '#src/screens/TaskAsk.tsx';
 import { AssignTask } from '#src/screens/TaskAssign.tsx';
@@ -281,7 +281,7 @@ export function TaskVerbs({
       onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))}
       style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
     >
-      <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>⋯</Text>
+      <Icon name="menu" decorative size={22} color={c.ink} />
     </Pressable>
   );
   const finish = open && foryou;

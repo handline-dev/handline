@@ -20,6 +20,7 @@ import { Stats } from '#src/screens/Stats.tsx';
 import { Tasks } from '#src/screens/Tasks.tsx';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Bell, NoticesPage, Toasts } from '#src/screens/Notices.tsx';
+import { BellSlot } from '#src/screens/parts.tsx';
 import { DoneCard } from '#src/screens/DoneCard.tsx';
 import { ConnectionBar } from '#src/screens/ConnectionBar.tsx';
 
@@ -129,116 +130,116 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
     save: (op, t = null) => (setKept(op), setFirst(t), props.pending?.save(op, t)),
   };
   const [bar, setBar] = useState(0); // the tab bar's height: the done card floats just above it, and above the composer on an agent's page
+  const showBell = !open && !page && !itemOpen && !(tab === 'tasks' && task != null) && !(tab === 'usage' && account != null);
   const toAgent = (name: string) => (setPage(null), void props.store.openAgent(name));
   return (
-    <View style={{ flex: 1 }} {...swipe}>
-      <ConnectionBar store={props.store} />
-      {!open && !page && !itemOpen && !(tab === 'tasks' && task != null) && !(tab === 'usage' && account == null) && (
-        <Bell store={props.store} onOpen={() => setPage('notices')} />
-      )}
-      <Toasts store={props.store} />
-      <View style={{ flex: 1 }}>
-        {open ? (
-          <AgentPage />
-        ) : page === 'team' ? (
-          <TeamPage onClose={() => setPage(null)} />
-        ) : page === 'requests' ? (
-          <RequestsPage onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
-        ) : page === 'notices' ? (
-          <NoticesPage store={props.store} onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
-        ) : page === 'settings' ? (
-          <SettingsPage onClose={() => setPage(null)} onUnpair={props.onUnpair} />
-        ) : page === 'new' ? (
-          <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
-        ) : tab === 'requests' ? (
-          <RequestsTab
-            held={held}
-            item={item}
-            onItem={setItem}
-            later={putOff}
-            onLater={later.put}
-            onTask={(id) => (setTab('tasks'), setTask(id))}
-          />
-        ) : tab === 'tasks' ? (
-          <Tasks selected={task} onSelect={setTask} />
-        ) : tab === 'usage' ? (
-          <Accounts selected={account} onSelect={setAccount} footer={<Stats />} onMachine={() => setPage('settings')} />
-        ) : (
-          <AgentList onPage={setPage} />
-        )}
-      </View>
-      {!open && !page && !itemOpen && (
-        <View
-          accessibilityRole="tablist"
-          onLayout={(e) => setBar(e.nativeEvent.layout.height)}
-          style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.panel }}
-        >
-          {TABS.map((t) => (
-            <Pressable
-              key={t}
-              testID={`nav-${t}`}
-              accessibilityLabel={t === 'requests' && turn > 0 ? `Requests, ${turn} waiting` : undefined}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: tab === t }}
-              onPress={() => setTab(t)}
-              style={{
-                flex: 1,
-                alignItems: 'center',
-                padding: space.md,
-                borderTopWidth: 2,
-                borderTopColor: tab === t ? c.ink : 'transparent',
-              }}
-            >
-              <View>
-                <Icon name={NAV_ICON[t]} decorative size={20} color={tab === t ? c.ink : c.muted} />
-                {t === 'requests' && turn > 0 ? (
-                  <View
-                    testID="requests-badge"
-                    accessible
-                    accessibilityLabel={`${turn} waiting`}
-                    style={{
-                      position: 'absolute',
-                      top: -6,
-                      right: -12,
-                      minWidth: 16,
-                      height: 16,
-                      paddingHorizontal: 4,
-                      borderRadius: 8,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: c.wait,
-                    }}
-                  >
-                    <Text style={{ color: c.bg, fontSize: font.size.xs, fontWeight: '700' }}>{turn}</Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.sm }}
-              >
-                {t === 'agents' ? 'Agents' : t === 'requests' ? 'Requests' : t === 'tasks' ? 'Tasks' : 'Usage'}
-              </Text>
-            </Pressable>
-          ))}
+    <BellSlot.Provider value={showBell ? <Bell store={props.store} onOpen={() => setPage('notices')} /> : null}>
+      <View style={{ flex: 1 }} {...swipe}>
+        <ConnectionBar store={props.store} />
+        <Toasts store={props.store} />
+        <View style={{ flex: 1 }}>
+          {open ? (
+            <AgentPage />
+          ) : page === 'team' ? (
+            <TeamPage onClose={() => setPage(null)} />
+          ) : page === 'requests' ? (
+            <RequestsPage onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
+          ) : page === 'notices' ? (
+            <NoticesPage store={props.store} onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
+          ) : page === 'settings' ? (
+            <SettingsPage onClose={() => setPage(null)} onUnpair={props.onUnpair} />
+          ) : page === 'new' ? (
+            <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
+          ) : tab === 'requests' ? (
+            <RequestsTab
+              held={held}
+              item={item}
+              onItem={setItem}
+              later={putOff}
+              onLater={later.put}
+              onTask={(id) => (setTab('tasks'), setTask(id))}
+            />
+          ) : tab === 'tasks' ? (
+            <Tasks selected={task} onSelect={setTask} />
+          ) : tab === 'usage' ? (
+            <Accounts selected={account} onSelect={setAccount} footer={<Stats />} onMachine={() => setPage('settings')} />
+          ) : (
+            <AgentList onPage={setPage} />
+          )}
         </View>
-      )}
-      {held.last || later.undo ? (
-        <UndoLine
-          line={held.last?.line ?? later.undo!.line}
-          onUndo={() => (held.last ? held.undo(held.last.key) : later.runUndo())}
-          bottom={itemOpen ? 140 : bar + space.sm}
+        {!open && !page && !itemOpen && (
+          <View
+            accessibilityRole="tablist"
+            onLayout={(e) => setBar(e.nativeEvent.layout.height)}
+            style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.panel }}
+          >
+            {TABS.map((t) => (
+              <Pressable
+                key={t}
+                testID={`nav-${t}`}
+                accessibilityLabel={t === 'requests' && turn > 0 ? `Requests, ${turn} waiting` : undefined}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: tab === t }}
+                onPress={() => setTab(t)}
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  padding: space.md,
+                  borderTopWidth: 2,
+                  borderTopColor: tab === t ? c.ink : 'transparent',
+                }}
+              >
+                <View>
+                  <Icon name={NAV_ICON[t]} decorative size={20} color={tab === t ? c.ink : c.muted} />
+                  {t === 'requests' && turn > 0 ? (
+                    <View
+                      testID="requests-badge"
+                      accessible
+                      accessibilityLabel={`${turn} waiting`}
+                      style={{
+                        position: 'absolute',
+                        top: -6,
+                        right: -12,
+                        minWidth: 16,
+                        height: 16,
+                        paddingHorizontal: 4,
+                        borderRadius: 8,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: c.wait,
+                      }}
+                    >
+                      <Text style={{ color: c.bg, fontSize: font.size.xs, fontWeight: '700' }}>{turn}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.sm }}
+                >
+                  {t === 'agents' ? 'Agents' : t === 'requests' ? 'Requests' : t === 'tasks' ? 'Tasks' : 'Usage'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        {held.last || later.undo ? (
+          <UndoLine
+            line={held.last?.line ?? later.undo!.line}
+            onUndo={() => (held.last ? held.undo(held.last.key) : later.runUndo())}
+            bottom={itemOpen ? 140 : bar + space.sm}
+          />
+        ) : null}
+        <DoneCard
+          store={props.store}
+          agent={open}
+          bottom={!open && !page ? bar + space.sm : DONE_ABOVE_COMPOSER}
+          onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))}
+          onList={() => setPage('notices')}
         />
-      ) : null}
-      <DoneCard
-        store={props.store}
-        agent={open}
-        bottom={!open && !page ? bar + space.sm : DONE_ABOVE_COMPOSER}
-        onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))}
-        onList={() => setPage('notices')}
-      />
-    </View>
+      </View>
+    </BellSlot.Provider>
   );
 }
 

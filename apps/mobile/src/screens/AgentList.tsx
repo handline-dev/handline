@@ -107,9 +107,9 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
         }
       />
       {menu && (
-        <MenuSheet testID="agents-menu-list" onClose={() => setMenu(false)}>
+        <MenuSheet testID="agents-menu-list" title="Agents" onClose={() => setMenu(false)}>
           <TeamButton onPress={() => go('team')} />
-          {requests ? <MenuItem testID="requests-open" label="Your asks" icon="tasks" onPress={() => go('requests')} /> : null}
+          {requests ? <MenuItem testID="requests-open" label="My requests" icon="tasks" onPress={() => go('requests')} /> : null}
           <MenuItem testID="settings-open" label="Settings" icon="settings" onPress={() => go('settings')} />
         </MenuSheet>
       )}

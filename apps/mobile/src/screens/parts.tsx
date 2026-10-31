@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, radius, space } from '@handline/tokens';
@@ -118,6 +118,27 @@ export function Button(props: {
   );
 }
 
+/** The one way back: an arrow and the parent's name. */
+export function BackLink(props: { label: string; onPress: () => void; testID?: string; accessibilityLabel?: string }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      onPress={props.onPress}
+      accessibilityRole="button"
+      accessibilityLabel={props.accessibilityLabel ?? `Back to ${props.label}`}
+      hitSlop={12}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 44 }}
+    >
+      <Icon name="back" decorative size={20} color={c.accent} />
+      <Text style={{ color: c.accent, fontSize: font.size.lg }}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
+/** The bell of the top-level tabs rides on the title row of whichever page is showing: Home puts it here, a page with a way back has none. */
+export const BellSlot = createContext<React.ReactNode>(null);
+
 /** The top of a page: where I am (title), the way back (parent's name), and the page's actions. */
 export function PageHeader(props: {
   title?: string;
@@ -129,19 +150,12 @@ export function PageHeader(props: {
 }) {
   const c = usePalette();
   const { back } = props;
+  const bell = useContext(BellSlot);
   return (
     <View style={{ padding: props.bare ? 0 : space.lg, gap: space.sm }}>
       {back ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Pressable
-            testID={back.testID}
-            onPress={back.onPress}
-            accessibilityRole="button"
-            accessibilityLabel={`Back to ${back.label}`}
-            hitSlop={12}
-          >
-            <Text style={{ color: c.accent, fontSize: font.size.lg }}>‹ {back.label}</Text>
-          </Pressable>
+          <BackLink label={back.label} onPress={back.onPress} testID={back.testID} />
           {props.title ? null : props.actions}
         </View>
       ) : null}
@@ -151,6 +165,7 @@ export function PageHeader(props: {
             {props.title}
           </Text>
           {props.actions}
+          {back ? null : bell}
         </View>
       ) : null}
       {props.children}
@@ -315,7 +330,7 @@ export function Link(props: { label: string; onPress: () => void; testID: string
 }
 
 /** A sheet at the bottom of the screen over a dimmed page that a tap on closes; it rides above the keyboard. */
-export function BottomSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string; padded?: boolean }) {
+export function BottomSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string; padded?: boolean; title?: string }) {
   return (
     <Modal transparent visible animationType="fade" onRequestClose={props.onClose}>
       <InsetModal>
@@ -325,7 +340,7 @@ export function BottomSheet(props: { onClose: () => void; children: React.ReactN
   );
 }
 
-function SheetBody(props: { onClose: () => void; children: React.ReactNode; testID?: string; padded?: boolean }) {
+function SheetBody(props: { onClose: () => void; children: React.ReactNode; testID?: string; padded?: boolean; title?: string }) {
   const c = usePalette();
   const { bottom } = useSafeAreaInsets();
   return (
@@ -346,6 +361,22 @@ function SheetBody(props: { onClose: () => void; children: React.ReactNode; test
             maxHeight: '85%',
           }}
         >
+          {props.title ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: space.lg, minHeight: 52 }}>
+              <Text accessibilityRole="header" style={{ flex: 1, color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>
+                {props.title}
+              </Text>
+              <Pressable
+                testID={props.testID ? `${props.testID}-close` : undefined}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                onPress={props.onClose}
+                style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Icon name="close" decorative size={20} color={c.muted} />
+              </Pressable>
+            </View>
+          ) : null}
           <ScrollView
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={props.padded ? { padding: space.lg, gap: space.sm } : undefined}
@@ -359,7 +390,7 @@ function SheetBody(props: { onClose: () => void; children: React.ReactNode; test
 }
 
 /** A phone menu: rows in a bottom sheet. */
-export function MenuSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string }) {
+export function MenuSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string; title?: string }) {
   return <BottomSheet {...props} />;
 }
 

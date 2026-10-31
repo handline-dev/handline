@@ -14,23 +14,21 @@ export function Bell(props: { store: Store; onOpen: () => void }) {
   const c = usePalette();
   const unread = useSelector((s) => s.notices.unread());
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: space.md }}>
-      <Pressable
-        testID="bell"
-        accessibilityRole="button"
-        accessibilityLabel={unread ? `Notices, ${unread} unread` : 'Notices'}
-        onPress={props.onOpen}
-        hitSlop={8}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 36 }}
-      >
-        <Icon name="alert" decorative size={20} color={unread ? c.ink : c.muted} />
-        {unread ? (
-          <Text testID="bell-count" style={{ color: c.ink, fontWeight: '700', fontSize: font.size.sm }}>
-            {unread}
-          </Text>
-        ) : null}
-      </Pressable>
-    </View>
+    <Pressable
+      testID="bell"
+      accessibilityRole="button"
+      accessibilityLabel={unread ? `Notices, ${unread} unread` : 'Notices'}
+      onPress={props.onOpen}
+      hitSlop={8}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 36 }}
+    >
+      <Icon name="alert" decorative size={20} color={unread ? c.ink : c.muted} />
+      {unread ? (
+        <Text testID="bell-count" style={{ color: c.ink, fontWeight: '700', fontSize: font.size.sm }}>
+          {unread}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 

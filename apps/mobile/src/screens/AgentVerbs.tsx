@@ -80,7 +80,7 @@ export function AgentVerbs(props: {
         </Row>
       )}
       {open && (
-        <MenuSheet testID="verbs" onClose={() => setOpen(false)}>
+        <MenuSheet testID="verbs" title={detail.name} onClose={() => setOpen(false)}>
           {props.before}
           {verbs.map((v) => (
             <VerbItem key={v.id} v={v} onPress={() => pick(v)} />

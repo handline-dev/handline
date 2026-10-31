@@ -6,10 +6,10 @@ import { $, ARCH, mount, press, text, until } from '#test/harness.tsx';
 async function open(m: Awaited<ReturnType<typeof mount>>) {
   await until(() => $('agents-menu'), 'the Agents menu');
   await press($('agents-menu'));
-  await until(() => $('requests-open'), 'the Your asks entry');
+  await until(() => $('requests-open'), 'the My requests entry');
   await press($('requests-open'));
   await until(() => $('requests-back'), 'the page');
-  expect(text()).toContain('Your asks');
+  expect(text()).toContain('My requests');
   return m;
 }
 

@@ -45,7 +45,7 @@ test('the menu offers the afternoon only before 15:00, then tomorrow and next Mo
   const evening = new Date(2026, 9, 30, 18).getTime();
   assert.deepEqual(
     laterChoices(evening).map((c) => c.label),
-    ['Tomorrow 09:00', 'Next Mon 09:00'],
+    ['Tomorrow 09:00', 'Monday 09:00'],
   );
 });
 
