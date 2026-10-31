@@ -63,6 +63,9 @@ func TestPRChecksReadAsACIVerdict(t *testing.T) {
 	queued := func(name string) string {
 		return `{"__typename":"CheckRun","name":"` + name + `","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z"}`
 	}
+	cancelledQueued := func(name string) string { // cancelled before it ever started
+		return `{"__typename":"CheckRun","name":"` + name + `","status":"COMPLETED","conclusion":"CANCELLED","startedAt":"0001-01-01T00:00:00Z"}`
+	}
 	inFlow := func(workflow, name, conclusion, started string) string {
 		return `{"__typename":"CheckRun","workflowName":"` + workflow + `","name":"` + name + `","status":"COMPLETED","conclusion":"` + conclusion + `","startedAt":"` + started + `"}`
 	}
@@ -88,9 +91,11 @@ func TestPRChecksReadAsACIVerdict(t *testing.T) {
 		{pr("OPEN", fresh, run("pr-rules", "SUCCESS", t2), run("pr-rules", "CANCELLED", t1), ok), early, Passed, "ci passed"}, // whatever order the rollup lists them in
 		{pr("OPEN", fresh, run("pr-rules", "CANCELLED", t1), ok), early, Failed, "ci failed: pr-rules"},                       // cancelled with no newer run is not green
 		{pr("OPEN", fresh, run("pr-rules", "SUCCESS", t1), run("pr-rules", "FAILURE", t2)), early, Failed, "ci failed: pr-rules"},
-		{pr("OPEN", fresh, run("pr-rules", "FAILURE", t1), run("pr-rules", "", t2)), early, Waiting, ""},                              // the rerun is still going
-		{pr("OPEN", fresh, run("pr-rules", "FAILURE", t1), queued("pr-rules")), early, Waiting, ""},                                   // a queued rerun has no start time yet
-		{pr("OPEN", fresh, queued("pr-rules"), run("pr-rules", "FAILURE", t1)), early, Waiting, ""},                                   // in either order
+		{pr("OPEN", fresh, run("pr-rules", "FAILURE", t1), run("pr-rules", "", t2)), early, Waiting, ""},             // the rerun is still going
+		{pr("OPEN", fresh, run("pr-rules", "FAILURE", t1), queued("pr-rules")), early, Waiting, ""},                  // a queued rerun has no start time yet
+		{pr("OPEN", fresh, queued("pr-rules"), run("pr-rules", "FAILURE", t1)), early, Waiting, ""},                  // in either order
+		{pr("OPEN", fresh, cancelledQueued("pr-rules"), run("pr-rules", "SUCCESS", t1)), early, Passed, "ci passed"}, // a run cancelled while queued is the older one
+		{pr("OPEN", fresh, run("pr-rules", "SUCCESS", t1), cancelledQueued("pr-rules")), early, Passed, "ci passed"},
 		{pr("OPEN", fresh, inFlow("a", "test", "FAILURE", t1), inFlow("b", "test", "SUCCESS", t2)), early, Failed, "ci failed: test"}, // the same name in another workflow is another check
 		{pr("OPEN", fresh, failed, run("pr-rules", "CANCELLED", t1), run("pr-rules", "SUCCESS", t2)), early, Failed, "ci failed: apps"},
 	} {
