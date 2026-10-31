@@ -114,11 +114,11 @@ export const SEEDS: Record<string, Seed> = {
 
   /** The founder's open requests for the Tasks page's My requests chip: one waiting on them, one blocked, two being worked, one not taken yet. */
   'my-requests': (d) => {
-    d.tasks.seed({ id: 7031, from: ME, to: 'handline.pc-chat', title: '[결정] 상태 줄 모양', state: 'doing' });
+    d.tasks.seed({ id: 7031, from: ME, to: 'handline.pc-shell', title: '[결정] 상태 줄 모양', state: 'doing' });
     d.tasks.seed({
       id: 7121,
       from: ME,
-      to: 'handline.pc-chat',
+      to: 'handline.pc-shell',
       title: '상태 줄 모양 정하기',
       state: 'doing',
       blockers: [{ task: 7031, reason: '' }],
@@ -194,10 +194,10 @@ export const SEEDS: Record<string, Seed> = {
   ...CHAT_SEEDS,
 };
 
-/** Switches the named seeds on: a comma-separated list, or `all`, which leaves out `my-requests`: its tasks grow the page the perf budget measures. An unknown name is an error, not a silent no-op. */
+/** Switches the named seeds on: a comma-separated list, or `all`. An unknown name is an error, not a silent no-op. */
 export function applySeeds(d: FakeDaemon, names: string | string[]): string[] {
   const list = (Array.isArray(names) ? names : names.split(',')).map((n) => n.trim()).filter(Boolean);
-  const on = list.includes('all') ? Object.keys(SEEDS).filter((n) => n !== 'my-requests') : list;
+  const on = list.includes('all') ? Object.keys(SEEDS) : list;
   for (const n of on) {
     const seed = SEEDS[n];
     if (!seed) throw new Error(`no seed "${n}"; known: ${Object.keys(SEEDS).join(', ')}, all`);
