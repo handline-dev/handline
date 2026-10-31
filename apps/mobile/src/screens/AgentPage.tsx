@@ -11,8 +11,7 @@ import { usePalette } from '#src/theme.ts';
 import { useHistoryValue } from '#src/history.tsx';
 import { AgentSettings } from '#src/screens/AgentSettings.tsx';
 import { AgentTopBar } from '#src/screens/AgentTopBar.tsx';
-import { AgentTabsContext, useAgentTabs, type AgentTabs } from '#src/screens/AgentTabs.tsx';
-import { AgentStrip } from '#src/screens/AgentStrip.tsx';
+import { AgentTabsContext, tabLabel, useAgentTabs, type AgentTabs } from '#src/screens/AgentTabs.tsx';
 import { AgentFile } from '#src/screens/AgentFile.tsx';
 import { AgentTasks } from '#src/screens/AgentTasks.tsx';
 import { AgentVerbs } from '#src/screens/AgentVerbs.tsx';
@@ -41,25 +40,22 @@ export function AgentPage() {
   const row = useAgents().data?.agents.find((a) => a.name === name);
   const [settings, setSettings] = useHistoryValue(`agent.settings:${name}`, false);
   const [menu, setMenu] = useState(false);
-  const hasTasks = useServes('tasks.list').served;
-  const hasFile = useServes('file.read').served && !!detailQuery.data?.worktree;
   const tabs = useAgentTabs(name);
-  if (!page) return null;
   const detail = detailQuery.data;
+  if (!page) return null;
+  const shown = tabs.tabs.find((t) => t.id === tabs.active);
+  const viewName = shown ? tabLabel(shown) : page.tab === 'terminal' ? (detail?.structured ? 'Transcript' : 'Terminal') : null;
   return (
     <AboveKeyboard>
-      <AgentTopBar
-        agent={name}
-        row={row}
-        tabs={tabs}
-        view={page.tab}
-        structured={detail?.structured === true}
-        hasTasks={hasTasks}
-        hasFile={hasFile}
-        onView={(v) => store.setTab(v)}
-        onMenu={() => setMenu(true)}
-        onBack={() => void store.closeAgent()}
-      />
+      {shown?.kind !== 'task' && (
+        <AgentTopBar
+          agent={name}
+          row={row}
+          view={viewName}
+          onMenu={() => setMenu(true)}
+          onBack={() => (shown ? tabs.close(shown.id) : page.tab === 'terminal' ? store.setTab('chat') : void store.closeAgent())}
+        />
+      )}
       {/* Every event of this agent refetches agent.get, so only the first load is a state to show. */}
       <Loadable
         query={{ ...detailQuery, isFetching: false }}
@@ -136,13 +132,38 @@ function Body(props: {
   // A structured session is watched as a transcript in place of its terminal; its permission cards are in the transcript.
   // The daemon says which agents it runs as a structured session: those are watched as a transcript, the rest keep the terminal.
   const structured = detail.structured === true;
+  const hasTasks = useServes('tasks.list').served;
+  const hasFile = useServes('file.read').served && !!detail.worktree;
   const views = (
     <>
-      <AgentStrip agent={name} />
+      {(
+        <MenuItem
+          testID="menu-terminal"
+          label={structured ? 'Transcript' : 'Terminal'}
+          icon="terminal"
+          onPress={() => (props.setMenu(false), tabs.select(null), store.setTab('terminal'))}
+        />
+      )}
+      {hasFile && (
+        <MenuItem
+          testID="menu-files"
+          label="Files"
+          icon="note"
+          onPress={() => (props.setMenu(false), tabs.open({ id: 'file:', kind: 'file', path: '' }))}
+        />
+      )}
+      {hasTasks && (
+        <MenuItem
+          testID="menu-tasks"
+          label="Tasks"
+          icon="tasks"
+          onPress={() => (props.setMenu(false), tabs.open({ id: 'tasks', kind: 'tasks' }))}
+        />
+      )}
       {onChat && (
         <MenuItem
           testID="search-open"
-          label={searching ? 'Close search' : 'Search this chat'}
+          label={searching ? 'Close search' : 'Find in chat'}
           icon="search"
           onPress={() => {
             props.setMenu(false);
@@ -153,7 +174,7 @@ function Body(props: {
       {ctl.start && (
         <MenuItem label="Start" icon="play" disabled={busy} onPress={() => (props.setMenu(false), start.mutate({ agent: name }))} />
       )}
-      {ctl.resume && <MenuItem label="Start new" icon="session" disabled={busy} onPress={() => (props.setMenu(false), startNew())} />}
+      {ctl.resume && <MenuItem label="Start fresh now" icon="session" disabled={busy} onPress={() => (props.setMenu(false), startNew())} />}
       {(structured ? ctl.interrupt : ctl.stop) && (
         <MenuItem label="Interrupt" icon="cancel" disabled={busy} onPress={() => (props.setMenu(false), stop('interrupt'))} />
       )}
