@@ -22,6 +22,7 @@ describe('Delete agent with work in its worktree', () => {
     await press($(`agent-${LEAF}`));
     await until(() => $('verbs-open'), 'the page');
     await press($('verbs-open'));
+    await press($('menu-more'));
     await press($('verb-advanced'));
     await press($('verb-delete'));
     await press($('sheet-submit'));
@@ -58,6 +59,7 @@ describe('Delete and lose the files', () => {
     await until(() => $(`agent-${LEAF}`), 'the rows');
     await press($(`agent-${LEAF}`));
     await press($('verbs-open'));
+    await press($('menu-more'));
     await press($('verb-advanced'));
     await press($('verb-delete'));
     await press($('sheet-submit'));

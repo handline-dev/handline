@@ -36,7 +36,11 @@ export function Bubble(props: {
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
   const mine = side === 'person' && !unnumbered && !failed;
-  const bg = side === 'person' ? c.panel : 'transparent';
+  const person = side === 'person';
+  const bg = person ? (failed ? c.panel : c.accent) : 'transparent';
+  const sub = person && !failed ? '#ffffffcc' : c.muted;
+  const ink = person && !failed ? '#fff' : undefined; // the person's words are white on the accent
+  const body = m.body.replace(/!\[[^\]]*\]\(attachment:[0-9a-f]+\)/g, '').trim(); // a picture is drawn from its attachment, never as its link
   const stamp = (
     <Stamp
       m={m}
@@ -70,13 +74,13 @@ export function Bubble(props: {
             padding: space.md,
             borderRadius: radius.l,
             backgroundColor: bg,
-            borderWidth: 1,
+            borderWidth: props.picked || props.flashed || failed ? 1 : 0,
             borderColor: props.picked || props.flashed ? c.accent : failed ? c.block : c.line,
             opacity: unnumbered && !failed ? 0.6 : 1,
           }}
         >
           {props.flashed && (
-            <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: font.size.xs }}>
+            <Text testID={`found-${m.id}`} style={{ color: sub, fontSize: font.size.xs }}>
               Found by search
             </Text>
           )}
@@ -85,15 +89,15 @@ export function Bubble(props: {
               {isTaskDelivery(m) ? `Task T${m.tasks[0]!.id} handed to ${m.to}` : `${m.from} → ${m.to}`}
             </Text>
           )}
-          {m.parent != null && <Text style={{ color: c.muted, fontSize: font.size.xs }}>↩ reply</Text>}
+          {m.parent != null && <Text style={{ color: sub, fontSize: font.size.xs }}>↩ reply</Text>}
           {m.parent_item && (
-            <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: font.size.xs }}>
+            <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: sub, fontSize: font.size.xs }}>
               ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
             </Text>
           )}
-          {m.body ? (
+          {body ? (
             <CommandMessageScope id={m.id} runs={m.runs}>
-              <PrBody id={m.id} agent={agent} body={m.body} selectable />
+              <PrBody id={m.id} agent={agent} body={body} selectable ink={ink} />
             </CommandMessageScope>
           ) : null}
           {m.attachments?.length ? (
@@ -125,7 +129,7 @@ export function Bubble(props: {
           )}
           {mine && (m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
             <Row style={{ gap: space.lg }}>
-              <Link testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
+              <Link testID={`now-${m.id}`} color={ink} label="Send now" onPress={() => act.sendNow(m.id)} />
             </Row>
           )}
         </View>

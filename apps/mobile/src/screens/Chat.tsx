@@ -236,11 +236,11 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
               />
             ),
           )}
+          <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
         </View>
         {anchor.room > 0 && <View testID="send-spacer" style={{ height: anchor.room }} onLayout={anchor.spacer} />}
       </ScrollView>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
-      <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && <ReplyRow id="replying" dropId="drop-reply" text={ellipsis(picked.body, 80)} onDrop={() => setPicked(null)} />}
       {item && (
         <ReplyRow

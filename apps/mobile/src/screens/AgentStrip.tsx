@@ -5,6 +5,7 @@ import type { AgentDetail } from '@handline/client';
 import { useAgentStrip, useServes, useWorktrees } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
 
 export function AgentStrip({ detail }: { detail: AgentDetail }) {
   const c = usePalette();
@@ -17,28 +18,23 @@ export function AgentStrip({ detail }: { detail: AgentDetail }) {
   const account = strip?.account;
   if (!served || !strip) return null;
   const small = { color: c.muted, fontSize: font.size.xs } as const;
+  const item = (testID: string, icon: IconName, text: string, shrink = false) => (
+    <View key={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: shrink ? 1 : 0 }}>
+      <Icon name={icon} decorative size={13} color={c.muted} />
+      <Text testID={testID} numberOfLines={1} style={{ ...small, flexShrink: 1 }}>
+        {text}
+      </Text>
+    </View>
+  );
   return (
     <View
       testID="agent-strip"
-      style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, paddingBottom: space.sm }}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingBottom: space.sm }}
     >
-      {ctx != null && (
-        <Text testID="strip-context" style={small}>
-          {Math.round(ctx)}% context
-        </Text>
-      )}
-      {detail.worktree && (
-        <Text testID="strip-branch" numberOfLines={1} style={{ ...small, flexShrink: 1 }}>
-          {ctx != null ? '· ' : ''}
-          {detail.worktree.branch}
-          {changed.length ? ` +${added} −${deleted}` : ''}
-        </Text>
-      )}
-      {account && (
-        <Text testID="strip-account" numberOfLines={1} style={small}>
-          · {account}
-        </Text>
-      )}
+      {ctx != null && item('strip-context', 'stats', `${Math.round(ctx)}% context`)}
+      {detail.worktree &&
+        item('strip-branch', 'worktrees', `${detail.worktree.branch}${changed.length ? ` +${added} −${deleted}` : ''}`, true)}
+      {account && item('strip-account', 'owner', account)}
     </View>
   );
 }

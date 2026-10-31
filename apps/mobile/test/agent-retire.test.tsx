@@ -11,6 +11,7 @@ async function openMenu(m: Awaited<ReturnType<typeof mount>>, agent: string) {
   await press($(`agent-${agent}`));
   await until(() => $('verbs-open'), 'the page');
   await press($('verbs-open'));
+  await press($('menu-more'));
   return m;
 }
 

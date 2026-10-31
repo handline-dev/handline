@@ -298,7 +298,7 @@ export function AboveKeyboard(props: { children: React.ReactNode }) {
 }
 
 /** A small text link. */
-export function Link(props: { label: string; onPress: () => void; testID: string; disabled?: boolean }) {
+export function Link(props: { label: string; onPress: () => void; testID: string; disabled?: boolean; color?: string }) {
   const c = usePalette();
   return (
     <Pressable
@@ -309,7 +309,7 @@ export function Link(props: { label: string; onPress: () => void; testID: string
       onPress={props.onPress}
       style={{ opacity: props.disabled ? 0.4 : 1 }}
     >
-      <Text style={{ color: c.accent, fontSize: font.size.sm }}>{props.label}</Text>
+      <Text style={{ color: props.color ?? c.accent, fontSize: font.size.sm }}>{props.label}</Text>
     </Pressable>
   );
 }

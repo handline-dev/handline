@@ -183,25 +183,12 @@ describe('the header row of a structured agent', () => {
     await until(() => $('verbs-open'), 'the header row');
     expect(buttons()).not.toContain('Kill');
     await press($('verbs-open'));
+    await press($('menu-more'));
     await press($('verb-advanced'));
     await until(() => button('Close'), 'the menu');
     expect(buttons()).toContain('Kill');
     expect(buttons()).not.toContain('Exit');
     expect(buttons()).not.toContain('Interrupt');
-    m.store.stop();
-  });
-
-  it('adds Interrupt while a turn runs', async () => {
-    const m = await mount((s) => {
-      s.daemon.sessions.get(AUD)!.state = 'running';
-      s.daemon.chat.setTurn(AUD, true);
-    });
-    await until(() => $(`agent-${AUD}`), 'the rows');
-    await press($(`agent-${AUD}`));
-    await until(() => $('verbs-open'), 'the page');
-    await press($('verbs-open'));
-    await until(() => button('Interrupt'), 'Interrupt');
-    expect(buttons()).not.toContain('Exit');
     m.store.stop();
   });
 

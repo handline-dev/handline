@@ -8,6 +8,7 @@ describe('the agent verbs menu', () => {
     await press($(`agent-${ARCH}`));
     await until(() => $('verbs-open'), 'the page');
     await press($('verbs-open'));
+    await press($('menu-more'));
   }
 
   it('lists what applies to the row, without Close and Clear stall', async () => {
@@ -31,6 +32,7 @@ describe('the agent verbs menu', () => {
     expect(m.daemon.sessions.get(ARCH)!.state).not.toBe('parked');
     m.daemon.knobs.latency(400);
     await press($('verbs-open'));
+    await press($('menu-more'));
     await press($('verb-park'));
     await press($('sheet-submit'));
     await until(() => $('pending-mark')?.textContent === 'parking…', 'the pending mark', 300);
@@ -72,6 +74,7 @@ describe('the agent verbs menu', () => {
     await press($('sheet-submit'));
     await until(() => m.daemon.sessions.get(ARCH)!.fx.account === 'beta', 'the daemon');
     await press($('verbs-open'));
+    await press($('menu-more'));
     await press($('verb-restart_fresh'));
     expect(text()).toContain(`Restart fresh ${ARCH}?`);
     await press($('sheet-submit'));

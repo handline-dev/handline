@@ -20,7 +20,8 @@ import { Detail } from '#src/screens/Tasks.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { PromptSlot } from '#src/screens/PromptCard.tsx';
 import { Transcript } from '#src/screens/Transcript.tsx';
-import { AboveKeyboard, Button, MenuItem } from '#src/screens/parts.tsx';
+import { AboveKeyboard, Button } from '#src/screens/parts.tsx';
+import { ChatMenu, PopDivider, PopRow } from '#src/screens/ChatMenu.tsx';
 
 /** What a start, stop or interrupt in flight on this agent says while the daemon decides. */
 function useAgentMark(agent: string): string | null {
@@ -134,18 +135,17 @@ function Body(props: {
   const structured = detail.structured === true;
   const hasTasks = useServes('tasks.list').served;
   const hasFile = useServes('file.read').served && !!detail.worktree;
+  const [more, setMore] = useState(false); // the full list behind the More row
   const views = (
     <>
-      {
-        <MenuItem
-          testID="menu-terminal"
-          label={structured ? 'Transcript' : 'Terminal'}
-          icon="terminal"
-          onPress={() => (props.setMenu(false), tabs.select(null), store.setTab('terminal'))}
-        />
-      }
+      <PopRow
+        testID="menu-terminal"
+        label={structured ? 'Transcript' : 'Terminal'}
+        icon="terminal"
+        onPress={() => (props.setMenu(false), tabs.select(null), store.setTab('terminal'))}
+      />
       {hasFile && (
-        <MenuItem
+        <PopRow
           testID="menu-files"
           label="Files"
           icon="note"
@@ -153,15 +153,16 @@ function Body(props: {
         />
       )}
       {hasTasks && (
-        <MenuItem
+        <PopRow
           testID="menu-tasks"
           label="Tasks"
           icon="tasks"
           onPress={() => (props.setMenu(false), tabs.open({ id: 'tasks', kind: 'tasks' }))}
         />
       )}
+      <PopDivider />
       {onChat && (
-        <MenuItem
+        <PopRow
           testID="search-open"
           label={searching ? 'Close search' : 'Find in chat'}
           icon="search"
@@ -172,12 +173,10 @@ function Body(props: {
         />
       )}
       {ctl.start && (
-        <MenuItem label="Start" icon="play" disabled={busy} onPress={() => (props.setMenu(false), start.mutate({ agent: name }))} />
+        <PopRow label="Start" icon="play" disabled={busy} onPress={() => (props.setMenu(false), start.mutate({ agent: name }))} />
       )}
-      {ctl.resume && <MenuItem label="Start fresh now" icon="session" disabled={busy} onPress={() => (props.setMenu(false), startNew())} />}
-      {(structured ? ctl.interrupt : ctl.stop) && (
-        <MenuItem label="Interrupt" icon="cancel" disabled={busy} onPress={() => (props.setMenu(false), stop('interrupt'))} />
-      )}
+      {ctl.resume && <PopRow label="Start fresh now" icon="session" disabled={busy} onPress={() => (props.setMenu(false), startNew())} />}
+      <PopRow testID="menu-more" label="More" icon="more" onPress={() => (props.setMenu(false), setMore(true))} />
     </>
   );
   const note = [
@@ -185,14 +184,14 @@ function Body(props: {
   ].filter(Boolean);
   return (
     <View style={{ flex: 1 }}>
+      {props.menu && <ChatMenu onClose={() => props.setMenu(false)}>{views}</ChatMenu>}
       <AgentVerbs
         detail={detail}
         row={row}
-        open={props.menu}
-        setOpen={props.setMenu}
+        open={more}
+        setOpen={setMore}
         onDeleted={() => void store.closeAgent()}
         onSettings={props.onSettings}
-        before={views}
         stops={[
           ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
           ...(ctl.stop

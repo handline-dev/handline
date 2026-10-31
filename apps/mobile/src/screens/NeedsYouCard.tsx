@@ -4,7 +4,7 @@
 import { Text, View } from 'react-native';
 import { ago } from '@handline/app-core';
 import type { NeedsYou, Prompt } from '@handline/client';
-import { radius, space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { PromptSlot } from '#src/screens/PromptCard.tsx';
 
@@ -23,33 +23,14 @@ export function NeedsYouCard(props: { agent: string; needs: NeedsYou | null; pro
   const c = usePalette();
   const { needs } = props;
   return (
-    <View
-      testID={needs ? 'needs-you' : undefined}
-      accessibilityRole={needs ? 'alert' : undefined}
-      style={
-        needs && {
-          margin: space.sm,
-          padding: space.md,
-          gap: space.xs,
-          borderWidth: 1,
-          borderColor: c.wait,
-          borderRadius: radius.l,
-          backgroundColor: c.panel,
-        }
-      }
-    >
+    <View testID={needs ? 'needs-you' : undefined} accessibilityRole={needs ? 'alert' : undefined} style={{ gap: space.xs }}>
       {needs ? (
-        <Text style={{ color: c.wait, fontWeight: '700' }}>
-          Needs you · {KIND[needs.kind]} · {ago(needs.since)}
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>
+          <Text style={{ color: c.ink, fontWeight: '600' }}>Needs you</Text> · {KIND[needs.kind]} · {ago(needs.since)}
+          {needs.text ? `: ${needs.text}` : !props.prompt ? ': answer at the computer' : ''}
         </Text>
       ) : null}
-      {needs?.text ? <Text style={{ color: c.ink }}>{needs.text}</Text> : null}
       <PromptSlot agent={props.agent} prompt={props.prompt} />
-      {needs && !props.prompt ? (
-        <Text testID="needs-you-computer" style={{ color: c.muted }}>
-          Answer at the computer.
-        </Text>
-      ) : null}
     </View>
   );
 }
