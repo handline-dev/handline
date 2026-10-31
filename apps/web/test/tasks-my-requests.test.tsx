@@ -98,7 +98,7 @@ describe('the My requests chip', () => {
     await until(() => chip(), 'the chip');
     await click(chip());
     await until(() => $('[data-line="blocked"]'), 'the blocked line');
-    expect(text($('[data-line="blocked"]'))).toBe('Blocked on T7031');
+    expect(text($('[data-line="blocked"]'))).toBe('Blocked on T7031'); // local-ref-ok
     await click($('[data-line="blocked"] button'));
     expect(location.hash).toBe('#/tasks/7031');
   });
