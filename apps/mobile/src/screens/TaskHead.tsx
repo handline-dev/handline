@@ -12,7 +12,7 @@ import { LaterSheet } from '#src/screens/RequestsLater.tsx';
 
 const PRIORITY = { 1: 'P1', 2: 'P2', 3: 'P3' } as const;
 
-/** "T4660 · P2 · handline → you · 3d": the id, the priority, who asked and who has it (a tap on the second name reassigns), and how long ago. */
+/** The line above the title: the id, the priority, who asked and who has it (a tap on the second name reassigns), and how long ago. */
 export function TaskLine({ t, onAssign, canAssign }: { t: TaskDetail; onAssign: () => void; canAssign: boolean }) {
   const c = usePalette();
   const me = useStore().me;
@@ -34,7 +34,7 @@ export function TaskLine({ t, onAssign, canAssign }: { t: TaskDetail; onAssign: 
   );
 }
 
-/** "Blocks T7020": the tasks that wait on this one, only when there are some. */
+/** The Blocks line: the tasks that wait on this one, only when there are some. */
 export function BlocksLine({ id }: { id: number }) {
   const c = usePalette();
   const blocked = (useTasks({}).data?.items ?? []).filter((x) => x.blocked_by?.includes(id));

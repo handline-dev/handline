@@ -26,11 +26,11 @@ const open = async (id: number) => {
 describe('task page', () => {
   it('reads who asked and who has it, says Needs you, and ends with one Done bar', async () => {
     const m = await open(9001);
-    expect(text($('task-detail'))).toContain('T9001');
+    expect(text($('task-detail'))).toContain('T9001'); // local-ref-ok
     expect(text($('task-detail'))).toContain('handline.architect → you');
     expect(text($('status-menu'))).toContain('Needs you');
     await until(() => $('task-done'), 'the Done bar');
-    expect($('task-blocks')?.textContent).toBe('Blocks T9002');
+    expect($('task-blocks')?.textContent).toBe('Blocks T9002'); // local-ref-ok
     expect($('task-history-toggle')).toBeNull();
     m.store.stop();
   }, 20000);
