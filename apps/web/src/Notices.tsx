@@ -185,8 +185,8 @@ function Actions({ n }: { n: Notice }) {
   );
 }
 
-/** One toast: the same inset on every side, the status icon with a bold title and a short second line, then its buttons flush right: the main one filled, the rest grey chips. */
-function Toast({ n }: { n: Notice }) {
+/** One toast (`z` puts the lower ones over the upper ones): the same inset on every side, the status icon with a bold title and a short second line, then its buttons flush right: the main one filled, the rest grey chips. */
+function Toast({ n, z }: { n: Notice; z: number }) {
   const store = useStore();
   const [more, setMore] = useState(false);
   const [icon, level] = MARK[n.level];
@@ -197,6 +197,7 @@ function Toast({ n }: { n: Notice }) {
   const long = !!n.details;
   return (
     <div
+      style={{ zIndex: z }}
       className="toast relative flex items-start gap-2 rounded-md border border-line bg-panel p-3 text-md text-ink shadow-[var(--shadow)]"
       onPointerEnter={() => store.notices.hold(n.id, 'pointer')}
       onPointerLeave={() => store.notices.release(n.id, 'pointer')}
@@ -333,8 +334,9 @@ function Toasts({ hidden }: { hidden: boolean }) {
       className="toasts absolute right-0 bottom-full z-10 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5"
       role="status"
     >
-      {toasts.slice(0, MAX_TOASTS).map((n) => (
-        <Toast key={n.id} n={n} />
+      {/* The bottom toast is the first and paints over the ones above it, so a toast's shadow never falls on the toast below it. */}
+      {toasts.slice(0, MAX_TOASTS).map((n, i, all) => (
+        <Toast key={n.id} n={n} z={all.length - i} />
       ))}
     </div>
   );

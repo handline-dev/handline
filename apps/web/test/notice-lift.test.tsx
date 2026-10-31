@@ -76,4 +76,16 @@ describe('the toast stack', () => {
     await until(() => toast()!.style.marginBottom === '168px', 'the lift');
     late.remove();
   });
+
+  it("paints a toast over the ones above it, so a toast's shadow never falls on the toast below", async () => {
+    const s = setup();
+    await mount(ARCH, s, '#/tasks');
+    await act(async () => {
+      store.say('First');
+      store.say('Second');
+    });
+    await until(() => box.querySelectorAll('.toasts .toast').length === 2, 'two toasts');
+    const z = [...box.querySelectorAll<HTMLElement>('.toasts .toast')].map((t) => Number(t.style.zIndex));
+    expect(z[0]).toBeGreaterThan(z[1]!); // the first is the bottom one (the stack runs in reverse)
+  });
 });
