@@ -52,7 +52,7 @@ func TestRequestsAreReadFromTheirTreeOfTasks(t *testing.T) {
 		len(r["holders"].([]string)) != 2 || len(r["prs"].([]int64)) != 1 {
 		t.Errorf("a tree is counted: %v", r)
 	}
-	for k, want := range map[string]string{"T10": "sub 1/2 done, now dev, in review", "T20": "done", "T30": "sub 0/1 done, now lead, waiting on you", "msg_aaaaaaaaaaa3": ""} {
+	for k, want := range map[string]string{"T10": "sub 1/2 done, now dev, in review", "T20": "done", "T30": "sub 0/1 done, now lead, waiting on you", "msg_aaaaaaaaaaa3": ""} { // local-ref-ok
 		if by[k]["progress"] != want {
 			t.Errorf("%s progress %q, want %q", k, by[k]["progress"], want)
 		}
