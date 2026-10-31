@@ -1,20 +1,14 @@
 # How much the web app draws in everyday scenarios (apps/web/scripts/perf/run.ts), checked against apps/web/perf-budget.json:
-# nightly, and on pull requests that change the web app or the packages it draws from. Headless Chrome only.
+# nightly and on a manual run only, not on pull requests. Headless Chrome only.
 name: perf
 
 on:
   schedule:
     - cron: '30 18 * * *' # 03:30 KST
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'apps/web/**'
-      - 'packages/app-*/**'
-      - 'packages/fake-daemon/**'
 
 concurrency:
-  group: perf-${{ github.event.pull_request.number || github.ref }}
+  group: perf-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
