@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
 import { readBuildSha } from '#src/build-id.ts';
-import { SelfUpdater, updateUrl, type PkgPorts } from '#src/pkg-update.ts';
+import { SelfUpdater, type PkgPorts } from '#src/pkg-update.ts';
 import { leftovers, STAGING, swapBundle } from '#src/swap.ts';
 import type { UpdateFlow } from '#src/update-flow.ts';
 
@@ -19,10 +19,12 @@ const run = (file: string, args: string[]): Promise<void> =>
 /** The installed Handline.app: three folders above the executable (Contents/MacOS/Handline). */
 const installedApp = () => path.resolve(app.getPath('exe'), '../../..');
 
-/** The address the build reads its updates from, written into Resources by electron-builder when a publish address was set; null for any other build. */
-export function packagedUpdateUrl(resources: string): string | null {
+/** The address the build reads its updates from, written into its package.json by electron-builder (electron-builder.config.mjs); null for any other build. */
+export function packagedUpdateUrl(appPath: string): string | null {
   try {
-    return updateUrl(fs.readFileSync(path.join(resources, 'app-update.yml'), 'utf8'));
+    const url = (JSON.parse(fs.readFileSync(path.join(appPath, 'package.json'), 'utf8')) as { handlineUpdateUrl?: unknown })
+      .handlineUpdateUrl;
+    return typeof url === 'string' && url ? url : null;
   } catch {
     return null;
   }
@@ -103,7 +105,7 @@ export function startPkgUpdate(o: {
   idle: () => Promise<boolean>;
   upgrade: (sha?: string) => Promise<void>;
 }): () => void {
-  const base = packagedUpdateUrl(process.resourcesPath);
+  const base = packagedUpdateUrl(app.getAppPath());
   if (!base) return () => undefined;
   sweepSwap();
   const updater = new SelfUpdater(ports(o), o.flow, base);

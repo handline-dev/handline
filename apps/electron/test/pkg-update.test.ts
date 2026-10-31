@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isNewer, parseLatest, SelfUpdater, updateUrl, type PkgPorts } from '#src/pkg-update.ts';
+import { isNewer, parseLatest, SelfUpdater, type PkgPorts } from '#src/pkg-update.ts';
 import { leftovers, STAGING, swapBundle } from '#src/swap.ts';
 import { UpdateFlow } from '#src/update-flow.ts';
 
@@ -20,11 +20,6 @@ releaseDate: '2026-10-31T13:44:34.790Z'
 test('latest-mac.yml: the version, the zip and its checksum from the top level', () => {
   assert.deepEqual(parseLatest(YML), { version: '0.1.42', path: 'Handline-0.1.42-universal-mac.zip', sha512: 'ZZZ==' });
   assert.equal(parseLatest('version: 1.0.0\n'), null);
-});
-
-test('app-update.yml names the address', () => {
-  assert.equal(updateUrl('provider: generic\nurl: https://example.org/dl\nupdaterCacheDirName: x\n'), 'https://example.org/dl');
-  assert.equal(updateUrl('provider: github\n'), null);
 });
 
 test('a later version is newer; a dev build is older than any release', () => {

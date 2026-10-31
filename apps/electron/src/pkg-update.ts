@@ -25,11 +25,6 @@ export function parseLatest(yml: string): Latest | null {
   return version && path && sha512 ? { version, path, sha512 } : null;
 }
 
-/** The `url:` of the app-update.yml electron-builder puts in Resources when a publish address is set. */
-export function updateUrl(yml: string): string | null {
-  return /^url:\s*(\S+)\s*$/m.exec(yml)?.[1]?.replace(/^['"]|['"]$/g, '') ?? null;
-}
-
 const nums = (v: string) => (v.split('-')[0] ?? '').split('.').map((n) => Number(n) || 0);
 
 /** Whether `candidate` is a later version than `current`; a pre-release suffix ("0.0.0-dev") is earlier than the same numbers without one. */
