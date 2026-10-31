@@ -526,8 +526,9 @@ func (s *Service) Uninstall() (string, error) {
 	return "removed " + s.Plist, nil
 }
 
-// Ensured is what Ensure did, as the one JSON line the app shows: state is running (nothing to do), started (the job was loaded
-// onto version), upgraded, kept (version did not answer and the daemon is back on the one before) or failed.
+// Ensured is what Ensure did, as the one JSON line the app shows: state is running (the daemon was on version; at most current moved),
+// started (the job was loaded onto version), upgraded, kept (version did not answer and the daemon is back on the one before) or
+// failed (reason missing:claude or missing:tmux when the job's PATH lacks one; nothing was written).
 type Ensured struct {
 	State   string `json:"state"`
 	Version string `json:"version"`
@@ -543,11 +544,11 @@ func (s *Service) Ensure(src string) Ensured {
 	if err := s.Guard(true); err != nil {
 		return failed(err)
 	}
-	if err := os.MkdirAll(filepath.Join(s.Home, "logs"), 0o755); err != nil {
+	body, err := s.plist(true) // first: a missing tool fails before anything is written
+	if err != nil {
 		return failed(err)
 	}
-	body, err := s.plist(true)
-	if err != nil {
+	if err := os.MkdirAll(filepath.Join(s.Home, "logs"), 0o755); err != nil {
 		return failed(err)
 	}
 	cur, prev := s.Current(), s.Previous()
@@ -642,6 +643,11 @@ func (s *Service) keptEnv() (claude, path string) {
 	return claude, path
 }
 
+// missing is a tool the job needs that its PATH lacks; its text is the reason the app reads to show the install command.
+type missing string
+
+func (m missing) Error() string { return "missing:" + string(m) }
+
 // lookPath is name's executable in the first folder of path that holds one, "" when none does.
 func lookPath(name, path string) string {
 	for _, d := range filepath.SplitList(path) {
@@ -655,7 +661,8 @@ func lookPath(name, path string) string {
 }
 
 // plist is the job: the current version's daemon (its defaults are the service's), kept alive and throttled so a crash loop cannot
-// run away. keep takes the claude binary and PATH from the job file there, when it names them, over this process's.
+// run away. keep takes the claude binary and PATH from the job file there, when it names them, over this process's. It fails with
+// missing when that PATH has no claude or no tmux.
 func (s *Service) plist(keep bool) (string, error) {
 	claude, path := "", os.Getenv("PATH")
 	if keep {
@@ -672,7 +679,10 @@ func (s *Service) plist(keep bool) (string, error) {
 		claude = lookPath("claude", path)
 	}
 	if claude == "" {
-		return "", fmt.Errorf("no claude binary on PATH for -claude")
+		return "", missing("claude")
+	}
+	if lookPath("tmux", path) == "" { // the daemon's agents run in tmux
+		return "", missing("tmux")
 	}
 	argv := []string{filepath.Join(s.Bin, current, "handlined")}
 	if paths.IsLive(s.Home) {
