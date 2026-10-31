@@ -707,6 +707,20 @@ func TestLookPathTakesOnlyAnExecutableFile(t *testing.T) {
 	}
 }
 
+func TestInstallChecksOnlyClaude(t *testing.T) {
+	r := newRig(t)
+	dir := filepath.Join(r.root, "path")
+	tool(dir, "claude")
+	t.Setenv("PATH", dir)
+	if _, err := r.s.Install(r.build("v1", false), false); err != nil || !r.loaded {
+		t.Fatalf("install without tmux: %v", err)
+	}
+	t.Setenv("PATH", "")
+	if _, err := r.s.Install(r.build("v2", false), false); err == nil || err.Error() != "missing:claude: no claude binary on PATH for -claude" {
+		t.Fatalf("install without claude: %v", err)
+	}
+}
+
 func TestInstallWritesThisProcesssPath(t *testing.T) {
 	r := newRig(t)
 	r.handWritten("/old/handlined")

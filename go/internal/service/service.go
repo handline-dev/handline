@@ -264,7 +264,7 @@ func (s *Service) Install(src string, allowLive bool) (string, error) {
 	}
 	body, err := s.plist(false) // built first: a refusal leaves the old file alone
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: no claude binary on PATH for -claude", err)
 	}
 	cur, prev := s.Current(), s.Previous()
 	v, fresh, err := s.add(src)
@@ -662,7 +662,7 @@ func lookPath(name, path string) string {
 
 // plist is the job: the current version's daemon (its defaults are the service's), kept alive and throttled so a crash loop cannot
 // run away. keep takes the claude binary and PATH from the job file there, when it names them, over this process's. It fails with
-// missing when that PATH has no claude or no tmux.
+// missing when that PATH has no claude, or, with keep (the app's ensure), no tmux.
 func (s *Service) plist(keep bool) (string, error) {
 	claude, path := "", os.Getenv("PATH")
 	if keep {
@@ -681,7 +681,7 @@ func (s *Service) plist(keep bool) (string, error) {
 	if claude == "" {
 		return "", missing("claude")
 	}
-	if lookPath("tmux", path) == "" { // the daemon's agents run in tmux
+	if keep && lookPath("tmux", path) == "" { // the daemon's agents run in tmux; only the app's ensure checks it
 		return "", missing("tmux")
 	}
 	argv := []string{filepath.Join(s.Bin, current, "handlined")}
