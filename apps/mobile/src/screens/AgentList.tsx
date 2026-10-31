@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { AgentView as Agent } from '@handline/client';
-import { useAgents, useHrCount, useMyTurn, useNav, useOpenTasks, useServes } from '@handline/app-data';
+import { useAgents, useMyTurn, useNav, useOpenTasks, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { font, rowHeight, space } from '@handline/tokens';
 import {
@@ -37,6 +37,9 @@ const CHIPS: { id: NavChip; label: string }[] = [
   { id: 'unread', label: 'Unread' },
   { id: 'needs', label: 'Requests' },
 ];
+
+/** The words the daemon uses for a state that a person reads differently. */
+const WORDS: Record<string, string> = { wall: 'at limit' };
 
 export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 'requests') => void }) {
   const c = usePalette();
@@ -75,7 +78,6 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
   const [queueOf, setQueueOf] = useState<Agent | null>(null);
   const founder = store.client.hello?.role === 'founder';
   const create = useServes('agent.create').served;
-  const hr = useHrCount();
   const requests = useServes('requests.list').served;
   const [menu, setMenu] = useState(false);
   const go = (page: 'settings' | 'team' | 'requests') => (setMenu(false), props.onPage(page));
@@ -86,18 +88,11 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
         actions={
           <>
             {founder && create ? (
-              <Button
-                testID="new-agent-open"
-                label=""
-                icon="plus"
-                accessibilityLabel="New agent"
-                onPress={() => props.onPage('new')}
-                style={{ paddingVertical: space.sm }}
-              />
+              <Button testID="new-agent-open" label="" icon="plus" accessibilityLabel="New agent" onPress={() => props.onPage('new')} />
             ) : null}
             <Button
               testID="agents-menu"
-              label={hr ? '●' : ''}
+              label=""
               icon="menu"
               accessibilityLabel="More"
               onPress={() => setMenu(!menu)}
@@ -211,7 +206,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
             const need = a.needs_you ? (a.needs_you.text ?? KIND[a.needs_you.kind]) : '';
             const doing =
               need || a.task?.title || (a.state === 'running' && !a.handoff ? a.doing?.text : '') || statusText(a) || a.state_detail || '';
-            const word = asks(a) ? 'asks' : rowWord(a);
+            const word = asks(a) ? 'asks' : (WORDS[rowWord(a)] ?? rowWord(a));
             const queued = queuedBehind(a) || 0;
             const age = a.needs_you ? a.needs_you.since : (a.status?.since ?? a.state_since);
             return (
@@ -260,10 +255,10 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 
                     {doing || ' '}
                   </Text>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ color: need ? c.wait : a.block ? c.block : c.muted, fontSize: font.size.sm }}>{word}</Text>
-                  {age ? <Text style={{ color: c.muted, fontSize: font.size.xs }}>{ago(age)}</Text> : null}
-                </View>
+                <Text style={{ color: c.muted, fontSize: font.size.sm }}>
+                  <Text style={{ color: need ? c.wait : a.block ? c.block : c.muted }}>{word}</Text>
+                  {age ? `${word ? ' · ' : ''}${ago(age)}` : ''}
+                </Text>
               </Pressable>
             );
           }}

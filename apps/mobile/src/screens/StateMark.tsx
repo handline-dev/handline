@@ -41,10 +41,11 @@ function Turning({ on, children }: { on: boolean; children: React.ReactNode }) {
 export function StateMark({ agent }: { agent: Pick<AgentView, 'state' | 'has_dialog' | 'block'> }) {
   const c = usePalette();
   const dot = dotOf(agent);
+  const mark = dot === 'blocked' && agent.block?.kind === 'wall' ? { icon: 'full' as IconName, label: 'Limit reached' } : MARKS[dot]; // a limit and a block are two shapes
   return (
-    <View testID={`state-${dot}`} accessible accessibilityLabel={MARKS[dot].label} style={{ width: 16, alignItems: 'center' }}>
+    <View testID={`state-${dot}`} accessible accessibilityLabel={mark.label} style={{ width: 16, alignItems: 'center' }}>
       <Turning on={dot === 'running'}>
-        <Icon name={MARKS[dot].icon} label={MARKS[dot].label} decorative color={dotColor(c, dot)} />
+        <Icon name={mark.icon} label={mark.label} decorative color={dotColor(c, dot)} />
       </Turning>
     </View>
   );

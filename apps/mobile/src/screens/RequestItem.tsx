@@ -20,7 +20,7 @@ import {
   type LaterAt,
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
-import { classify, sentence, useTasks, useVerbRun, useWrite } from '@handline/app-data';
+import { classify, sentence, useRead, useTasks, useVerbRun, useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import type { Held, Step } from '#src/heldAnswers.ts';
@@ -61,6 +61,8 @@ export function RequestItem(props: {
   const [sure, setSure] = useState(false);
   const [asking, setAsking] = useState(false);
   const [more, setMore] = useState(false);
+  const brief = useRead('task.get', { task: card.task ?? 0 }, { enabled: card.task != null }).data?.body?.trim() ?? '';
+  const [full, setFull] = useState(false);
   const refused = [done, read].find((w) => w.isError)?.error;
 
   const hold = (line: string, steps: Step[]) => (held.hold(card.key, line, steps), props.onAnswered());
@@ -157,6 +159,18 @@ export function RequestItem(props: {
         </View>
         <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>{card.title}</Text>
         {spare ? <SpareTasks n={spare} /> : facts ? <Facts text={facts} command={command} /> : null}
+        {brief ? (
+          <View style={{ gap: space.xs }}>
+            <Text testID="request-brief" numberOfLines={full ? undefined : 6} style={{ color: c.ink }}>
+              {brief}
+            </Text>
+            {brief.length > 260 || brief.split('\n').length > 6 ? (
+              <Pressable testID="request-brief-more" accessibilityRole="button" onPress={() => setFull(!full)} hitSlop={8}>
+                <Text style={{ color: c.accent }}>{full ? 'Less' : 'More'}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
         {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
         <View testID="request-answers" style={{ gap: space.sm }}>
           {refused ? (

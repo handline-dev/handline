@@ -106,18 +106,15 @@ function List(props: { onSelect: (id: number) => void }) {
         title="Tasks"
         actions={
           <>
-            <Button
-              testID="tasks-select"
-              label={selecting ? 'Done' : 'Select'}
-              onPress={() => (selecting ? stopSelecting() : setSelecting(true))}
-            />
-            <Button testID="new-task-open" label="New task" icon="plus" onPress={() => setCreating(true)} />
+            {selecting ? <Button testID="tasks-select" label="Done" onPress={stopSelecting} /> : null}
+            <Button testID="new-task-open" label="" icon="plus" accessibilityLabel="New task" onPress={() => setCreating(true)} />
             <Button testID="tasks-menu" label="" icon="menu" accessibilityLabel="More" onPress={() => setMenu(!menu)} />
           </>
         }
       />
       {menu && (
-        <MenuSheet onClose={() => setMenu(false)}>
+        <MenuSheet title="Tasks" onClose={() => setMenu(false)}>
+          <MenuItem testID="tasks-select" icon="done" label="Select" onPress={() => (setMenu(false), setSelecting(true))} />
           <MenuItem
             testID="graph-toggle"
             icon={graph ? 'viewList' : 'viewTree'}

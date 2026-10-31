@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, radius, space } from '@handline/tokens';
@@ -69,6 +69,8 @@ export function Banner(props: { text: string; error?: boolean; action?: string; 
   );
 }
 
+const FILL = '#2f5bd3'; // the main button's blue: white text reads on it in both themes
+
 export function Button(props: {
   label: string;
   onPress: () => void;
@@ -81,7 +83,9 @@ export function Button(props: {
   icon?: IconName;
 }) {
   const c = usePalette();
-  const bg = props.kind === 'primary' ? c.accent : props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
+  const bare = !props.label && !!props.icon && !props.kind;
+  const fill = props.kind === 'primary' || props.kind === 'yes';
+  const bg = bare ? 'transparent' : fill ? FILL : props.kind === 'no' ? c.block : c.panel;
   const solid = props.kind === 'yes' || props.kind === 'no';
   const ink = props.kind === 'primary' || solid ? c.onFill : c.ink;
   return (
@@ -95,10 +99,11 @@ export function Button(props: {
         backgroundColor: bg,
         overflow: 'hidden',
         borderColor: c.line,
-        borderWidth: 1,
+        borderWidth: bare ? 0 : 1,
         borderRadius: radius.m,
-        paddingVertical: space.md,
-        paddingHorizontal: space.lg,
+        paddingVertical: bare ? 0 : space.md,
+        paddingHorizontal: bare ? 0 : space.lg,
+        ...(bare ? { minWidth: 44, minHeight: 44 } : {}),
         opacity: props.disabled ? 0.4 : 1,
         alignItems: 'center',
         flexDirection: 'row',
@@ -118,59 +123,7 @@ export function Button(props: {
   );
 }
 
-export function BackLink(props: { label: string; onPress: () => void; testID?: string; accessibilityLabel?: string }) {
-  const c = usePalette();
-  return (
-    <Pressable
-      testID={props.testID}
-      onPress={props.onPress}
-      accessibilityRole="button"
-      accessibilityLabel={props.accessibilityLabel ?? `Back to ${props.label}`}
-      hitSlop={12}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 44 }}
-    >
-      <Icon name="back" decorative size={20} color={c.accent} />
-      <Text style={{ color: c.accent, fontSize: font.size.lg }}>{props.label}</Text>
-    </Pressable>
-  );
-}
-
-/** The bell of the top-level tabs rides on the title row of whichever page is showing: Home puts it here, a page with a way back has none. */
-export const BellSlot = createContext<React.ReactNode>(null);
-
-/** The top of a page: where I am (title), the way back (parent's name), and the page's actions. */
-export function PageHeader(props: {
-  title?: string;
-  back?: { label: string; onPress: () => void; testID?: string };
-  actions?: React.ReactNode;
-  children?: React.ReactNode;
-  /** Inside a container that already pads. */
-  bare?: boolean;
-}) {
-  const c = usePalette();
-  const { back } = props;
-  const bell = useContext(BellSlot);
-  return (
-    <View style={{ padding: props.bare ? 0 : space.lg, gap: space.sm }}>
-      {back ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <BackLink label={back.label} onPress={back.onPress} testID={back.testID} />
-          {props.title ? null : props.actions}
-        </View>
-      ) : null}
-      {props.title || (props.actions && !back) ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-          <Text accessibilityRole="header" style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700', flex: 1 }}>
-            {props.title}
-          </Text>
-          {props.actions}
-          {back ? null : bell}
-        </View>
-      ) : null}
-      {props.children}
-    </View>
-  );
-}
+export { BackLink, BellSlot, PageHeader } from '#src/screens/PageHeader.tsx';
 
 /** The boxed panel a form or a confirmation sits in. */
 export function Card(props: { children: React.ReactNode; testID?: string }) {

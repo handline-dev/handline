@@ -40,7 +40,6 @@ describe('the first screen', () => {
     );
     await until(() => $('request-task:2998'), 'the Requests list');
     expect(text($('requests-badge'))).not.toBe('');
-    expect(text($('requests-badge'))).toBe(text($('requests-count')));
     m.store.stop();
   });
 

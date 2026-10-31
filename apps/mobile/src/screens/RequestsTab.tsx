@@ -3,7 +3,7 @@
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { REQUEST_GROUPS, ago, requestGroup, sourceWord, type Card, type LaterAt } from '@handline/app-core';
 import { useInbox, useMyTurn, useServes } from '@handline/app-data';
-import { font, radius, space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import type { Held } from '#src/heldAnswers.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
@@ -34,7 +34,6 @@ export function RequestsTab(props: {
   onLater: (card: Card, at: LaterAt | null) => void;
   onTask: (id: number) => void;
 }) {
-  const c = usePalette();
   const cards = useRequestCards(props.held);
   const query = useInbox();
   const { served } = useServes('inbox.list');
@@ -60,14 +59,7 @@ export function RequestsTab(props: {
     );
   return (
     <View style={{ flex: 1 }}>
-      <PageHeader
-        title="Requests"
-        actions={
-          <Text testID="requests-count" style={{ color: c.muted, fontSize: font.size.md }}>
-            {cards.length}
-          </Text>
-        }
-      />
+      <PageHeader title="Requests" />
       <Loadable
         query={query}
         served={served}
@@ -78,21 +70,9 @@ export function RequestsTab(props: {
       >
         <FlatList
           ListFooterComponent={<LaterFold items={props.later} onOpen={props.onItem} />}
-          data={REQUEST_GROUPS.filter((g) => cards.some((x) => requestGroup(x) === g))}
-          keyExtractor={(g) => g}
-          renderItem={({ item: g }) => {
-            const list = cards.filter((x) => requestGroup(x) === g);
-            return (
-              <View testID={`request-group-${g}`}>
-                <Text style={{ color: c.muted, fontSize: font.size.sm, fontWeight: '700', padding: space.lg, paddingBottom: space.sm }}>
-                  {`${g} · ${list.length}`}
-                </Text>
-                {list.map((x) => (
-                  <Row key={x.key} card={x} onPress={() => props.onItem(x.key)} />
-                ))}
-              </View>
-            );
-          }}
+          data={ordered}
+          keyExtractor={(x) => x.key}
+          renderItem={({ item: x }) => <Row card={x} onPress={() => props.onItem(x.key)} />}
         />
       </Loadable>
     </View>
@@ -101,6 +81,7 @@ export function RequestsTab(props: {
 
 function Row({ card, onPress }: { card: Card; onPress: () => void }) {
   const c = usePalette();
+  const meta = [sourceWord(card), card.from, card.since ? ago(new Date(card.since).toISOString()) : ''].filter(Boolean).join(' · ');
   return (
     <Pressable
       testID={`request-${card.key}`}
@@ -109,31 +90,12 @@ function Row({ card, onPress }: { card: Card; onPress: () => void }) {
       onPress={onPress}
       style={{ borderTopWidth: 1, borderTopColor: c.line, padding: space.lg, minHeight: 56, gap: space.xs }}
     >
-      <Text numberOfLines={2} style={{ color: c.ink, fontWeight: '700' }}>
+      <Text numberOfLines={2} style={{ color: c.ink, fontSize: font.size.md }}>
         {card.title}
       </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-        <Text
-          style={{
-            color: c.muted,
-            fontSize: font.size.xs,
-            borderWidth: 1,
-            borderColor: c.line,
-            borderRadius: radius.s,
-            paddingHorizontal: space.xs,
-          }}
-        >
-          {sourceWord(card)}
-        </Text>
-        {card.from ? (
-          <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.sm, flex: 1 }}>
-            {card.from}
-          </Text>
-        ) : (
-          <View style={{ flex: 1 }} />
-        )}
-        <Text style={{ color: c.muted, fontSize: font.size.sm }}>{card.since ? ago(new Date(card.since).toISOString()) : ''}</Text>
-      </View>
+      <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.sm }}>
+        {meta}
+      </Text>
     </Pressable>
   );
 }
