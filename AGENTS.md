@@ -117,12 +117,13 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - Tests: write unit tests for logic (Go, contract, app-core, app-data, electron main) in the same
   commit as the change. A screen change posts pictures and adds no render test; if it changes a kept
   flow, update that flow's test file (`apps/web/test/<name>.test.tsx`, `apps/mobile/test/<name>.test.tsx`).
-  Kept flows, web: app, chat, chat-writes, tasks, new-agent, my-turn, terminal, terminal-copy-paste,
-  u9, pairing, shell, chat-markdown. Mobile: screens, chat-tab, send-box, new-agent, requests-tab,
-  task-verbs, terminal-input, prompts, chat-markdown. Work is not done until the tests pass. While iterating, run only the
-  tests you touched (`cd go && go test ./internal/<pkg> -run <name>`); do not run the
-  whole suite before you hand the task to the auditor. The auditor runs the tests once at the
-  exact sha (`HANDLINE_GO_RACE=1 tools/check.sh <target>`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
+  Kept flows, web: app, chat-markdown, terminal-xterm-wiring, terminal-copy-paste, route-leave, task-refs, spans,
+  command-card, resolve-images, sendKey, by-team, team, chat-fold, screenKeys, solved-stall. Mobile: dev-pair,
+  termspans, app-update, scan-pair, chat-scroll. Work is not done until the tests pass. While iterating, run only the
+  tests you touched (`cd go && go test ./internal/<pkg> -run <name>`; for an app, the test files you touched and
+  the package typecheck); do not run the whole suite before you hand the task to the auditor. The auditor takes the
+  apps result from CI for the PR head and runs locally only what CI does not run, such as Go with `-race` at the exact sha
+  (`HANDLINE_GO_RACE=1 tools/check.sh <target>`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
   background); a count you quote is not a verdict. `tools/check.sh` runs nothing for documentation; for anything else
   it runs, in order: the app checks (`pnpm turbo test typecheck lint` when an app or JS workspace file changed, else
   `pnpm --dir packages/app-data test`), the contract's generated files being current, then the Go suite (`tools/test-go.sh`).
@@ -133,7 +134,7 @@ agent (ROLE.md, base.md); this file does not repeat them.
   `HANDLINE_LIVE=1 tools/live-e2e.sh`, or `HANDLINE_LIVE=1 go test -run TestLive... ./internal/...`. Each spends
   the account with the most headroom now (`tools/live_account.py` says which and why) and runs a test daemon on a
   scratch home, never the live one. Never from check.sh or CI. Do not send a live run to the founder.
-- TypeScript: run `pnpm turbo test typecheck lint` before you hand a task over. Aim for files under 250 lines and
+- TypeScript: run the tests of the files you touched and the package typecheck before you hand a task over. Aim for files under 250 lines and
   functions under 60; lint fails at 400 and 120 (tests 600, components 250), counted without blank or comment lines.
   A `max-lines` error means split the file by responsibility, not raise the limit or add a disable. The numbers are in
   `packages/config/eslint/limits.js`.
