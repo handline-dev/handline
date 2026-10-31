@@ -83,8 +83,26 @@ test('prepare fetches, moves the checkout to that main and builds the page besid
   );
   assert.deepEqual(steps, ['Preparing 0', 'Building (1 of 2) 0', 'Building (2 of 2) 50']);
   assert.deepEqual(r.calls, ['clear']);
-  await r.f.look(); // a built update is not looked at again
+  await r.f.look(); // the same main is not built again
   assert.equal(r.f.state, 'ready');
+  assert.equal(r.ran.filter((c) => c.startsWith('git merge')).length, 1);
+});
+
+test('a ready update is built again when main moves past it, so Restart now lands on the newest main', async () => {
+  const r = rig(['apps/electron/src/main.ts']);
+  await r.f.init();
+  r.main.sha = 'bbb2222';
+  await r.f.look();
+  await r.f.prepare();
+  assert.equal(r.f.state, 'ready');
+  r.main.sha = 'ccc3333';
+  await r.f.look();
+  assert.equal(r.f.state, 'ready');
+  const merges = r.ran.filter((c) => c.startsWith('git merge'));
+  assert.deepEqual(merges, ['git merge --ff-only bbb2222', 'git merge --ff-only ccc3333']);
+  assert.ok(r.ran.includes('git diff --name-only aaa1111 ccc3333'), 'the diff is from the commit the app runs');
+  await r.f.restartNow();
+  assert.ok(r.ran.includes('upgrade ccc3333'), 'the restart goes to the newest main');
 });
 
 test('Restart now moves the daemon onto the built main, puts the built page in place, saves the page and relaunches', async () => {
