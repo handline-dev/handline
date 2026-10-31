@@ -35,5 +35,5 @@ test('stop runs service stop and throws the reason when it fails', async () => {
 });
 
 test('the hl link goes through current, not the bundle', () => {
-  assert.equal(currentHl('/Users/x'), '/Users/x/Library/Application Support/Handline/bin/current/hl');
+  assert.equal(currentHl('/h'), '/h/Library/Application Support/Handline/bin/current/hl');
 });
