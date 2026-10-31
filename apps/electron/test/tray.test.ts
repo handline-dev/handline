@@ -135,3 +135,18 @@ test('an installed app adds Stop daemon… after Settings, runs it on a click, a
   assert.equal(calls.at(-1), 'stop daemon');
   assert.ok(!labels('running').includes('Stop daemon…'));
 });
+
+test("an installed app shows the service's stopped and failed states even though it attaches in Connect mode", () => {
+  const a = { ...actions, stopDaemon: () => undefined };
+  const m = mode({ mode: 'connect', switchTo: undefined });
+  const names = (s: State, r: string) => trayMenu(s, r, a, undefined, m, view()).map((i) => i.label ?? '-');
+  assert.ok(names('stopped', '').includes('⚠ The daemon stopped'));
+  assert.ok(names('stopped', '').includes('Start daemon'));
+  assert.ok(names('failed', 'claude was not found on the PATH').includes('⚠ The daemon failed (claude was not found on the PATH)'));
+  assert.equal(trayIcon('failed', 'x', a, view(), undefined, m), 'trouble');
+  assert.ok(!trayMenu('running', '', a, undefined, m, view()).some((i) => i.label?.startsWith('⚠')));
+  assert.ok(
+    !labels('failed', 'x', undefined, mode({ mode: 'connect' })).some((n) => n.startsWith('⚠ The daemon failed')),
+    'a plain Connect run still ignores it',
+  );
+});

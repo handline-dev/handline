@@ -100,6 +100,18 @@ function connectItems(l: TrayMode['link']): TrayItem[] {
 
 /** The one line that says something is wrong, with its fix; null while all is well. */
 function trouble(state: DaemonState, reason: string, a: TrayActions, m?: TrayMode): TrayItem[] | null {
+  // The daemon is this app's to start (own mode, or an installed app's service): its state and reason come first.
+  const mine = m?.mode !== 'connect' || !!a.stopDaemon;
+  if (mine && state === 'stopped')
+    return [
+      { label: '⚠ The daemon stopped', enabled: false },
+      { label: 'Start daemon', click: a.startDaemon },
+    ];
+  if (mine && state === 'failed')
+    return [
+      { label: `⚠ The daemon failed${reason ? ` (${reason})` : ''}`, enabled: false },
+      { label: 'Start daemon', click: a.startDaemon },
+    ];
   if (m?.mode === 'connect') {
     if (m.link.status === 'cannot-pair')
       return [
@@ -107,18 +119,7 @@ function trouble(state: DaemonState, reason: string, a: TrayActions, m?: TrayMod
         { label: 'Reconnect', click: a.reconnect },
       ];
     if (m.link.status === 'no-daemon') return [{ label: '⚠ No daemon is running here', enabled: false }];
-    return null;
   }
-  if (state === 'stopped')
-    return [
-      { label: '⚠ The daemon stopped', enabled: false },
-      { label: 'Start daemon', click: a.startDaemon },
-    ];
-  if (state === 'failed')
-    return [
-      { label: `⚠ The daemon failed${reason ? ` (${reason})` : ''}`, enabled: false },
-      { label: 'Start daemon', click: a.startDaemon },
-    ];
   return null;
 }
 
