@@ -55,9 +55,7 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
       {rows.map((x) => (
         <View key={x.key} testID={`machine-${x.key}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 32 }}>
           <Icon name={x.icon} decorative size={16} color={c.muted} />
-          <Text numberOfLines={1} style={{ color: c.ink, width: 96 }}>
-            {x.label}
-          </Text>
+          <Text style={{ color: c.ink, minWidth: 96, flexShrink: 0 }}>{x.label}</Text>
           <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
             <View
               testID={`machine-bar-${x.key}`}
@@ -69,11 +67,11 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
               }}
             />
           </View>
-          <View style={{ width: 96, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: space.xs }}>
+          <View
+            style={{ minWidth: 96, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: space.xs }}
+          >
             {x.warn ? <Icon name="warn" decorative size={14} color={c.block} /> : null}
-            <Text numberOfLines={1} style={{ color: x.warn ? c.block : c.ink }}>
-              {x.value}
-            </Text>
+            <Text style={{ color: x.warn ? c.block : c.ink }}>{x.value}</Text>
           </View>
         </View>
       ))}
