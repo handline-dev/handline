@@ -156,14 +156,14 @@ func TestAMemoOnADoingTaskIsTypedAtItsHolderWhenThePortsAreWired(t *testing.T) {
 	if got := agents.said("bob"); !strings.Contains(got, "memo edited by a: @bob mind the disk") {
 		t.Fatalf("the edit was not typed: %q", got)
 	}
-	// a delete names no reader, so it waits in the holder's digest
+	// a delete names no reader, so nobody is told
 	result(t, f.ask(`{"jsonrpc":"2.0","id":4,"method":"task.memo.delete","params":{"task":1,"memo":1,"request_id":"m3"}}`))
 	held, err := db.PendingNotices(d.db, "bob")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(held) == 0 || !strings.Contains(held[len(held)-1].Body, "memo deleted by a") {
-		t.Fatalf("the delete is not in the holder's digest: %v", held)
+	if len(held) != 0 {
+		t.Fatalf("the delete waits in the holder's digest: %v", held)
 	}
 }
 

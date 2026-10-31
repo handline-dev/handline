@@ -77,6 +77,7 @@ func newTask(t *testing.T, tk *Tick, owner, opener string, timeoutS int64) int64
 
 func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearms(t *testing.T) {
 	tk, w, b, p := timebox(t)
+	p.boss = "lead"
 	tid := newTask(t, tk, "a", "boss", 100)
 	p.doing[tid] = true
 	b.SweepTaskTimeouts(tk, 1000)
@@ -89,7 +90,7 @@ func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearm
 		t.Fatalf("told before the deadline: %v", p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "boss: T") || !strings.Contains(p.batched[0], "the work on the thing") ||
+	if len(p.batched) != 2 || !strings.HasPrefix(p.batched[0], "a: T") || !strings.HasPrefix(p.batched[1], "lead: T") || !strings.Contains(p.batched[0], "the work on the thing") ||
 		!strings.Contains(p.batched[0], "held by a") || !strings.Contains(p.batched[0], "hl task edit T") {
 		t.Fatalf("%v", p.batched)
 	}
@@ -97,7 +98,7 @@ func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearm
 		t.Fatalf("any doing task can be released, with a reason: %v", p.batched)
 	}
 	if len(p.sent) != 0 {
-		t.Fatalf("the opener's notice is typed at once: %v", p.sent)
+		t.Fatalf("the notices wait in the digest: %v", p.sent)
 	}
 	task, _ = db.GetTask(tk.Q, tid)
 	if task.TimeoutAt.Int64 != 1300 {
@@ -176,8 +177,8 @@ func TestAWaitingTaskStopsItsClockAndStartsAgainFromZeroWhenTheWaitEnds(t *testi
 		t.Fatalf("the clock did not start again from zero: %+v", task)
 	}
 	b.SweepTaskTimeouts(tk, 1600)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "boss: T") {
-		t.Fatalf("the opener is told a full stretch after the wait: %v", p.batched)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "a: T") {
+		t.Fatalf("the holder is told a full stretch after the wait: %v", p.batched)
 	}
 
 	// overdue, then an open child of its own: no reminder while it is open, a full stretch once it closes
@@ -241,14 +242,14 @@ func TestATaskOffDoingResumesWithWhatItHadLeft(t *testing.T) {
 	}
 }
 
-func TestATaskOpenedByTheFounderIsToldAsAnEventAndNothingIsSent(t *testing.T) {
+func TestATaskOpenedByTheFounderTellsOnlyItsHolderAndLogsAnEvent(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	tid := newTask(t, tk, "a", db.Human, 100)
 	p.doing[tid] = true
 	b.SweepTaskTimeouts(tk, 1000)
 	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.batched) != 0 || countEvents(t, tk, db.Human, "task_timeout_exceeded") != 1 {
-		t.Fatalf("%v", p.batched)
+	if len(p.batched) != 1 || countEvents(t, tk, db.Human, "task_timeout_exceeded") != 1 {
+		t.Fatalf("only the holder is told: %v", p.batched)
 	}
 }
 
@@ -399,7 +400,7 @@ func TestATaskTheFounderHoldsRemindsNoAgentAndItsClockStartsFreshWhenItLeavesThe
 	}
 	b.SweepTaskTimeouts(tk, 9000)
 	b.SweepTaskTimeouts(tk, 9100)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "boss: T") {
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "a: T") {
 		t.Fatalf("back with an agent, a full stretch then one notice: %v", p.batched)
 	}
 }
