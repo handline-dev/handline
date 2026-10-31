@@ -4,7 +4,7 @@
 tools/test.sh     # the contract's generated files current, then the Go suite (tools/test-go.sh); no network, no tokens
 tools/test.sh ./internal/reads -run X   # go test's own arguments: one package, one test
 tools/check.sh main   # what a change needs: nothing for docs, the app checks, the contract and the Go suite otherwise
-HANDLINE_GO_RACE=1 tools/check.sh main   # the same with go test -race: the auditor's run on a sha, nobody else's
+HANDLINE_GO_RACE=1 tools/test-go.sh   # the Go suite with go test -race: the auditor's run on a sha for a Go change, nobody else's
 ```
 
 `HANDLINE_LIVE=1 tools/live-e2e.sh` drives one real haiku agent through a test daemon on a scratch home and prints how
