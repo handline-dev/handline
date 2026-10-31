@@ -41,23 +41,25 @@ export function CommentRow({
   const close = () => (setAsk(null), edit.reset(), del.reset());
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
-      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{`${mine ? 'You' : memo.author} ${when}`}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>{`${mine ? 'You' : memo.author} ${when}`}</Text>
+        {ask === null && mine && (
+          <Pressable
+            testID={`memo-more-${memo.id}`}
+            accessibilityRole="button"
+            accessibilityLabel="Edit or delete this comment"
+            disabled={sending || (!!offEdit && !!offDelete)}
+            hitSlop={8}
+            onPress={() => setMenu(true)}
+            style={{ minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center', marginVertical: -space.sm }}
+          >
+            <Text style={{ color: c.muted, fontSize: font.size.lg, fontWeight: '700' }}>⋯</Text>
+          </Pressable>
+        )}
+      </View>
       {ask === 'edit' ? null : <PrBody id={`memo-${memo.id}`} agent={agent} body={memo.text} />}
       {memo.files?.length ? <MemoFiles files={memo.files} /> : null}
       {memo.readers?.length ? <CommentReaders memo={memo.id} readers={memo.readers} /> : null}
-      {ask === null && mine && (
-        <Pressable
-          testID={`memo-more-${memo.id}`}
-          accessibilityRole="button"
-          accessibilityLabel="Edit or delete this comment"
-          disabled={sending || (!!offEdit && !!offDelete)}
-          hitSlop={8}
-          onPress={() => setMenu(true)}
-          style={{ alignSelf: 'flex-start', minHeight: 44, minWidth: 44, justifyContent: 'center' }}
-        >
-          <Text style={{ color: c.muted, fontSize: font.size.lg, fontWeight: '700' }}>⋯</Text>
-        </Pressable>
-      )}
       {menu && (
         <MenuSheet testID="memo-menu" onClose={() => setMenu(false)}>
           <MenuItem
