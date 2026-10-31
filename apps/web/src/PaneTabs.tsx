@@ -1,5 +1,5 @@
 // The tabs of the focused pane, in the top bar: the tab run (drag to reorder, close, the unread dot, a menu for what does not fit) and the
-// + and Split buttons. A pane keeps no strip of its own; when the window is split it keeps a thin handle (Pane.tsx).
+// + and Split buttons. A split pane carries its own run (Pane.tsx).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
 import {

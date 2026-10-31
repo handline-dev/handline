@@ -1,4 +1,4 @@
-// One pane: the active tab of its group, a thin handle when the window is split (its tabs are in the top bar, PaneTabs), and while a tab is dragged, the edges it can be dropped on.
+// One pane: the active tab of its group, its own tab row when the window is split, and while a tab is dragged, the edges it can be dropped on.
 import { useRef } from 'react';
 import { fillTab, groupsOf, type Group } from '@handline/app-core';
 import { ChatTab } from '#src/ChatTab.tsx';
@@ -14,7 +14,7 @@ import { TerminalTab } from '#src/TerminalTab.tsx';
 import { ChatStrip } from '#src/ChatCards.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
-import { tabLabel, TAB_ICON, useChoices } from '#src/PaneTabs.tsx';
+import { tabLabel, useChoices, PaneTabs } from '#src/PaneTabs.tsx';
 
 /** The pane's data (who I am, what the daemon serves, the shell writes) is read once here; the view below holds none. */
 export function Pane({ group }: { group: Group }) {
@@ -38,12 +38,11 @@ function PaneView({ group, data: { openShell, hello } }: { group: Group; data: P
     >
       {split ? (
         <div
-          className={`pane-handle flex h-[22px] flex-none items-center gap-1.5 border-b border-line px-2 text-xs ${focused ? 'bg-panel text-ink' : 'bg-surface text-ink-2'}`}
+          className={`pane-handle flex h-[var(--h-m)] flex-none items-center gap-0.5 border-b border-line px-1 ${focused ? 'bg-panel' : 'bg-surface'}`}
           data-handle={group.id}
           ref={handle}
         >
-          <Icon name={TAB_ICON[tab?.kind ?? 'tasks'] ?? 'tasks'} size={12} aria-hidden />
-          <span className="min-w-0 flex-1 truncate">{tab ? tabLabel(tab, structured, named ? agent : undefined) : ''}</span>
+          <PaneTabs group={group} />
         </div>
       ) : null}
       <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">

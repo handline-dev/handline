@@ -276,6 +276,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
                 onChange={setText}
                 onBusy={setBusy}
                 label="Comment"
+                placeholder="Comment, or @mention…"
                 onSubmit={send}
                 mentions={{ names, near, state: stateOf }}
                 controls={
@@ -285,15 +286,12 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
                     />
                     <Button
                       variant="solid"
-                      size="sm"
                       icon="send"
                       label="Comment"
-                      keys="⌘↵"
+                      title="Comment (⌘↵)"
                       disabled={!text.trim() || busy || add.isPending}
                       onClick={send}
-                    >
-                      {add.isPending ? 'Sending…' : 'Comment'}
-                    </Button>
+                    />
                   </>
                 }
               />

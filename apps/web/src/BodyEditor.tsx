@@ -57,6 +57,8 @@ export function BodyEditor(props: {
   compact?: boolean;
   /** Buttons that stand in the field's foot, right of the Source link, which then leaves the top: a field that is one box with its controls. */
   controls?: ReactNode;
+  /** Grey hint shown while the field is empty. */
+  placeholder?: string;
   /** Typing `@` offers these agents, the ones near the task first. */
   mentions?: { names: readonly string[]; near: readonly string[]; state?: (name: string) => string };
 }) {
@@ -236,7 +238,14 @@ export function BodyEditor(props: {
         />
       ) : (
         <Thumbs.Provider value={!!props.compact}>
-          <EditorContent editor={editor} />
+          <div className="relative grid">
+            <EditorContent editor={editor} />
+            {props.placeholder && !props.value.trim() ? (
+              <span className="pointer-events-none absolute left-2 top-1.5 text-ink-3" aria-hidden>
+                {props.placeholder}
+              </span>
+            ) : null}
+          </div>
         </Thumbs.Provider>
       )}
       {pick ? (

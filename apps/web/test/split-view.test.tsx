@@ -109,11 +109,11 @@ describe('the split by drag', () => {
     expect(location.hash).toContain(`beside=${encodeURIComponent(A)}`);
   });
 
-  it('the second half closes the split from its Split button', async () => {
+  it('the second half closes the split from the close of its Chat tab', async () => {
     await mount();
     await dragOnto(B, 'right');
-    await until(() => $('[aria-label="Close the split"]'), 'the close button');
-    await act(async () => void $('[aria-label="Close the split"]')!.click());
+    await until(() => $('[title$="half"]'), 'the Chat tab close');
+    await act(async () => void $('[title$="half"]')!.click());
     await until(() => halves().length === 1, 'one agent');
     expect(location.hash).toBe(`#/agents/${encodeURIComponent(A)}`);
   });

@@ -296,12 +296,12 @@ function Loaded({
   };
   const arr = arrange(ws, size.w, size.h);
   const active = groupsOf(ws.root).find((g) => g.id === ws.active) ?? groupsOf(ws.root)[0]!;
-  // The bar shows the focused pane's tabs; in a narrow window the panes are one, and the bar shows its tabs.
+  // The bar shows the tabs of the one pane; a split pane has its own row; in a narrow window the panes are one, and the bar shows its tabs.
   const barGroup = arr.merged ? { type: 'group' as const, id: active.id, tabs: arr.tabs, activeTab: arr.activeTab } : active;
   return (
     <Ctx.Provider value={value}>
       <PageBar
-        tabs={<PaneTabs group={barGroup} />}
+        tabs={groupsOf(ws.root).length > 1 && !arr.merged ? null : <PaneTabs group={barGroup} />}
         tools={
           <>
             <PaneActions group={barGroup} />
