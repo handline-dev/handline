@@ -2,7 +2,7 @@
 // an authored write. A text or number field saves on Save or Enter, a choice or switch on a tap; a refusal puts the value back and the
 // field's own note says why. The two danger switches ask first. Schedules sit below. Mount it with the agent's name and a way back.
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { DANGER, type Field, FIELDS, fieldUnit } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
@@ -105,17 +105,14 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
       );
     if (f.kind === 'switch')
       return (
-        <Pressable
+        <Switch
           testID={`${f.key}-switch`}
-          accessibilityRole="switch"
           accessibilityLabel={f.label}
-          accessibilityState={{ checked: stored === 'on', disabled: off }}
+          value={stored === 'on'}
           disabled={off}
-          onPress={() => choose(stored === 'on' ? 'off' : 'on')}
-          style={{ minHeight: 44, justifyContent: 'center', opacity: off ? 0.4 : 1 }}
-        >
-          <Text style={{ color: stored === 'on' ? c.run : c.muted, fontWeight: '700' }}>{stored === 'on' ? 'On' : 'Off'}</Text>
-        </Pressable>
+          onValueChange={(on) => choose(on ? 'on' : 'off')}
+          style={{ alignSelf: 'flex-start' }}
+        />
       );
     if (f.kind === 'sites') return <Sites value={stored} off={off} save={send} />;
     return (
@@ -133,6 +130,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
             setNote('');
           }}
           onSubmitEditing={() => commit(value)}
+          onBlur={() => (draft === null ? undefined : commit(value))}
           style={{
             flex: 1,
             color: c.ink,
@@ -145,7 +143,6 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
           }}
         />
         {fieldUnit(f) ? <Text style={{ color: c.muted }}>{fieldUnit(f)}</Text> : null}
-        <Button testID={`${f.key}-save`} label="Save" disabled={off || draft === null} onPress={() => commit(value)} />
       </View>
     );
   };

@@ -59,6 +59,7 @@ export function TaskTimeLine({ id, left, over, running }: { id: number; left?: s
   const { served } = useServes('task.time');
   const [open, setOpen] = useState(false);
   const segments = useTaskTime(id).data?.segments ?? [];
+  if (!left) return null;
   if (!served || !segments.length) return left ? <Text style={{ color: over ? c.block : c.muted }}>{left}</Text> : null;
   const { rows, seconds } = timeView(segments);
   return (
@@ -67,11 +68,11 @@ export function TaskTimeLine({ id, left, over, running }: { id: number; left?: s
         testID="task-time-toggle"
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${left ?? 'Time'}, ${length(seconds)} in all`}
+        accessibilityLabel={`${left}, ${length(seconds)} in all`}
         onPress={() => setOpen(!open)}
         style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
       >
-        {left ? <Text style={{ color: over ? c.block : c.ink }}>{left}</Text> : null}
+        <Text style={{ color: over ? c.block : c.ink }}>{left}</Text>
         {running && rows.some((r) => r.label === 'working') ? (
           <View style={{ width: 80, height: 6, borderRadius: 3, overflow: 'hidden', flexDirection: 'row', backgroundColor: c.panel }}>
             {rows.map((r, i) => (
@@ -79,11 +80,6 @@ export function TaskTimeLine({ id, left, over, running }: { id: number; left?: s
             ))}
           </View>
         ) : null}
-        {left ? null : (
-          <Text style={{ color: c.muted, flexShrink: 1 }} numberOfLines={1}>
-            {`${length(seconds)} in all`}
-          </Text>
-        )}
       </Pressable>
       {open ? <TaskTime segments={segments} /> : null}
     </View>

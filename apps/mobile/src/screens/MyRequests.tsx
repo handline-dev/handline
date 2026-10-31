@@ -1,13 +1,13 @@
 // "My requests" in the Tasks tab: the founder's own open tasks (not their subtasks), by what is happening to each, every row with one line that
 // says how far it is, who works on it now, or what it waits on. A row opens the task as any row of Tasks does. The same list as the PC's.
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { taskRef } from '@handline/app-core';
 import type { RequestRow } from '@handline/client';
 import { useRequests, useTasks } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
-import { EmptyState, Pill } from '#src/screens/parts.tsx';
+import { EmptyState, ListRow, Pill } from '#src/screens/parts.tsx';
 
 const GROUPS: [string, IconName][] = [
   ['Waiting on you', 'needs'],
@@ -51,32 +51,33 @@ export function MyRequestsChip(props: { count: number; on: boolean; onToggle: ()
   );
 }
 
-function Line(props: { r: RequestRow; onTask: (id: number) => void }) {
+/** One request as the same row the Tasks list uses: the group's icon, the title, one muted line of how far it is. */
+function Row(props: { r: RequestRow; icon: IconName; onTask: (id: number) => void }) {
   const c = usePalette();
   const { r } = props;
   const waits = (useTasks({}).data?.items ?? []).find((t) => t.id === r.task)?.blocked_by?.[0];
-  const small = { fontSize: font.size.sm } as const;
-  if (blockedNow(r) || waits != null)
-    return (
-      <View testID="my-request-blocked" style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-        <Icon name="paused" color={c.wait} size={14} decorative />
-        <Text style={{ ...small, color: c.wait }}>{waits != null ? 'Blocked on' : 'Blocked'}</Text>
-        {waits != null ? (
-          <Pressable testID="my-request-blocker" accessibilityRole="link" onPress={() => props.onTask(waits)} hitSlop={space.sm}>
-            <Text style={{ ...small, color: c.wait, textDecorationLine: 'underline' }}>{taskRef(waits)}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    );
+  const blocked = blockedNow(r) || waits != null;
   const total = r.open + r.done;
-  const line = [
-    total ? `${r.done} of ${total} done` : '',
-    r.status === 'waiting_on_you' ? 'waiting on you' : nowOf(r) ? `now ${short(nowOf(r)!)}` : 'not taken yet',
-    r.status === 'review' ? 'in review' : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  return <Text style={{ ...small, color: c.muted }}>{line}</Text>;
+  const meta = blocked
+    ? `${taskRef(r.task!)} · blocked${waits != null ? `, waits on ${taskRef(waits)}` : ''}`
+    : [
+        taskRef(r.task!),
+        total ? `${r.done} of ${total} done` : '',
+        r.status === 'waiting_on_you' ? 'waiting on you' : nowOf(r) ? `now ${short(nowOf(r)!)}` : 'not taken yet',
+        r.status === 'review' ? 'in review' : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+  return (
+    <ListRow
+      testID={`my-request-${r.task}`}
+      lead={<Icon name={props.icon} color={blocked ? c.wait : c.muted} size={18} decorative />}
+      title={r.title}
+      meta={meta}
+      metaColor={blocked || r.status === 'waiting_on_you' ? c.wait : undefined}
+      onPress={() => props.onTask(r.task!)}
+    />
+  );
 }
 
 /** The list the chip turns on, in place of the task list. */
@@ -110,23 +111,7 @@ export function MyRequestsList(props: {
             >{`${g.name} ${g.rows.length}`}</Text>
           </View>
           {g.rows.map((r) => (
-            <Pressable
-              key={r.task}
-              testID={`my-request-${r.task}`}
-              accessibilityRole="button"
-              onPress={() => props.onTask(r.task!)}
-              style={{ minHeight: 48, paddingHorizontal: space.lg, paddingVertical: space.sm, gap: 2 }}
-            >
-              <View style={{ flexDirection: 'row', gap: space.md }}>
-                <Text style={{ width: 56, color: c.muted, fontFamily: 'Menlo', fontSize: font.size.sm }}>{taskRef(r.task!)}</Text>
-                <Text numberOfLines={1} style={{ flex: 1, color: c.ink }}>
-                  {r.title}
-                </Text>
-              </View>
-              <View style={{ paddingLeft: 56 + space.md }}>
-                <Line r={r} onTask={props.onTask} />
-              </View>
-            </Pressable>
+            <Row key={r.task} r={r} icon={g.icon} onTask={props.onTask} />
           ))}
         </View>
       ))}

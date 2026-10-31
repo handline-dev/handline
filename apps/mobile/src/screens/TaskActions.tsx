@@ -10,7 +10,7 @@ import { useOff, usePendingAny, useServes, useTaskActions, useTaskTime } from '@
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
-import { BottomSheet, Button, MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
+import { BottomSheet, Button, MenuItem, MenuSheet } from '#src/screens/parts.tsx';
 import { AskAbout } from '#src/screens/TaskAsk.tsx';
 import { AssignTask } from '#src/screens/TaskAssign.tsx';
 import { EditTask } from '#src/screens/TaskForm.tsx';
@@ -258,13 +258,17 @@ export function TaskVerbs({
   const pills = (
     <View style={{ gap: space.sm }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
-        <Pill
+        <Pressable
           testID="status-menu"
-          on={menu === 'status'}
-          icon={stateWord.icon}
-          label={`${stateWord.word} ⌄`}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: menu === 'status' }}
+          hitSlop={8}
           onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))}
-        />
+          style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 36 }}
+        >
+          {stateWord.icon ? <Icon name={stateWord.icon} decorative size={16} color={c.accent} /> : null}
+          <Text style={{ color: c.accent, fontWeight: '600' }}>{`${stateWord.word} ⌄`}</Text>
+        </Pressable>
         {later}
       </View>
       {Object.values(off).some(Boolean) && (
