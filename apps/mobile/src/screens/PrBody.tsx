@@ -16,6 +16,7 @@ export function PrBody({
   testID,
   breaks = true,
   selectable,
+  ink,
 }: {
   id: number | string;
   agent: string;
@@ -23,6 +24,7 @@ export function PrBody({
   testID?: string;
   breaks?: boolean;
   selectable?: boolean;
+  ink?: string;
 }) {
   const c = usePalette();
   const prs = usePullRequests(agent, body);
@@ -52,7 +54,7 @@ export function PrBody({
           key={r.start}
           testID={r.testID}
           accessibilityRole="link"
-          style={{ color: c.accent, textDecorationLine: 'underline' }}
+          style={{ color: ink ?? c.accent, textDecorationLine: 'underline' }}
           onPress={r.onPress}
         >
           {s.slice(r.start, r.end)}
@@ -63,5 +65,5 @@ export function PrBody({
     parts.push(s.slice(at));
     return parts;
   };
-  return <Markdown testID={testID ?? `body-${id}`} text={body} breaks={breaks} plain={plain} selectable={selectable} cards />;
+  return <Markdown testID={testID ?? `body-${id}`} text={body} breaks={breaks} plain={plain} selectable={selectable} cards ink={ink} />;
 }

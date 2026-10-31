@@ -39,24 +39,12 @@ describe('the Tasks tab of the agent page', () => {
     m.store.stop();
   });
 
-  it('opens a task as a tab and closes it', async () => {
-    const m = await openTasks();
-    await until(() => $('agent-task-1684'), 'the rows');
-    await press($('agent-task-1684'));
-    await until(() => $('task-detail') && $('dock-task:1684'), 'the task tab');
-    await press($('task-back'));
-    await until(() => !$('dock-task:1684'), 'the tab closed');
-    await press($('tab-tasks'));
-    await until(() => $('agent-task-1684'), 'the list');
-    m.store.stop();
-  });
-
   it('has no tab when the daemon does not serve tasks.list', async () => {
     const m = await mount((s) => s.daemon.knobs.unserve('tasks.list'), undefined, 'founder');
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => $('verbs-open'), 'the page');
-    expect($('tab-tasks')).toBeNull();
+    expect($('menu-tasks')).toBeNull();
     m.store.stop();
   });
 });

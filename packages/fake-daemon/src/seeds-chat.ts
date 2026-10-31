@@ -65,6 +65,38 @@ export const CHAT_SEEDS: Record<string, Seed> = {
     });
   },
 
+  /** The architect is working; one message of the founder is taken as a task, one still waits to be sent, and an answered request sits in the chat. */
+  'chat-live': (d) => {
+    const at = Date.now();
+    const iso = (min: number) => new Date(at + min * 60_000).toISOString();
+    d.chat.seed(ARCH, { from: ME, to: ARCH, body: 'Please fix the login screen.', at: iso(-30), request_task: 7140 });
+    d.chat.seedItem(ARCH, {
+      at: iso(-20),
+      kind: 'prompt',
+      open: false,
+      prompt: {
+        id: 'live1',
+        agent: ARCH,
+        kind: 'permission',
+        tool: 'Bash',
+        command: 'go vet ./...',
+        lines: [],
+        options: [],
+        since: iso(-20),
+      },
+    });
+    d.chat.seed(ARCH, {
+      from: ME,
+      to: ARCH,
+      body: 'And run the tests after.',
+      at: iso(-1),
+      landing: 'queued',
+      landed_at: null,
+      delivered_at: null,
+    });
+    d.chat.setTurn(ARCH, true);
+  },
+
   /** A long chat with the architect: 120 messages (four pages), every seventh with a picture, for paging up through history. */
   'chat-long': (d) => {
     const png = solidPng(240, 160);

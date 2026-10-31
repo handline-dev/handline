@@ -64,17 +64,14 @@ describe('the send box over the one send path', () => {
     m.store.stop();
   });
 
-  it('the working bubble comes and goes inside a slot that is always there', async () => {
+  it('the working line comes and goes', async () => {
     const m = await open();
-    expect($('working-slot')).not.toBeNull();
     expect($('working')).toBeNull();
     m.daemon.sessions.get(AUD)!.state = 'running';
     await act(async () => m.daemon.chat.setTurn(AUD, true));
     await until(() => $('working'), 'the bubble');
-    expect($('working-slot')!.contains($('working'))).toBe(true);
     await act(async () => m.daemon.chat.setTurn(AUD, false));
     await until(() => !$('working'), 'the bubble to go');
-    expect($('working-slot')).not.toBeNull();
     m.store.stop();
   });
 

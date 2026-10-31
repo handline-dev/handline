@@ -92,6 +92,7 @@ export function Markdown({
   plain,
   selectable,
   cards,
+  ink,
 }: {
   text: string;
   testID?: string;
@@ -100,8 +101,11 @@ export function Markdown({
   selectable?: boolean;
   /** Command fences are cards with Copy and Run (a chat message or a comment), not plain code. */
   cards?: boolean;
+  /** The text colour when it is not the page's ink (a message on an accent bubble). */
+  ink?: string;
 }) {
   const c = usePalette();
+  const color = ink ?? c.ink;
   return (
     <View testID={testID} style={{ gap: space.sm }}>
       {blocks(text, breaks).map((b, i) =>
@@ -115,8 +119,8 @@ export function Markdown({
           </View>
         ) : b.kind === 'item' ? (
           <View key={i} style={{ flexDirection: 'row', gap: space.xs }}>
-            <Text style={{ color: c.ink }}>{b.mark}</Text>
-            <Text selectable={selectable} style={{ color: c.ink, flexShrink: 1 }}>
+            <Text style={{ color }}>{b.mark}</Text>
+            <Text selectable={selectable} style={{ color, flexShrink: 1 }}>
               <Inline text={b.text} plain={plain} />
             </Text>
           </View>
@@ -126,7 +130,7 @@ export function Markdown({
             selectable={selectable}
             accessibilityRole={b.kind === 'heading' ? 'header' : undefined}
             style={{
-              color: b.kind === 'quote' ? c.muted : c.ink,
+              color: b.kind === 'quote' ? c.muted : color,
               ...(b.kind === 'heading'
                 ? { fontWeight: '700', fontSize: b.level === 1 ? font.size.xl : b.level === 2 ? font.size.lg : font.size.md }
                 : {}),

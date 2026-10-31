@@ -49,15 +49,26 @@ export async function pickItem(id: string) {
   await until(() => $(id), `the ${id} item`);
   await press($(id));
 }
-/** A view of the agent page: one tap on its tab under the top bar. */
+/** A view of the agent page: Chat is the page itself (back returns to it); the others are rows of the ... menu. */
 export const pickTab = async (id: string) => {
-  await until(() => $(`tab-${id}`), `the ${id} tab`);
-  await press($(`tab-${id}`));
+  if (id === 'chat') {
+    if ($('agent-view')) await press($('back'));
+    await until(() => $('chat-input') || $('chat-off'), 'the chat');
+    return;
+  }
+  await until(() => $('verbs-open'), 'the menu button');
+  await press($('verbs-open'));
+  const row = id === 'file' ? 'menu-files' : `menu-${id}`;
+  await until(() => $(row), `the ${id} row`);
+  await press($(row));
 };
-/** What a tab under the top bar says. */
+
+/** What a view's row in the ... menu says (the menu stays open). */
 export async function tabLabel(id: string) {
-  await until(() => $(`tab-${id}`), `the ${id} tab`);
-  return $(`tab-${id}`)!.textContent;
+  await until(() => $('verbs-open'), 'the menu button');
+  await press($('verbs-open'));
+  await until(() => $(`menu-${id}`), `the ${id} row`);
+  return $(`menu-${id}`)!.textContent;
 }
 
 /** A task verb's button: the verbs sit under the status and More menus, so this opens whichever holds it. */

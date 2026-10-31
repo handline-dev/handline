@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Pressable, Text, View } from 'react-native';
 import type { ChatMessage, TranscriptItem, Working } from '@handline/client';
-import { clockTime, turnMinutes, turnSummary } from '@handline/app-core';
-import { radius, space } from '@handline/tokens';
+import { turnMinutes, turnSummary } from '@handline/app-core';
+import { space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
 import { MenuItem, MenuSheet } from '#src/screens/parts.tsx';
@@ -86,71 +86,44 @@ function useDots(on: boolean): Animated.Value[] {
   return dots;
 }
 
-const commands = (n: number) => `${n} command${n === 1 ? '' : 's'}`;
-
-/** The slot after the last message, at least one line high so the list never jumps. While the agent works: how long, how many commands and the one now running; after the turn it stays as "Ran N commands". A tap opens the turn's tool lines. */
-export function WorkingBubble(props: { working: Working; messages: ChatMessage[]; items: TranscriptItem[] }) {
+/** While the agent works, one line above the composer: three dots, what it runs now and for how long, and Stop (the interrupt) as an underlined word. Nothing when it is idle. */
+export function WorkingLine(props: { working: Working; messages: ChatMessage[]; items: TranscriptItem[]; onStop?: () => void }) {
   const c = usePalette();
   const running = props.working.turn_running;
   const dots = useDots(running);
-  const [open, setOpen] = useState(false);
   const [, tick] = useState(0);
   useEffect(() => {
     if (!running) return;
     const t = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, [running]);
+  if (!running) return null;
   const turn = turnSummary(props.messages, props.items, running);
-  const now = turn.last ?? props.working.line;
-  const text = running
-    ? ['Working', turnMinutes(props.working.since), turn.count ? commands(turn.count) : null, now ? `now: ${now}` : null]
-        .filter(Boolean)
-        .join(' · ')
-    : turn.count
-      ? `Ran ${commands(turn.count)}`
-      : null;
+  const now = turn.last ?? (props.working.line === 'Working' ? null : props.working.line);
+  const text = [now ? `Running ${now}` : 'Working', turnMinutes(props.working.since)].filter(Boolean).join(' · ');
   return (
-    <View testID="working-slot" style={{ minHeight: 36, justifyContent: 'center' }}>
-      {text && (
+    <View
+      testID="working"
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, minHeight: 44 }}
+    >
+      <View style={{ flexDirection: 'row', gap: space.xs, alignItems: 'center' }}>
+        {dots.map((v, i) => (
+          <Dot key={i} value={v} color={c.muted} />
+        ))}
+      </View>
+      <Text numberOfLines={1} style={{ flex: 1, color: c.muted, fontSize: 12 }}>
+        {text}
+      </Text>
+      {props.onStop && (
         <Pressable
-          testID={running ? 'working' : 'ran'}
+          testID="working-stop"
           accessibilityRole="button"
-          accessibilityState={{ expanded: open }}
-          disabled={!turn.count}
-          onPress={() => setOpen(!open)}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+          accessibilityLabel="Stop"
+          onPress={props.onStop}
+          style={{ minHeight: 44, justifyContent: 'center' }}
         >
-          {running && (
-            <View
-              style={{
-                flexDirection: 'row',
-                gap: space.xs,
-                alignItems: 'center',
-                paddingHorizontal: space.md,
-                height: 28,
-                borderRadius: radius.l,
-                backgroundColor: c.panel,
-              }}
-            >
-              {dots.map((v, i) => (
-                <Dot key={i} value={v} color={c.muted} />
-              ))}
-            </View>
-          )}
-          <Text numberOfLines={1} style={{ flexShrink: 1, color: c.muted, fontSize: 12 }}>
-            {text}
-          </Text>
-          {turn.count > 0 && <Icon name={open ? 'less' : 'more'} decorative size={14} color={c.muted} />}
+          <Text style={{ color: c.ink, fontSize: 12, textDecorationLine: 'underline' }}>Stop</Text>
         </Pressable>
-      )}
-      {open && (
-        <View testID="turn-steps" style={{ gap: space.xs, paddingVertical: space.xs }}>
-          {turn.steps.map((i) => (
-            <Text key={i.id} numberOfLines={2} style={{ color: c.muted, fontSize: 12 }}>
-              {[i.tool, i.text].filter(Boolean).join(' ') || i.kind} · {clockTime(i.at)}
-            </Text>
-          ))}
-        </View>
       )}
     </View>
   );

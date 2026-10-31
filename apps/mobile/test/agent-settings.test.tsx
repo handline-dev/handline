@@ -236,6 +236,7 @@ describe('the way in from the agent page', () => {
     await press($(`agent-${ARCH}`));
     await until(() => $('verbs-open'), 'the page');
     await press($('verbs-open'));
+    await press($('menu-more'));
     await press($('verb-settings'));
     await until(() => $('agent-settings'), 'the settings');
     expect($('model-input')).not.toBeNull();

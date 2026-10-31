@@ -1,50 +1,40 @@
-// The strip under the agent page's header: model, account, how much of the context window is used and how long the prompt cache lasts.
-// A number the daemon cannot measure is a dash; the cache time is counted down here and redrawn when it runs out.
-import { useEffect, useState } from 'react';
+// The footer row under the composer: how much of the context window is used, the branch with the lines it changes, and the account.
+// A number the daemon cannot measure is left out.
 import { Text, View } from 'react-native';
-import { useAgentStrip, useServes } from '@handline/app-data';
+import type { AgentDetail } from '@handline/client';
+import { useAgentStrip, useServes, useWorktrees } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
 
-const DASH = '–';
-
-/** The cache time left, in the unit that changes: minutes while there are some, then seconds. */
-export function cacheText(leftS: number): string {
-  if (leftS <= 0) return 'lapsed';
-  return leftS >= 60 ? `${Math.ceil(leftS / 60)}m left` : `${leftS}s left`;
-}
-
-export function AgentStrip({ agent }: { agent: string }) {
+export function AgentStrip({ detail }: { detail: AgentDetail }) {
   const c = usePalette();
   const { served } = useServes('agent.strip');
-  const q = useAgentStrip(agent);
-  const strip = q.data;
-  // The cache runs out at a moment, not at a number of seconds: keep that moment and redraw on it.
-  const lapsesAt = strip?.cache_left_s == null ? null : q.dataUpdatedAt + strip.cache_left_s * 1000;
-  const [tick, redraw] = useState(0);
-  useEffect(() => {
-    if (lapsesAt === null || lapsesAt <= Date.now()) return;
-    // Each second under a minute; above it, at the next whole minute left, where the text changes.
-    const ms = lapsesAt - Date.now();
-    const t = setTimeout(() => redraw(tick + 1), (ms <= 60_000 ? ms % 1000 || 1000 : ms % 60_000 || 60_000) + 50);
-    return () => clearTimeout(t);
-  }, [lapsesAt, tick]);
+  const strip = useAgentStrip(detail.name).data;
+  const changed = useWorktrees({ owner: detail.name }).data?.worktrees.find((w) => w.path === detail.worktree?.path)?.changed ?? [];
+  const ctx = detail.ctx_pct ?? strip?.ctx_pct;
+  const added = changed.reduce((n, f) => n + f.added, 0);
+  const deleted = changed.reduce((n, f) => n + f.deleted, 0);
+  const account = strip?.account;
   if (!served || !strip) return null;
-  const left = lapsesAt === null ? null : Math.round((lapsesAt - Date.now()) / 1000);
-  const cell = (label: string, value: string, testID: string, warn = false) => (
-    <Text testID={testID} style={{ color: warn ? c.wait : c.muted, fontSize: font.size.sm }}>
-      {label} <Text style={{ color: warn ? c.wait : c.ink, fontWeight: '600' }}>{value}</Text>
-    </Text>
+  const small = { color: c.muted, fontSize: font.size.xs } as const;
+  const item = (testID: string, icon: IconName, text: string, shrink = false) => (
+    <View key={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: shrink ? 1 : 0 }}>
+      <Icon name={icon} decorative size={13} color={c.muted} />
+      <Text testID={testID} numberOfLines={1} style={{ ...small, flexShrink: 1 }}>
+        {text}
+      </Text>
+    </View>
   );
   return (
     <View
       testID="agent-strip"
-      style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md }}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingBottom: space.sm }}
     >
-      {cell('model', strip.model ?? DASH, 'strip-model')}
-      {cell('acct', strip.account ?? DASH, 'strip-account')}
-      {cell('context', strip.ctx_pct == null ? DASH : `${Math.round(strip.ctx_pct)}%`, 'strip-context')}
-      {cell('cache', left == null ? DASH : cacheText(left), 'strip-cache', left != null && left <= 0)}
+      {ctx != null && item('strip-context', 'stats', `${Math.round(ctx)}% context`)}
+      {detail.worktree &&
+        item('strip-branch', 'worktrees', `${detail.worktree.branch}${changed.length ? ` +${added} −${deleted}` : ''}`, true)}
+      {account && item('strip-account', 'owner', account)}
     </View>
   );
 }
