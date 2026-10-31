@@ -49,6 +49,11 @@ export class Owner {
     for (const f of this.listeners) f();
   }
 
+  /** What an installed app's `service ensure` found: the state is its, not a child process's. */
+  report(state: DaemonState, reason = ''): void {
+    this.set(state, reason);
+  }
+
   /** Brings both up, the daemon first (the gateway opens the database the daemon keeps). Never throws: a failure is the state. */
   async start(): Promise<void> {
     this.stopping = false;
