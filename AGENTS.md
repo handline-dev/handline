@@ -114,8 +114,9 @@ agent (ROLE.md, base.md); this file does not repeat them.
 
 ## How we work
 
-- Tests: when you change code, write unit tests for the change in the same
-  commit. Work is not done until they pass. While iterating, run only the
+- Tests: write unit tests for logic (Go, contract, app-core, app-data, electron main) in the same
+  commit as the change. A screen change adds no render test: it posts before/after pictures on its task,
+  unless it changes one of the kept flow files, which are then updated. Work is not done until they pass. While iterating, run only the
   tests you touched (`cd go && go test ./internal/<pkg> -run <name>`); do not run the
   whole suite before you hand the task to the auditor. The auditor runs the tests once at the
   exact sha (`HANDLINE_GO_RACE=1 tools/check.sh <target>`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
