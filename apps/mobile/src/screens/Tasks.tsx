@@ -26,7 +26,7 @@ import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { useHistoryValue } from '#src/history.tsx';
-import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
+import { Linking, SectionList, ScrollView, Text, View } from 'react-native';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
@@ -41,6 +41,8 @@ import { TaskGraph } from '#src/screens/TaskGraph.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
 import { EventNote } from '#src/screens/EventNote.tsx';
 import { TaskBatch } from '#src/screens/TaskBatch.tsx';
+import { TaskSearch } from '#src/screens/TaskSearch.tsx';
+import { MyRequestsChip, MyRequestsList, useMyRequests } from '#src/screens/MyRequests.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [
@@ -83,6 +85,9 @@ function List(props: { onSelect: (id: number) => void }) {
   };
   const sections = groupTasks(rows, me).map((g) => ({ key: g.key, title: g.label, data: g.rows }));
   const [graph, setGraph] = useHistoryValue('tasks.graph', false);
+  const [mineOn, setMineOn] = useHistoryValue('tasks.myRequests', false);
+  const my = useMyRequests();
+  const myList = mineOn && scope !== 'closed';
   const [menu, setMenu] = useState(false);
   const [filtering, setFiltering] = useState(false);
   const narrowed = states.size !== defaultFilter().states.size;
@@ -127,16 +132,17 @@ function List(props: { onSelect: (id: number) => void }) {
         </Loadable>
       ) : (
         <>
-          <TaskSearch value={search} onChange={setSearch} />
+          {!myList && <TaskSearch value={search} onChange={setSearch} />}
           <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.lg }}>
             {SCOPES.map(([id, label]) => (
               <Pill key={id} testID={`scope-${id}`} on={scope === id} label={label} onPress={() => setScope(id)} />
             ))}
+            {scope !== 'closed' && <MyRequestsChip count={my.rows.length} on={mineOn} onToggle={() => setMineOn(!mineOn)} />}
             {scope !== 'closed' && (
               <Pill testID="filter-toggle" on={filtering || narrowed} label="Filter" onPress={() => setFiltering(!filtering)} />
             )}
           </View>
-          {scope !== 'closed' && filtering && (
+          {scope !== 'closed' && !myList && filtering && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, padding: space.lg }}>
               {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
                 <Pill
@@ -153,29 +159,33 @@ function List(props: { onSelect: (id: number) => void }) {
               ))}
             </View>
           )}
-          <Loadable
-            query={query}
-            served={served}
-            isEmpty={rows.length === 0}
-            skeleton="tasks"
-            label="tasks"
-            empty={scope === 'closed' ? 'No closed tasks.' : 'No open tasks.'}
-          >
-            <SectionList
-              sections={sections}
-              keyExtractor={(t) => String(t.id)}
-              renderSectionHeader={({ section }) => <GroupHead title={section.title} count={section.data.length} />}
-              renderItem={({ item: t }) => (
-                <Row
-                  t={t}
-                  selecting={selecting}
-                  marked={marked.has(t.id)}
-                  onPress={() => (selecting ? toggle(t.id) : props.onSelect(t.id))}
-                  onLongPress={() => toggle(t.id)}
-                />
-              )}
-            />
-          </Loadable>
+          {myList ? (
+            <MyRequestsList groups={my.groups} pending={my.pending} onTask={props.onSelect} />
+          ) : (
+            <Loadable
+              query={query}
+              served={served}
+              isEmpty={rows.length === 0}
+              skeleton="tasks"
+              label="tasks"
+              empty={scope === 'closed' ? 'No closed tasks.' : 'No open tasks.'}
+            >
+              <SectionList
+                sections={sections}
+                keyExtractor={(t) => String(t.id)}
+                renderSectionHeader={({ section }) => <GroupHead title={section.title} count={section.data.length} />}
+                renderItem={({ item: t }) => (
+                  <Row
+                    t={t}
+                    selecting={selecting}
+                    marked={marked.has(t.id)}
+                    onPress={() => (selecting ? toggle(t.id) : props.onSelect(t.id))}
+                    onLongPress={() => toggle(t.id)}
+                  />
+                )}
+              />
+            </Loadable>
+          )}
         </>
       )}
       {selecting && (
@@ -194,26 +204,6 @@ function List(props: { onSelect: (id: number) => void }) {
           onDone={() => (setActing(false), stopSelecting())}
         />
       )}
-    </View>
-  );
-}
-
-function TaskSearch(props: { value: string; onChange: (v: string) => void }) {
-  const c = usePalette();
-  return (
-    <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
-      <TextInput
-        testID="tasks-search"
-        accessibilityLabel="Search tasks"
-        placeholder="Search by number, title or agent"
-        placeholderTextColor={c.muted}
-        value={props.value}
-        onChangeText={props.onChange}
-        autoCapitalize="none"
-        autoCorrect={false}
-        clearButtonMode="while-editing"
-        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: 10, paddingHorizontal: space.md, minHeight: 40 }}
-      />
     </View>
   );
 }
