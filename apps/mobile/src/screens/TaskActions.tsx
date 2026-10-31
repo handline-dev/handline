@@ -27,8 +27,8 @@ function taskStateWord(state: string, foryou: boolean, blocked: boolean): { word
     doing: { word: 'Working', icon: 'working' },
     done: { word: 'Done', icon: 'done' },
     draft: { word: 'Draft' },
-    queued: { word: 'Queued' },
-    pending: { word: 'Queued' },
+    queued: { word: 'Waiting' },
+    pending: { word: 'Waiting' },
     discarded: { word: 'Dropped' },
   };
   return WORDS[state] ?? { word: state };
