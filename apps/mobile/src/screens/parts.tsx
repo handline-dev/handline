@@ -118,7 +118,6 @@ export function Button(props: {
   );
 }
 
-/** The one way back: an arrow and the parent's name. */
 export function BackLink(props: { label: string; onPress: () => void; testID?: string; accessibilityLabel?: string }) {
   const c = usePalette();
   return (
