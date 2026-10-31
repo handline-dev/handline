@@ -376,7 +376,17 @@ function Body({
             {!t.status && !t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
             {t.blockers.length ? (
               <Section title="Waits on">
-                {t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}
+                {t.blockers.map((b) => (
+                  <Text key={b.task} style={{ color: c.ink }}>
+                    <Text
+                      testID={`waits-on-${b.task}`}
+                      accessibilityRole="link"
+                      onPress={onOpen ? () => onOpen(b.task) : undefined}
+                      style={{ color: c.accent }}
+                    >{`${taskRef(b.task)} ${b.title}`}</Text>
+                    {` (${b.owner})${b.reason ? `: ${b.reason}` : ''}`}
+                  </Text>
+                ))}
               </Section>
             ) : null}
             {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}

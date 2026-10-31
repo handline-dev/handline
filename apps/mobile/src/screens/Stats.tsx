@@ -21,6 +21,9 @@ const TILES = [
   ['blocks', 'blocks'],
 ] as const;
 
+const bare = (name: string) => name.replace(/^handline\./, '');
+const when = (at: string) => new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
 function Choice<T extends string>(props: { label: string; value: T; options: readonly T[]; onChange: (v: T) => void }) {
   const c = usePalette();
   return (
@@ -55,17 +58,13 @@ function Counts({ s }: { s: StatsData }) {
   const rows = agentUse(s.use);
   return (
     <View style={{ gap: space.lg }}>
-      <View testID="stats-tiles" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+      <View testID="stats-tiles" style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
         {TILES.map(([label, key]) => (
-          <View
-            key={key}
-            testID={`tile-${key}`}
-            style={{ flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md }}
-          >
+          <View key={key} testID={`tile-${key}`} style={{ flex: 1 }}>
             <Text style={{ color: key === 'blocks' && s[key] > 0 ? c.block : c.ink, fontSize: font.size.xl, fontWeight: '700' }}>
               {s[key]}
             </Text>
-            <Text style={{ color: c.muted }}>{label}</Text>
+            <Text style={{ color: c.muted, fontSize: font.size.sm }}>{label}</Text>
           </View>
         ))}
       </View>
@@ -76,11 +75,11 @@ function Counts({ s }: { s: StatsData }) {
           rows.map((r) => (
             <View key={r.key} testID={`use-${r.agent}`} style={{ gap: 2 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: c.ink }}>{r.account ? `${r.agent} · ${r.account}` : r.agent}</Text>
+                <Text style={{ color: c.ink }}>{r.account ? `${bare(r.agent)} · ${r.account}` : bare(r.agent)}</Text>
                 <Text style={{ color: c.muted }}>{spentText(r)}</Text>
               </View>
               <View style={{ height: 6, borderRadius: 3, backgroundColor: c.line }}>
-                <View style={{ width: `${r.fill * 100}%`, height: 6, borderRadius: 3, backgroundColor: c.run }} />
+                <View style={{ width: `${r.fill * 100}%`, height: 6, borderRadius: 3, backgroundColor: c.accent }} />
               </View>
             </View>
           ))
@@ -98,6 +97,7 @@ function Left({ o }: { o: Outlook }) {
   const pts = [...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].filter(
     (p) => p.left_pct !== null,
   );
+  const now = pts.filter((p) => !p.guess).length;
   return (
     <View style={{ gap: space.sm }}>
       <View
@@ -111,15 +111,24 @@ function Left({ o }: { o: Outlook }) {
             style={{
               flex: 1,
               height: `${Math.max(2, p.left_pct!)}%`,
-              backgroundColor: p.guess ? 'transparent' : c.run,
+              backgroundColor: p.guess ? 'transparent' : c.accent,
               borderWidth: 1,
-              borderColor: c.run,
+              borderColor: c.accent,
               borderStyle: p.guess ? 'dashed' : 'solid',
             }}
           />
         ))}
       </View>
-      <Text style={{ color: c.muted, fontSize: font.size.sm }}>solid: recorded, dashed: guess. Now is where they change.</Text>
+      <View testID="outlook-axis" style={{ height: 18 }}>
+        <Text style={{ position: 'absolute', left: 0, color: c.muted, fontSize: font.size.sm }}>{pts.length ? when(pts[0]!.at) : ''}</Text>
+        {now > 0 && now < pts.length ? (
+          <Text style={{ position: 'absolute', left: `${(now / pts.length) * 100}%`, color: c.ink, fontSize: font.size.sm, fontWeight: '700' }}>
+            Now
+          </Text>
+        ) : null}
+        <Text style={{ position: 'absolute', right: 0, color: c.muted, fontSize: font.size.sm }}>{pts.length ? when(pts.at(-1)!.at) : ''}</Text>
+      </View>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>Week left, full bar is all of it. Dashed is a guess.</Text>
       {o.runway.map((r) => (
         <Text key={r.account} testID={`runway-${r.account}`} style={{ color: c.ink }}>
           {r.account} <Text style={{ color: c.muted }}>{runwayWords(r)}</Text>
@@ -145,7 +154,7 @@ function Cost({ o }: { o: Outlook }) {
             accessibilityLabel={`${d.day}: $${total(d).toFixed(2)}`}
             style={{ flex: 1, height: '100%', justifyContent: 'flex-end' }}
           >
-            <View style={{ height: `${(total(d) / top) * 100}%`, backgroundColor: c.run }} />
+            <View style={{ height: `${(total(d) / top) * 100}%`, backgroundColor: c.accent }} />
           </View>
         ))}
       </View>
@@ -154,7 +163,7 @@ function Cost({ o }: { o: Outlook }) {
       </Text>
       {agents.map((a, i) => (
         <View key={a} testID={`cost-agent-${a}`} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <Text style={{ color: c.ink }}>{a}</Text>
+          <Text style={{ color: c.ink }}>{bare(a)}</Text>
           <Text style={{ color: c.muted }}>
             ${sums[i]!.toFixed(2)} · {Math.round((sums[i]! / (all || 1)) * 100)}%
           </Text>

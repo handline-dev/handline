@@ -255,6 +255,14 @@ export function TaskVerbs({
   const starting = stretches.length > 0 && !stretches.some((s) => s.kind === 'working');
   const foryou = running && isPerson(t.to, me);
   const stateWord = taskStateWord(t.state, foryou, t.blockers.length > 0, starting);
+  const stateTone =
+    stateWord.word === 'Needs you' || stateWord.word === 'Blocked'
+      ? c.wait
+      : stateWord.word === 'Working' || stateWord.word === 'Starting'
+        ? c.accent
+        : stateWord.word === 'Done'
+          ? c.ok
+          : c.muted;
   const pills = (
     <View style={{ gap: space.sm }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
@@ -266,8 +274,8 @@ export function TaskVerbs({
           onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))}
           style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 36 }}
         >
-          {stateWord.icon ? <Icon name={stateWord.icon} decorative size={16} color={c.accent} /> : null}
-          <Text style={{ color: c.accent, fontWeight: '600' }}>{`${stateWord.word} ⌄`}</Text>
+          {stateWord.icon ? <Icon name={stateWord.icon} decorative size={16} color={stateTone} /> : null}
+          <Text style={{ color: stateTone, fontWeight: '600' }}>{`${stateWord.word} ⌄`}</Text>
         </Pressable>
         {later}
       </View>
