@@ -262,5 +262,8 @@ func (p *Parts) spareNotice(cfg Config) *sparenotice.Env {
 			return taskwrites.AskFounder(p.db, lc.Env, title, body, tags...)
 		},
 		Tell: func(text string) error { return lc.Env.SystemSay(db.NoticeRequester, "handline", text) },
+		Close: func(tid int64, words string) error {
+			return taskwrites.CloseFounderTask(p.db, home, lc.Env, tid, words)
+		},
 	}
 }

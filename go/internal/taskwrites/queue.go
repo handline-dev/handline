@@ -332,6 +332,25 @@ func QueueDrafts(tx *sql.Tx, home, by string, tids []int64) (queued []int64, ski
 	return queued, skipped, nil
 }
 
+// CloseFounderTask ends a task of the founder's with these words, as their done on it does: the daemon closes a question that has gone moot
+// (a notice of a loss whose time has passed). A task already ended is refused, as MarkDone refuses it.
+func CloseFounderTask(d *sql.DB, home string, tell Teller, tid int64, words string) error {
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := MarkDone(tx, home, db.Human, DoneIn{Task: tid, Words: words})
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	tell.Done(tid, db.Human, res.Owner, res.Told, res.Forget, res.Finished)
+	return nil
+}
+
 // AskFounder opens a task for the founder, owned by them, that expects a decision; it answers the task's number. The founder's answer
 // is the task's close (tasks.decide).
 func AskFounder(d *sql.DB, tell Teller, title, body string, tags ...string) (int64, error) {
