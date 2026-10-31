@@ -4,18 +4,15 @@
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { chatEntries, clockTime, decidedProposals, ellipsis, isTaskDelivery, sideOf, tickLevel } from '@handline/app-core';
-import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr, useServes, useTasks } from '@handline/app-data';
+import { chatEntries, decidedProposals, ellipsis, sideOf } from '@handline/app-core';
+import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr, useServes, useTasks, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
-import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
+import type { AgentDetail, TranscriptItem } from '@handline/client';
 import { font, radius, space } from '@handline/tokens';
 import { Skeleton } from '#src/skeleton.tsx';
 import { usePalette } from '#src/theme.ts';
-import { Decided, Line, Stamp, useBubbleWidth } from '#src/screens/ChatLines.tsx';
-import { CommandMessageScope } from '#src/screens/CommandCard.tsx';
-import { Pictures } from '#src/screens/ChatPictures.tsx';
-import { ChatActions } from '#src/screens/ChatActions.tsx';
-import { PrBody } from '#src/screens/PrBody.tsx';
+import { Decided, Line } from '#src/screens/ChatLines.tsx';
+import { AgentStrip } from '#src/screens/AgentStrip.tsx';
 import { ChatFind } from '#src/screens/ChatFind.tsx';
 import { ChatRefs, type Ref } from '#src/screens/ChatRefs.tsx';
 import { HandoffLine } from '#src/screens/HandoffLine.tsx';
@@ -25,12 +22,10 @@ import { ChatSearch } from '#src/screens/ChatSearch.tsx';
 import { useChatImages } from '#src/screens/ChatImages.tsx';
 import { FoldLine, useFolds } from '#src/screens/ChatFold.tsx';
 import { useChatScroll } from '#src/screens/ChatScroll.ts';
-import { SendButton, WorkingBubble } from '#src/screens/ChatSend.tsx';
+import { Bubble } from '#src/screens/ChatBubble.tsx';
+import { SendButton, WorkingLine } from '#src/screens/ChatSend.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
-import { Button, EmptyState, Link, Row } from '#src/screens/parts.tsx';
-
-/** How far the person's message got, as ticks: not sent yet, sent, read. */
-const TICKS = ['queued', 'delivered', 'answered'] as const;
+import { Button, EmptyState, Row } from '#src/screens/parts.tsx';
 
 /** Unsent text per agent, kept while the person goes to another tab or agent (not across a restart). */
 const drafts = new Map<string, string>();
@@ -69,6 +64,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const canSend = useSelector((s) => s.can('chat.send'));
   const chat = useChat(agent, 'mine');
   const act = useChatActions(agent);
+  const interrupt = useWrite('session.interrupt', agent);
   const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
   const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
@@ -240,7 +236,6 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
               />
             ),
           )}
-          <WorkingBubble working={chat.working} messages={chat.messages} items={chat.items} />
         </View>
         {anchor.room > 0 && <View testID="send-spacer" style={{ height: anchor.room }} onLayout={anchor.spacer} />}
       </ScrollView>
@@ -256,6 +251,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         />
       )}
       {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
+      <WorkingLine working={chat.working} messages={chat.messages} items={chat.items} onStop={() => interrupt.mutate({ agent })} />
       {img.chips}
       {cmd && (
         <Text testID="cmd-hint" style={{ color: c.muted, fontSize: font.size.xs, paddingHorizontal: space.md }}>
@@ -290,132 +286,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           onSend={(d) => void send(d)}
         />
       </Row>
+      <AgentStrip detail={props.detail} />
     </View>
-  );
-}
-
-function Bubble(props: {
-  m: ChatMessage;
-  agent: string;
-  picked: boolean;
-  flashed: boolean;
-  onRow: (y: number) => void;
-  working: boolean;
-  onPick: (m: ChatMessage) => void;
-  onTask: (id: number) => void;
-}) {
-  const c = usePalette();
-  const bubble = useBubbleWidth();
-  const { m, agent } = props;
-  const act = useChatActions(agent);
-  const canSend = useSelector((s) => s.can('chat.send'));
-  const side = sideOf(m, agent, useStore().me);
-  const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
-  const failed = m.state === 'failed';
-  const mine = side === 'person' && !unnumbered && !failed;
-  const bg = side === 'person' ? c.panel : 'transparent';
-  const stamp = (
-    <Stamp
-      m={m}
-      time={props.picked ? clockTime(m.at) : null}
-      ticks={
-        side === 'person' && !failed
-          ? m.landing === 'withdrawn'
-            ? 'withdrawn'
-            : m.receipt?.state === 'unknown'
-              ? 'maybeRan'
-              : TICKS[tickLevel(m)]
-          : null
-      }
-    />
-  );
-  // Like the PC chat: the ticks sit beside the bubble at its bottom, and the time shows once the row is picked (PC shows it on hover).
-  return (
-    <Pressable
-      testID={`msg-${m.id}`}
-      disabled={unnumbered || failed}
-      onLayout={(e) => props.onRow(e.nativeEvent.layout.y)}
-      onPress={() => props.onPick(m)}
-      style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: side === 'person' ? 'flex-end' : 'flex-start', gap: space.xs }}
-    >
-      {side === 'person' && stamp}
-      <View
-        style={{
-          flexShrink: 1,
-          maxWidth: bubble,
-          gap: 4,
-          padding: space.md,
-          borderRadius: radius.l,
-          backgroundColor: bg,
-          borderWidth: 1,
-          borderColor: props.picked || props.flashed ? c.accent : failed ? c.block : c.line,
-          opacity: unnumbered && !failed ? 0.6 : 1,
-        }}
-      >
-        {props.flashed && (
-          <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: font.size.xs }}>
-            Found by search
-          </Text>
-        )}
-        {side === 'other' && (
-          <Text style={{ color: c.muted, fontSize: font.size.xs }}>
-            {isTaskDelivery(m) ? `Task T${m.tasks[0]!.id} handed to ${m.to}` : `${m.from} → ${m.to}`}
-          </Text>
-        )}
-        {m.parent != null && <Text style={{ color: c.muted, fontSize: font.size.xs }}>↩ reply</Text>}
-        {m.parent_item && (
-          <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: font.size.xs }}>
-            ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
-          </Text>
-        )}
-        {m.body ? (
-          <CommandMessageScope id={m.id} runs={m.runs}>
-            <PrBody id={m.id} agent={agent} body={m.body} selectable />
-          </CommandMessageScope>
-        ) : null}
-        {m.attachments?.length ? (
-          <Pictures
-            deletable
-            items={m.attachments.map((a) => ({ ...a, removed: m.parts?.some((x) => 'image' in x && x.image.id === a.id && x.removed) }))}
-            to={agent}
-            onSend={canSend ? (words, attachments) => act.send(words, { attachments }) : undefined}
-          />
-        ) : null}
-        {m.actions?.length ? <ChatActions id={m.id} actions={m.actions} /> : null}
-        {side === 'person' && m.request_task != null ? (
-          <Pressable testID={`request-chip-${m.id}`} accessibilityRole="link" hitSlop={8} onPress={() => props.onTask(m.request_task!)}>
-            <Text style={{ color: c.accent, fontSize: font.size.sm }}>Taken as T{m.request_task}</Text>
-          </Pressable>
-        ) : side === 'person' && m.no_work ? (
-          <Text testID={`request-chip-${m.id}`} style={{ color: c.muted, fontSize: font.size.sm }}>
-            Nothing to do: {m.no_work}
-          </Text>
-        ) : null}
-        {failed && (
-          <View accessibilityRole="alert" style={{ gap: space.xs }}>
-            <Row>
-              <Icon name="failed" decorative size={14} color={c.block} />
-              <Text style={{ color: c.block, fontSize: font.size.sm, flex: 1 }}>{m.sending_reason}</Text>
-            </Row>
-            <Row>
-              <Button testID={`retry-${m.id}`} label="Retry" onPress={() => act.retry(m.id)} />
-              <Button testID={`discard-${m.id}`} label="Discard" kind="no" onPress={() => act.discard(m.id)} />
-            </Row>
-          </View>
-        )}
-        {mine && m.receipt?.state === 'unknown' && (
-          <Text testID={`unknown-${m.id}`} style={{ color: c.block, fontSize: font.size.sm }}>
-            Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it
-            repeated.
-          </Text>
-        )}
-        {mine && (m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
-          <Row style={{ gap: space.lg }}>
-            <Link testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
-          </Row>
-        )}
-      </View>
-      {side !== 'person' && stamp}
-    </Pressable>
   );
 }

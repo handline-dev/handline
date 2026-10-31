@@ -205,17 +205,17 @@ describe('the header row of a structured agent', () => {
     m.store.stop();
   });
 
-  it('offers Start new, and no Resume, for a closed one; Start new asks first', async () => {
+  it('offers Start fresh now, and no Resume, for a closed one; Start fresh now asks first', async () => {
     const m = await mount();
     await until(() => $(`agent-${AUD}`), 'the rows');
     await act(async () => void (await m.store.client.stopSession(AUD, 'close')));
     await press($(`agent-${AUD}`));
     await until(() => $('verbs-open'), 'the page');
     await press($('verbs-open'));
-    await until(() => button('Start new'), 'Start new');
+    await until(() => button('Start fresh now'), 'Start fresh now');
     expect(button('Resume')).toBeFalsy();
     const alert = vi.spyOn(Alert, 'alert');
-    await press(button('Start new'));
+    await press(button('Start fresh now'));
     expect(alert).toHaveBeenCalledWith(expect.stringContaining('over?'), expect.anything(), expect.anything());
     expect(m.daemon.sessions.get(AUD)!.open).toBe(false);
     alert.mockRestore();

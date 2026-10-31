@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { Proposal, TranscriptItem } from '@handline/client';
-import { clockTime, isPerson, sessionLine, taskRow } from '@handline/app-core';
+import { ago, clockTime, isPerson, sessionLine, taskRow } from '@handline/app-core';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, iconLabel, type IconName } from '#src/screens/Icon.tsx';
@@ -42,7 +42,6 @@ export function Line(props: {
 }) {
   const { i, agent, onReply, onTask } = props;
   const c = usePalette();
-  const small = { color: c.muted, fontSize: font.size.sm } as const;
   if (i.kind === 'reply')
     return (
       <View testID={`reply-${i.id}`} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.xs }}>
@@ -68,16 +67,7 @@ export function Line(props: {
         <Stamp m={i} time={clockTime(i.at)} ticks={null} />
       </View>
     );
-  if (i.kind === 'prompt') {
-    const p = i.prompt;
-    return (
-      <Text style={small} numberOfLines={2}>
-        <Icon name={i.open ? 'waiting' : 'delivered'} label={i.open ? 'Open' : 'Answered'} size={12} color={c.muted} />{' '}
-        {p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`}
-        {p?.command ? ` ${p.command}` : ''} · {clockTime(i.at)}
-      </Text>
-    );
-  }
+  if (i.kind === 'prompt') return <PromptLine i={i} />;
   if (i.kind === 'session') return <SessionMark i={i} />;
   if (i.kind === 'task_batch' && i.task_batch) return <BatchCard i={i} onTask={onTask} />;
   if (i.kind === 'task_event' && i.task_event)
@@ -193,6 +183,21 @@ export function SessionMark({ i }: { i: TranscriptItem }) {
         </Sheet>
       )}
     </View>
+  );
+}
+
+/** A request the agent made, as one grey line like "Allow Bash go vet ./… · 9m"; a tap opens the whole command. */
+function PromptLine({ i }: { i: TranscriptItem }) {
+  const c = usePalette();
+  const [full, setFull] = useState(false);
+  const p = i.prompt;
+  const what = p?.kind === 'permission' ? `Allow ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`;
+  return (
+    <Pressable testID={`prompt-${i.id}`} accessibilityRole="button" accessibilityState={{ expanded: full }} onPress={() => setFull(!full)}>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }} numberOfLines={full ? undefined : 1}>
+        {[what, p?.command].filter(Boolean).join(' ')} · {ago(i.at)}
+      </Text>
+    </Pressable>
   );
 }
 

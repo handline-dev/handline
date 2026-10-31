@@ -40,12 +40,10 @@ describe('the chat tab', () => {
       box.querySelector<HTMLElement>(`[data-testid^="${kind}-"][data-testid$="${kind === 'file' ? 'notes/plan.md' : '-1684'}"]`);
     const link = async (kind: string) => (await until(() => find(kind), `the ${kind} link`), find(kind));
     await press(await link('file'));
-    await until(() => $('dock-file:notes/plan.md'), 'the file dock tab');
     await until(() => $('file-tab'), 'the file tab');
-    await press($('tab-chat'));
+    await press($('back'));
     await press(await link('task'));
-    await until(() => $('dock-task:1684') && $('task-detail'), 'the task tab');
-    expect($('dock-file:notes/plan.md')).not.toBeNull();
+    await until(() => $('task-detail'), 'the task');
     m.store.stop();
   });
 
@@ -87,7 +85,7 @@ describe('the chat tab', () => {
     expect(($('chat-input') as HTMLTextAreaElement).value).toBe('');
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // typed, delivered, thinking
     await until(() => $('working'), 'the working line');
-    expect($('working')!.textContent).toContain('now: Read src/main.ts');
+    expect($('working')!.textContent).toContain('Running Read src/main.ts');
     expect(tick(msgOf('run the tests')!)).toBe('Answered');
     m.store.stop();
   });
