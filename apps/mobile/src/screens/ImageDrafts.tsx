@@ -109,7 +109,7 @@ export function AttachButton(props: { onPress: () => void; disabled?: boolean; p
       style={{ padding: space.sm, opacity: props.disabled ? 0.4 : 1 }}
     >
       {props.picture ? (
-        <Icon name="picture" decorative size={22} color={c.muted} />
+        <Icon name="attach" decorative size={22} color={c.muted} />
       ) : (
         <Text style={{ color: c.accent, fontSize: font.size.xl }}>＋</Text>
       )}

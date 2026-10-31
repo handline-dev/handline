@@ -149,7 +149,7 @@ export function CommentBox({ id }: { id: number }) {
       <ImageBodyInput
         testID="memo-text"
         label="Comment"
-        placeholder="Add a comment…"
+        placeholder="Comment, or @mention…"
         titled={false}
         editable={!why}
         value={text}

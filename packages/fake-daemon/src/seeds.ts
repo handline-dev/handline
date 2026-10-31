@@ -57,7 +57,7 @@ export const SEEDS: Record<string, Seed> = {
       id: 7100,
       from: ARCH,
       to: ME,
-      title: "18% of theta's weekly use will be lost at 02:10. These spare tasks can use it: T7101, T7102, T7103, T7104.",
+      title: `18% of theta's weekly use will be lost at ${new Date(Date.now() + 3 * 3600_000).toTimeString().slice(0, 5)}. These spare tasks can use it: T7101, T7102, T7103, T7104.`,
       state: 'doing',
       tags: ['spare-notice'],
     });

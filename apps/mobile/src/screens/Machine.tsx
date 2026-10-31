@@ -15,6 +15,7 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
   if (!r) return null;
   const m = r.machine;
   const diskUsed = m.disk_total_bytes ? Math.round((1 - m.disk_free_bytes / m.disk_total_bytes) * 100) : 0;
+  const ramUsed = m.ram_free_pct > 0 ? (m.ram_free_bytes / m.ram_free_pct) * (100 - m.ram_free_pct) : 0;
   const rows: { key: string; icon: 'load' | 'memory' | 'disk' | 'slots'; label: string; value: string; warn: boolean; pct: number }[] = [
     {
       key: 'load',
@@ -28,7 +29,7 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
       key: 'memory',
       icon: 'memory',
       label: 'Memory',
-      value: `${bytesText(m.ram_free_bytes)} free`,
+      value: `${bytesText(ramUsed)} used`,
       warn: memoryLow(r, limits.ram_free_min_pct),
       pct: 100 - m.ram_free_pct,
     },
@@ -36,7 +37,7 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
       key: 'disk',
       icon: 'disk',
       label: 'Disk',
-      value: `${bytesText(m.disk_free_bytes)} left`,
+      value: `${bytesText(m.disk_total_bytes - m.disk_free_bytes)} used`,
       warn: m.disk_free_bytes < LOW_DISK_BYTES,
       pct: diskUsed,
     },
@@ -54,8 +55,10 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
       <Text style={{ color: c.ink, fontWeight: '600' }}>This computer</Text>
       {rows.map((x) => (
         <View key={x.key} testID={`machine-${x.key}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 32 }}>
-          <Icon name={x.icon} decorative size={16} color={c.muted} />
-          <Text style={{ color: c.ink, minWidth: 96, flexShrink: 0 }}>{x.label}</Text>
+          <View style={{ width: 104, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <Icon name={x.icon} decorative size={16} color={c.muted} />
+            <Text numberOfLines={1} style={{ color: c.ink, flexShrink: 1 }}>{x.label}</Text>
+          </View>
           <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
             <View
               testID={`machine-bar-${x.key}`}
@@ -68,7 +71,7 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
             />
           </View>
           <View
-            style={{ minWidth: 96, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: space.xs }}
+            style={{ width: 96, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: space.xs }}
           >
             {x.warn ? <Icon name="warn" decorative size={14} color={c.block} /> : null}
             <Text style={{ color: x.warn ? c.block : c.ink }}>{x.value}</Text>

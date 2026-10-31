@@ -114,7 +114,7 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
   return (
     <View testID={`gauge-${props.label}`} style={{ gap: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-        <Text numberOfLines={1} style={{ color: c.muted, width: 64 }}>
+        <Text numberOfLines={1} style={{ color: c.muted, width: 104 }}>
           {props.label}
         </Text>
         <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
@@ -126,7 +126,7 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
             />
           ) : null}
         </View>
-        <View style={{ width: 64, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+        <View style={{ width: 96, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
           {g.pct >= 80 ? <Icon name={g.pct >= 100 ? 'full' : 'warn'} decorative size={14} color={tone} /> : null}
           <Text style={{ color: c.ink }}>{g.pct}%</Text>
         </View>
@@ -142,7 +142,7 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
 function Warning(props: { a: Account; runway?: Parameters<typeof runwayWords>[0]; lost?: number }) {
   const c = usePalette();
   const { a, runway, lost } = props;
-  const runs = runway && runway.runs_out_in_seconds !== null && stateOf(a) !== 'out' ? runwayWords(runway) : null;
+  const runs = runway && runway.runs_out_in_seconds !== null && stateOf(a) !== 'out' && !a.stalled ? runwayWords(runway) : null;
   if (runs)
     return (
       <View testID={`warn-${a.name}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
@@ -151,7 +151,10 @@ function Warning(props: { a: Account; runway?: Parameters<typeof runwayWords>[0]
       </View>
     );
   return lost !== undefined ? (
-    <Text testID={`lost-${a.name}`} style={{ color: c.muted, fontSize: font.size.sm }}>{`${Math.round(lost)}% lost at this pace`}</Text>
+    <View testID={`lost-${a.name}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+      <Icon name="warn" decorative size={14} color={c.wait} />
+      <Text style={{ color: c.wait, fontSize: font.size.sm }}>{`${Math.round(lost)}% lost at this pace`}</Text>
+    </View>
   ) : null;
 }
 
@@ -217,9 +220,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode; onM
                   {a.label}
                   {a.plan ? <Text style={{ color: c.muted, fontWeight: '400' }}>{`  ${a.plan}`}</Text> : null}
                 </Text>
-                {stateOf(a) === 'needs_login' ? (
-                  <Text style={{ color: c.wait }}>Login needed</Text>
-                ) : a.agents_running ? (
+                {stateOf(a) !== 'needs_login' && a.agents_running ? (
                   <Text style={{ color: c.muted }}>{agentsLine(a)}</Text>
                 ) : null}
               </View>
