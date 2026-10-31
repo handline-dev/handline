@@ -104,3 +104,42 @@ test('the swap moves the old app aside and the new one into its place, and puts 
   assert.equal(fs.readFileSync(path.join(installed, 'v'), 'utf8'), 'new');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test(
+  'a release served over http is downloaded, checked and unpacked to a Handline.app, for real',
+  { skip: process.platform !== 'darwin' },
+  async () => {
+    const { execFileSync } = await import('node:child_process');
+    const http = await import('node:http');
+    const { downloadTo, sha512Of, unpackApp } = await import('#src/pkg-files.ts');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgfiles-'));
+    const app = path.join(dir, 'src', 'Handline.app', 'Contents', 'MacOS');
+    fs.mkdirSync(app, { recursive: true });
+    fs.writeFileSync(path.join(app, 'Electron'), 'x');
+    const zip = path.join(dir, 'Handline-0.1.1-universal-mac.zip');
+    execFileSync('ditto', ['-ck', '--keepParent', path.join(dir, 'src', 'Handline.app'), zip]);
+    const server = http.createServer((req, res) => {
+      if (req.url !== '/z.zip') return void res.writeHead(404).end();
+      res.writeHead(200, { 'content-length': fs.statSync(zip).size });
+      fs.createReadStream(zip).pipe(res);
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    try {
+      const seen: number[] = [];
+      const got = await downloadTo(dir, `${base}/z.zip`, (f) => seen.push(f));
+      assert.equal(await sha512Of(got), await sha512Of(zip));
+      assert.equal(seen.at(-1), 1);
+      const staged = await unpackApp(got, path.join(dir, '.Handline-update'), 'Handline.app');
+      assert.ok(fs.existsSync(path.join(staged, 'Contents', 'MacOS', 'Electron')));
+      assert.ok(!fs.existsSync(got), 'the download is removed once unpacked');
+      await assert.rejects(
+        downloadTo(dir, `${base}/missing`, () => undefined),
+        /404/,
+      );
+    } finally {
+      server.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);

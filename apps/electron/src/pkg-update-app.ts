@@ -1,20 +1,12 @@
 // The installed app's update in Electron terms: the network, the files and the restart behind PkgPorts (pkg-update.ts).
-import { execFile } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
+import { downloadTo, sha512Of, unpackApp } from '#src/pkg-files.ts';
 import { readBuildSha } from '#src/build-id.ts';
 import { SelfUpdater, type PkgPorts } from '#src/pkg-update.ts';
 import { leftovers, STAGING, swapBundle } from '#src/swap.ts';
 import type { UpdateFlow } from '#src/update-flow.ts';
-
-const run = (file: string, args: string[]): Promise<void> =>
-  new Promise((resolve, reject) =>
-    execFile(file, args, (err, _out, errOut) =>
-      err ? reject(new Error(`${file}: ${(errOut || err.message).trim().split('\n').pop()}`)) : resolve(),
-    ),
-  );
 
 /** The installed Handline.app: three folders above the executable (Contents/MacOS/Handline). */
 const installedApp = () => path.resolve(app.getPath('exe'), '../../..');
@@ -49,38 +41,9 @@ function ports(o: { idle: () => Promise<boolean>; upgrade: (sha?: string) => Pro
       if (!r.ok) throw new Error(`${url}: ${r.status}`);
       return r.text();
     },
-    download: async (url, progress) => {
-      const r = await fetch(url);
-      if (!r.ok || !r.body) throw new Error(`${url}: ${r.status}`);
-      const total = Number(r.headers.get('content-length')) || 0;
-      const file = path.join(app.getPath('temp'), `handline-update-${randomUUID()}.zip`);
-      const out = fs.createWriteStream(file);
-      let got = 0;
-      for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
-        got += chunk.length;
-        if (!out.write(chunk)) await new Promise((res) => out.once('drain', () => res(null)));
-        if (total) progress(got / total);
-      }
-      await new Promise((res, rej) => out.end((e?: Error | null) => (e ? rej(e) : res(null))));
-      return file;
-    },
-    sha512: (file) =>
-      new Promise((resolve, reject) => {
-        const h = createHash('sha512');
-        fs.createReadStream(file)
-          .on('data', (d) => h.update(d))
-          .on('error', reject)
-          .on('end', () => resolve(h.digest('base64')));
-      }),
-    stage: async (zip) => {
-      const staging = path.join(path.dirname(installedApp()), STAGING);
-      fs.rmSync(staging, { recursive: true, force: true });
-      await run('ditto', ['-xk', zip, staging]);
-      fs.rmSync(zip, { force: true });
-      const staged = path.join(staging, path.basename(installedApp()));
-      if (!fs.existsSync(path.join(staged, 'Contents', 'MacOS'))) throw new Error('the download has no app in it');
-      return staged;
-    },
+    download: (url, progress) => downloadTo(app.getPath('temp'), url, progress),
+    sha512: sha512Of,
+    stage: (zip) => unpackApp(zip, path.join(path.dirname(installedApp()), STAGING), path.basename(installedApp())),
     idle: o.idle,
     swapAndRestart: async (staged) => {
       const installed = installedApp();
