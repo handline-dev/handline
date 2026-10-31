@@ -366,7 +366,6 @@ function SheetBody(props: { onClose: () => void; children: React.ReactNode; test
                 {props.title}
               </Text>
               <Pressable
-                testID={props.testID ? `${props.testID}-close` : undefined}
                 accessibilityRole="button"
                 accessibilityLabel="Close"
                 onPress={props.onClose}
