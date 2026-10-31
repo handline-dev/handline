@@ -583,17 +583,21 @@ func (s *Service) Ensure(src string) Ensured {
 		s.prune()
 		return Ensured{State: "started", Version: v, Reason: why}
 	}
-	if got, err := s.Probe(); err == nil && got == v && cur == v {
+	got, perr := s.Probe()
+	if perr == nil && got == v && cur == v {
 		return Ensured{State: "running", Version: v}
 	}
 	if err := s.switchTo(v, s.Wait); err != nil {
 		return back(err)
 	}
 	s.prune()
-	if cur == v {
+	switch {
+	case perr != nil:
 		return Ensured{State: "started", Version: v, Reason: "the daemon was not answering"}
+	case got == v: // handed over before, and current did not follow
+		return Ensured{State: "running", Version: v, Reason: "current moved to it"}
 	}
-	return Ensured{State: "upgraded", Version: v, Reason: "from " + cur}
+	return Ensured{State: "upgraded", Version: v, Reason: "from " + got}
 }
 
 // restore puts back the job file another hand wrote, after v did not answer under this one, and removes v.

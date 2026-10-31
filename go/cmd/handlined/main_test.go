@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/handline/handline/go/internal/service"
 )
 
 func TestTheDefaultHomeIsRefusedUnlessAskedFor(t *testing.T) {
@@ -59,5 +61,14 @@ func TestEachMissingAgentToolIsOneLine(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 3 || !strings.Contains(lines[0], "claude not found") || !strings.Contains(lines[1], "git is not on PATH") || !strings.Contains(lines[2], "tmux is not on PATH") {
 		t.Errorf("%q", out.String())
+	}
+}
+
+func TestEnsureLineExitsOneWhenTheCarriedVersionIsNotRunning(t *testing.T) {
+	for state, code := range map[string]int{"running": 0, "started": 0, "upgraded": 0, "kept": 1, "failed": 1} {
+		line, got := ensureLine(service.Ensured{State: state, Version: "1.0.0+aaaaaaa", Reason: "r"})
+		if got != code || line != `{"state":"`+state+`","version":"1.0.0+aaaaaaa","reason":"r"}` {
+			t.Errorf("%s: %s %d", state, line, got)
+		}
 	}
 }

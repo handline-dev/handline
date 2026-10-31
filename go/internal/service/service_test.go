@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"html"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,7 @@ type rig struct {
 	pid     int
 	calls   []string
 	refuse  error           // what daemon.upgrade answers instead of taking the binary
+	noLoad  bool            // launchd refuses bootstrap
 	failing map[string]bool // versions whose daemon does not come up, whatever their bytes
 }
 
@@ -45,6 +47,9 @@ func newRig(t *testing.T) *rig {
 					return "not found", errors.New("exit 113")
 				}
 			case "bootstrap":
+				if r.noLoad {
+					return "Bootstrap failed: 5: Input/output error", errors.New("exit 5")
+				}
 				r.loaded = true
 				r.start()
 			case "bootout":
@@ -417,7 +422,7 @@ func TestEnsureRestartsAJobWhoseDaemonDoesNotAnswer(t *testing.T) {
 		t.Fatalf("%+v %v", got, r.calls)
 	}
 	r.exe = ""
-	if got := r.s.Ensure(r.build("v2", false)); got.State != "upgraded" || r.count("handover") != 0 || r.count("kickstart") != 2 {
+	if got := r.s.Ensure(r.build("v2", false)); got.State != "started" || r.count("handover") != 0 || r.count("kickstart") != 2 {
 		t.Fatalf("%+v %v", got, r.calls)
 	}
 	r.want("v2", "v1", "v1", "v2")
@@ -505,4 +510,135 @@ func mustRead(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// touch changes the job file the way a hand edit would, so the next Ensure reloads it.
+func (r *rig) touch() {
+	os.WriteFile(r.s.Plist, []byte(mustRead(r.t, r.s.Plist)+"<!-- edited -->\n"), 0o644)
+}
+
+func TestAReloadOfThisServicesJobGoesBackToTheVersionThatRan(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	r.touch()
+	got := r.s.Ensure(r.build("v2", true))
+	if got.State != "kept" || got.Version != "v1" || strings.Contains(got.Reason, "the job that was there") {
+		t.Fatalf("%+v", got)
+	}
+	r.want("v1", "", "v1")
+}
+
+func TestARefusedReloadKeepsTheLinks(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	r.touch()
+	r.noLoad = true
+	if got := r.s.Ensure(r.build("v2", false)); got.State != "failed" || !strings.Contains(got.Reason, "Bootstrap failed") {
+		t.Fatalf("%+v", got)
+	}
+	r.want("v1", "", "v1", "v2")
+}
+
+func TestOnlyALoadedHandWrittenJobIsPutBack(t *testing.T) {
+	r := newRig(t)
+	r.handWritten(filepath.Join(r.build("v0", false), "handlined")) // its file, never loaded
+	if got := r.s.Ensure(r.build("v1", true)); got.State != "failed" {
+		t.Fatalf("not loaded: %+v", got)
+	}
+
+	r = newRig(t)
+	r.loaded = true // launchd holds the label, its file is gone
+	if got := r.s.Ensure(r.build("v1", true)); got.State != "failed" || r.count("kickstart") != 0 {
+		t.Fatalf("no file: %+v %v", got, r.calls) // a broken first run: nothing to go back to
+	}
+}
+
+func TestAVersionThatStopsAnsweringIsNotGoneBackTo(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	r.failing["v1"], r.exe = true, ""
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "failed" || strings.Contains(got.Reason, "going back") {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestCurrentFollowsADaemonAlreadyOnTheVersion(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	r.s.Ensure(r.build("v2", false))
+	r.s.setLink(current, "v1") // handed over, and the ensure ended before current moved
+	r.calls = nil
+	if got := r.s.Ensure(r.build("v2", false)); got != (Ensured{State: "running", Version: "v2", Reason: "current moved to it"}) || r.count("kickstart") != 0 {
+		t.Fatalf("%+v %v", got, r.calls)
+	}
+	if r.s.Current() != "v2" {
+		t.Fatalf("current %s", r.s.Current())
+	}
+}
+
+func TestAnEnsureOntoCurrentWhileTheOldVersionRunsSaysUpgraded(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("1+aaaaaaa", false))
+	r.s.Ensure(r.build("2+bbbbbbb", false))
+	r.exe, _ = filepath.EvalSymlinks(filepath.Join(r.s.Bin, "1+aaaaaaa", "handlined")) // the daemon is back on the old one
+	if got := r.s.Ensure(r.build("2+bbbbbbb", false)); got != (Ensured{State: "upgraded", Version: "2+bbbbbbb", Reason: "from 1+aaaaaaa"}) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestEnsureTakesAnAppAndPrunes(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("v1", false))
+	r.s.Ensure(r.build("v2", false))
+	r.s.Ensure(r.build("v3", false))
+	r.want("v3", "v2", "v2", "v3") // an upgrade prunes
+	r.s.Stop()
+	app := filepath.Join(r.root, "Handline.app")
+	os.MkdirAll(filepath.Join(app, "Contents", "Resources"), 0o755)
+	os.Rename(r.build("v4", false), filepath.Join(app, "Contents", "Resources", "bin"))
+	if got := r.s.Ensure(app); got.State != "started" {
+		t.Fatalf("%+v", got)
+	}
+	r.want("v4", "v3", "v3", "v4") // a load prunes
+}
+
+func TestTheKeptJobIsReadAsWritten(t *testing.T) {
+	r := newRig(t)
+	odd := filepath.Join(r.root, "a&b")
+	os.MkdirAll(odd, 0o755)
+	os.WriteFile(filepath.Join(odd, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	os.MkdirAll(filepath.Dir(r.s.Plist), 0o755)
+	os.WriteFile(r.s.Plist, []byte(`<plist><dict><key>ProgramArguments</key><array><string>/old/handlined</string>`+
+		`<string>-structured-cli</string><string>`+html.EscapeString(filepath.Join(odd, "claude"))+`</string></array>`+
+		`<key>EnvironmentVariables</key><dict><key>PATH</key><string>`+html.EscapeString(filepath.Join(r.root, "c&d"))+`:/usr/bin</string></dict></dict></plist>`), 0o644)
+	t.Setenv("PATH", "/usr/bin:/bin")
+	r.s.Ensure(r.build("v1", false))
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "running" {
+		t.Fatalf("an & in the job made it differ on the next run: %+v", got)
+	}
+	if body := mustRead(t, r.s.Plist); !strings.Contains(body, "<string>-claude</string><string>"+html.EscapeString(filepath.Join(odd, "claude"))+"</string>") {
+		t.Fatal(body)
+	}
+}
+
+func TestLookPathTakesOnlyAnExecutableFile(t *testing.T) {
+	root := t.TempDir()
+	dir, plain, good := filepath.Join(root, "dir"), filepath.Join(root, "plain"), filepath.Join(root, "good")
+	os.MkdirAll(filepath.Join(dir, "claude"), 0o755)
+	os.MkdirAll(plain, 0o755)
+	os.WriteFile(filepath.Join(plain, "claude"), []byte("x"), 0o644)
+	os.MkdirAll(good, 0o755)
+	os.WriteFile(filepath.Join(good, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	if got := lookPath("claude", strings.Join([]string{dir, plain, good}, ":")); got != filepath.Join(good, "claude") {
+		t.Fatal(got)
+	}
+}
+
+func TestInstallWritesThisProcesssPath(t *testing.T) {
+	r := newRig(t)
+	r.handWritten("/old/handlined")
+	r.s.Install(r.build("v1", false), false)
+	if body := mustRead(t, r.s.Plist); !strings.Contains(body, "<key>PATH</key><string>"+os.Getenv("PATH")+"</string>") {
+		t.Fatal(body)
+	}
 }

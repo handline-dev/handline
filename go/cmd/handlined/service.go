@@ -24,13 +24,9 @@ func serviceCommand(args []string) int {
 		if len(args) == 2 {
 			src = args[1]
 		}
-		e := s.Ensure(src)
-		b, _ := json.Marshal(e)
-		fmt.Println(string(b))
-		if e.State == "failed" || e.State == "kept" {
-			return 1
-		}
-		return 0
+		line, code := ensureLine(s.Ensure(src))
+		fmt.Println(line)
+		return code
 	case len(args) == 1 && args[0] == "stop":
 		msg, err = s.Stop()
 	case len(args) == 1 && args[0] == "install":
@@ -74,4 +70,13 @@ func serviceCommand(args []string) int {
 func ownDir() string {
 	exe, _ := os.Executable()
 	return filepath.Dir(paths.Resolved(exe))
+}
+
+// ensureLine is what service ensure prints, and its exit code: 1 when the version the app carries is not the one running.
+func ensureLine(e service.Ensured) (string, int) {
+	b, _ := json.Marshal(e)
+	if e.State == "failed" || e.State == "kept" {
+		return string(b), 1
+	}
+	return string(b), 0
 }
