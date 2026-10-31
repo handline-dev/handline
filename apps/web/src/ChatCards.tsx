@@ -15,6 +15,7 @@ import {
 } from '@handline/app-core';
 import { classify, sentence, useAgentStrip, useHr, useVerbMark, useVerbRun, useWorktrees } from '@handline/app-data';
 import { useServed } from '#src/AgentVerbs.tsx';
+import { BlockedOnYou } from '#src/ChatAsks.tsx';
 import { Icon } from '#src/ui/index.ts';
 import { Button } from '#src/ds/Button.tsx';
 import { ExternalLink, Terminal } from 'lucide-react';
@@ -83,6 +84,8 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
   const why =
     detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session stopped answering' : null);
   if (!why) return null;
+  const mine = /^blocked by T(\d+) \(human\)/i.exec(why);
+  if (mine) return <BlockedOnYou agent={detail.name} task={Number(mine[1])} />;
   return (
     <Notice icon={<Icon name="blocked" size={14} label="Blocked" />} className="chat-banner" role="status">
       {why}

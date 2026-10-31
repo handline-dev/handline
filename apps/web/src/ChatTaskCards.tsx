@@ -2,10 +2,12 @@
 // A shape icon, the title and the T number (both open the task), the time at the right; then a line of what happened and at most two
 // lines of what was said, with "more" to open the rest in place.
 import { useState } from 'react';
+import { Eye } from 'lucide-react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { CLOSED, clockTime, isPerson, openTask, type TaskChange, taskRow } from '@handline/app-core';
+import { CLOSED, clockTime, isPerson, openTask, type TaskChange, type TaskOutcome, taskOutcome, taskRow } from '@handline/app-core';
 import { useMe } from '@handline/app-react';
 import { useServes, useTask, useWrite } from '@handline/app-data';
+import { useSharedRefs } from '#src/RefsContext.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { Button, Icon } from '#src/ui/index.ts';
 
@@ -15,7 +17,7 @@ const LINK = 'cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 unde
 const CLAMP = '[display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden';
 
 /** What was said, two lines of it, and "more" when there is a rest. */
-function Said({ text }: { text: string }) {
+export function Said({ text }: { text: string }) {
   const [all, setAll] = useState(false);
   const long = text.length > 140 || text.includes('\n');
   return (
@@ -46,6 +48,8 @@ function TaskCard(props: {
   said?: string;
   at: string;
   icon?: string;
+  /** A done task whose evidence is a check: the verdict word and the PR it names. */
+  outcome?: TaskOutcome;
 }) {
   const { apply } = useWorkspace();
   const me = useMe();
@@ -55,6 +59,8 @@ function TaskCard(props: {
   const open = () => apply((w) => openTask(w, props.task));
   const canDone = served && !!t && !CLOSED.includes(t.state) && isPerson(t.to, me);
   const small = props.kind === 'small';
+  const repo = useSharedRefs()?.repo;
+  const o = props.outcome;
   const title = props.title ?? `T${props.task}`;
   return (
     <div
@@ -64,7 +70,15 @@ function TaskCard(props: {
       data-shape={props.kind}
     >
       <span className="mt-[3px] flex-none text-ink-2">
-        <Icon name={(props.icon ?? ICON[props.kind]) as 'done'} size={16} label={props.label} />
+        {o?.live ? (
+          <Eye size={16} aria-label={`${props.label}, looked at on the running app`} />
+        ) : (
+          <Icon
+            name={(props.icon ?? (o?.verdict === 'FAIL' ? 'taskDiscarded' : ICON[props.kind])) as 'done'}
+            size={16}
+            label={props.label}
+          />
+        )}
       </span>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex min-w-0 items-baseline gap-x-2">
@@ -83,7 +97,23 @@ function TaskCard(props: {
           {small ? <span className="muted min-w-0 truncate">{props.said}</span> : null}
           <span className="muted card-time ml-auto flex-none whitespace-nowrap text-meta">{clockTime(props.at)}</span>
         </div>
-        {small ? null : <span className="text-ink">{props.what}</span>}
+        {small ? null : (
+          <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-ink">
+            {o?.verdict ? <b className={o.verdict === 'PASS' ? 'text-ok' : 'text-bad'}>{o.verdict}</b> : null}
+            <span>{props.what}</span>
+            {o?.verdict && o.pr && repo ? (
+              <a
+                className={`${LINK} text-acc-ink`}
+                href={`https://github.com/${repo}/pull/${o.pr}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Open pull request ${o.pr} on GitHub`}
+              >
+                {`PR ${o.pr}${o.sha ? ` @${o.sha.slice(0, 7)}` : ''} ↗`}
+              </a>
+            ) : null}
+          </span>
+        )}
         {small || !props.said ? null : <Said text={props.said} />}
         {canDone ? (
           <div className="mt-1">
@@ -121,8 +151,15 @@ export function TaskLine({ i, titles, agent }: { i: TranscriptItem; titles?: Map
   const who = row.who ? (isPerson(row.who, me) ? 'you' : row.who) : '';
   const by = who && row.who !== agent ? `by ${who}` : '';
   const base = { ev, label: row.label, task: row.task, title: row.title, at: i.at };
-  if (ev === 'done')
-    return <TaskCard {...base} kind="done" what={['Done', who ? `by ${who}` : ''].filter(Boolean).join(' ')} said={sentence(row.parts)} />;
+  if (ev === 'done') {
+    const o = taskOutcome(row.detail, row.title);
+    const by = who ? `by ${who}` : '';
+    return o.verdict ? (
+      <TaskCard {...base} kind="done" outcome={o} what={by} said={o.rest} />
+    ) : (
+      <TaskCard {...base} kind="done" outcome={o} what={['Done', by].filter(Boolean).join(' ')} said={sentence(row.parts)} />
+    );
+  }
   if (ev === 'opened' && row.who !== agent)
     return (
       <TaskCard

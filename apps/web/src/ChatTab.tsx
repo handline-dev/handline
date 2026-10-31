@@ -32,6 +32,7 @@ import { useCardTitles } from '#src/ChatTitles.ts';
 import { jumpTo } from '#src/ChatMessages.tsx';
 import { ChatRefs } from '#src/RefsContext.tsx';
 import { BlockedCard, HeldCard } from '#src/ChatHeld.tsx';
+import { AskCards } from '#src/ChatAsks.tsx';
 import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
@@ -388,6 +389,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           <div className="cards px-3">
             <PromptSlot agent={agent} prompt={detail.prompt} />
           </div>
+          <AskCards agent={agent} />
           {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
           <Compose
             key={agent}

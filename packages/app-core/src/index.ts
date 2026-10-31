@@ -39,6 +39,7 @@ export * from '#src/spare-notice.ts';
 export * from '#src/annotation.ts';
 export * from '#src/annotation-raster.ts';
 export * from '#src/task-history.ts';
+export * from '#src/task-outcome.ts';
 export * from '#src/task-time.ts';
 export * from '#src/task-activity.ts';
 export * from '#src/marks.ts';
