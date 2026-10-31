@@ -22,7 +22,7 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
       label: 'Load',
       value: `${Math.round(m.load_per_core * 100)}%`,
       warn: loadFull(r, limits.load_per_core_pct),
-      pct: (m.load_per_core * 100 / Math.max(300, limits.load_per_core_pct * 1.2, m.load_per_core * 100)) * 100,
+      pct: ((m.load_per_core * 100) / Math.max(300, limits.load_per_core_pct * 1.2, m.load_per_core * 100)) * 100,
     },
     {
       key: 'memory',
@@ -55,11 +55,18 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
       {rows.map((x) => (
         <View key={x.key} testID={`machine-${x.key}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 32 }}>
           <Icon name={x.icon} decorative size={16} color={c.muted} />
-          <Text numberOfLines={1} style={{ color: c.ink, width: 96 }}>{x.label}</Text>
+          <Text numberOfLines={1} style={{ color: c.ink, width: 96 }}>
+            {x.label}
+          </Text>
           <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
             <View
               testID={`machine-bar-${x.key}`}
-              style={{ width: `${Math.min(100, Math.max(0, x.pct))}%`, height: 6, borderRadius: 3, backgroundColor: x.warn || x.pct >= 85 ? c.block : x.pct >= 60 ? c.wait : c.ok }}
+              style={{
+                width: `${Math.min(100, Math.max(0, x.pct))}%`,
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: x.warn || x.pct >= 85 ? c.block : x.pct >= 60 ? c.wait : c.ok,
+              }}
             />
           </View>
           {x.warn ? <Icon name="warn" decorative size={14} color={c.block} /> : null}
