@@ -69,7 +69,7 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
               }}
             />
           </View>
-          <View style={{ width: 128, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: space.xs }}>
+          <View style={{ width: 96, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: space.xs }}>
             {x.warn ? <Icon name="warn" decorative size={14} color={c.block} /> : null}
             <Text numberOfLines={1} style={{ color: x.warn ? c.block : c.ink }}>
               {x.value}
