@@ -122,8 +122,8 @@ func TestPairingMakesAFounderDeviceWhoseRevocationClosesTheConnection(t *testing
 	if r["role"] != "founder" || r["transport"] != "network" || r["caller"].(map[string]any)["device"] != id {
 		t.Fatalf("%v", r)
 	}
-	// a paired device is the founder: what is the founder's is its own
-	if r := c.ask(`{"jsonrpc":"2.0","id":2,"method":"devices.list"}`); r["result"] == nil {
+	// a paired device is the founder: what is the founder's is its own. No push credentials: push is off.
+	if r, _ := c.ask(`{"jsonrpc":"2.0","id":2,"method":"devices.list"}`)["result"].(map[string]any); r == nil || !reflect.DeepEqual(r["push_platforms"], []any{}) {
 		t.Fatalf("%v", r)
 	}
 	if c.ask(`{"jsonrpc":"2.0","id":3,"method":"whoami"}`)["result"] == nil {

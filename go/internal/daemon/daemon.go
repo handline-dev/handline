@@ -26,6 +26,7 @@ import (
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/prefs"
 	"github.com/handline/handline/go/internal/prompts"
+	"github.com/handline/handline/go/internal/push"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/sessionrpc"
@@ -38,6 +39,7 @@ import (
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/termchan"
 	"github.com/handline/handline/go/internal/turns"
+	"github.com/handline/handline/go/internal/usage"
 	"github.com/handline/handline/go/internal/version"
 	"github.com/handline/handline/go/internal/watcher"
 	"github.com/handline/handline/go/internal/weblogin"
@@ -131,6 +133,7 @@ type Daemon struct {
 	local   *rpc.Server
 	net     *networkListener
 	dev     *devices.Manager // nil unless the network listener is on
+	push    *push.Sender     // nil when push is off: no credentials in config.yaml, or on a gateway
 	pidFile *pidFile
 	hub     *stream.Hub
 	wg      sync.WaitGroup
@@ -221,9 +224,20 @@ func Start(cfg Config) (*Daemon, error) {
 			cfg.Log("founder key: could not make one - the socket will serve no founder call")
 		}
 	}
+	if !cfg.Gateway {
+		sender, err := push.FromConfig(usage.LoadConfig(cfg.Home), devices.SQLStore{DB: db})
+		if err != nil {
+			cfg.Log("push: %v - push is off", err)
+		}
+		if sender != nil {
+			sender.Log = cfg.Log
+			d.push = sender
+		}
+	}
 	if cfg.Listen != "" {
 		d.dev = devices.New(devices.SQLStore{DB: db})
 		d.dev.Log = cfg.Log
+		d.dev.PushPlatforms = d.push.Platforms()
 	}
 	d.hub = stream.NewHub()
 	d.hub.Log = &stream.Log{DB: db}
@@ -275,7 +289,27 @@ func Start(cfg Config) (*Daemon, error) {
 	}()
 	if cfg.Watch && !cfg.Gateway {
 		hrSignature := watcher.HRSignature(cfg.Home)
-		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log, Signature: func() string { return hrSignature() + "/" + watcher.ForYouSignature(db) },
+		emit := d.hub.Append
+		if d.push != nil { // each for_you event is also a note; the queue keeps a slow push service from holding the watch
+			notes := make(chan stream.Entry, 256)
+			emit = func(e stream.Entry) (*stream.Event, error) {
+				ev, err := d.hub.Append(e)
+				if err == nil && e.Topic == "for_you" {
+					select {
+					case notes <- e:
+					default:
+						cfg.Log("push: the queue is full, a for_you note is dropped")
+					}
+				}
+				return ev, err
+			}
+			d.wg.Add(1)
+			go func() {
+				defer d.wg.Done()
+				d.push.Watch(d.stop, notes)
+			}()
+		}
+		w := &watcher.Watcher{DB: db, Emit: emit, Log: cfg.Log, Signature: func() string { return hrSignature() + "/" + watcher.ForYouSignature(db) },
 			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}, &watcher.Notifications{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Inbox{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.HR{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.ForYou{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Prefs{}, &watcher.Requests{Reads: &reads.Env{DB: db, Home: cfg.Home}},
