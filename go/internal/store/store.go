@@ -24,6 +24,9 @@ const (
 	migrateWait    = 60 * time.Second
 	RestartCommand = "hl service install"
 	busyTimeoutMS  = 10000 // db.connect's timeout=10.0
+	// cacheKiB is each connection's page cache. The default (2 MB) holds a sliver of a database of hundreds of MB, so every read of a list
+	// went back to the file for its pages, a syscall each, and that was most of the daemon's read time.
+	cacheKiB = 65536
 )
 
 // ErrSchema means the database cannot be used by this code as it stands.
@@ -86,7 +89,7 @@ func Open(path string) (*sql.DB, error) {
 	}
 	// One connection per pragma set: modernc applies _pragma to every connection the pool opens.
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)" +
-		"&_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMS) + ")&_txlock=immediate"
+		"&_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMS) + ")&_pragma=cache_size(-" + strconv.Itoa(cacheKiB) + ")&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -412,7 +415,8 @@ func OpenShared(path string) (*sql.DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("%w: %s does not exist: the daemon that owns it brings it up first", ErrSchema, path)
 	}
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMS) + ")&_txlock=immediate"
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMS) + ")&_pragma=cache_size(-" +
+		strconv.Itoa(cacheKiB) + ")&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
