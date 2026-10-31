@@ -19,7 +19,7 @@ test('a done task keeps its brief and result editable, and an open one has no re
   assert.equal(code(await s.client.call('task.edit', { task, evidence: ' ', request_id: 'e5' }).catch((e) => e)), 'refused');
   const h = await s.client.call('task.history', { task });
   assert.ok(h.rows.some((r) => r.field === 'evidence' && r.was === 'built' && r.now === 'rebuilt'));
-  const agent = second(s.daemon, s.net, { client: 'handline.architect' });
+  const agent = second(s.daemon, s.net, { role: 'agent', client: 'handline.architect' });
   await agent.start();
   assert.equal(code(await agent.call('task.edit', { task, evidence: 'PASS', request_id: 'e6' }).catch((e) => e)), 'refused');
   agent.close();
