@@ -4,6 +4,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 import { font, radius, space } from '@handline/tokens';
 import type { ImageDraft } from '@handline/app-data';
 import { usePalette } from '#src/theme.ts';
+import { Icon } from '#src/screens/Icon.tsx';
 import { MARK_COLOR } from '@handline/app-core';
 
 export function ImageChips(props: {
@@ -95,7 +96,7 @@ export function ImageChips(props: {
   );
 }
 
-export function AttachButton(props: { onPress: () => void; disabled?: boolean }) {
+export function AttachButton(props: { onPress: () => void; disabled?: boolean; picture?: boolean }) {
   const c = usePalette();
   return (
     <Pressable
@@ -107,7 +108,11 @@ export function AttachButton(props: { onPress: () => void; disabled?: boolean })
       onPress={props.onPress}
       style={{ padding: space.sm, opacity: props.disabled ? 0.4 : 1 }}
     >
-      <Text style={{ color: c.accent, fontSize: font.size.xl }}>＋</Text>
+      {props.picture ? (
+        <Icon name="attach" decorative size={22} color={c.accent} />
+      ) : (
+        <Text style={{ color: c.accent, fontSize: font.size.xl }}>＋</Text>
+      )}
     </Pressable>
   );
 }

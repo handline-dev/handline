@@ -132,18 +132,20 @@ export function PageHeader(props: {
   return (
     <View style={{ padding: props.bare ? 0 : space.lg, gap: space.sm }}>
       {back ? (
-        <Pressable
-          testID={back.testID}
-          onPress={back.onPress}
-          accessibilityRole="button"
-          accessibilityLabel={`Back to ${back.label}`}
-          hitSlop={12}
-          style={{ alignSelf: 'flex-start' }}
-        >
-          <Text style={{ color: c.accent, fontSize: font.size.lg }}>‹ {back.label}</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Pressable
+            testID={back.testID}
+            onPress={back.onPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Back to ${back.label}`}
+            hitSlop={12}
+          >
+            <Text style={{ color: c.accent, fontSize: font.size.lg }}>‹ {back.label}</Text>
+          </Pressable>
+          {props.title ? null : props.actions}
+        </View>
       ) : null}
-      {props.title || props.actions ? (
+      {props.title || (props.actions && !back) ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           <Text accessibilityRole="header" style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700', flex: 1 }}>
             {props.title}

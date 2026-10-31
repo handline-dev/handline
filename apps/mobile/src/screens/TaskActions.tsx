@@ -2,17 +2,18 @@
 // `useWrite`: an authored one shows at once and rolls back with the daemon's reason on a refusal; a verb the daemon does not serve is
 // disabled with the reason. The sheets keep what was typed until the daemon accepts.
 import { useState, type ReactNode } from 'react';
-import { isGate, isPerson, taskRef } from '@handline/app-core';
-import { Text, TextInput, View } from 'react-native';
+import { isPerson, taskRef } from '@handline/app-core';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
-import { useOff, usePendingAny, useTaskActions } from '@handline/app-data';
+import { useOff, usePendingAny, useServes, useTaskActions } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { BottomSheet, Button, MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
 import { AskAbout } from '#src/screens/TaskAsk.tsx';
 import { AssignTask } from '#src/screens/TaskAssign.tsx';
 import { EditTask } from '#src/screens/TaskForm.tsx';
+import { TaskHistorySheet } from '#src/screens/TaskHistory.tsx';
 import { MergeTasks, ReleaseTask } from '#src/screens/TaskReleaseMerge.tsx';
 
 const CLOSED = ['done', 'discarded'];
@@ -140,13 +141,23 @@ type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' 
 const PANELS = { ask: AskAbout, release: ReleaseTask, merge: MergeTasks, assign: AssignTask, edit: EditTask } as const;
 
 /** The verbs of one task; each is shown only when it applies, and disabled with its reason when the daemon does not serve it. */
-export function TaskVerbs({ t }: { t: TaskDetail }) {
+export function TaskVerbs({
+  t,
+  later,
+  children,
+}: {
+  t: TaskDetail;
+  later?: ReactNode;
+  children: (parts: { pills: ReactNode; more: ReactNode; bar: ReactNode; assign: () => void }) => ReactNode;
+}) {
   const c = usePalette();
   const me = useStore().me;
   const [ask, setAsk] = useState<Ask>(null);
   const [menu, setMenu] = useState<null | 'status' | 'more'>(null);
+  const [history, setHistory] = useState(false);
   const { done, reopen, withdraw, cancel, queue, draft, discard, release } = useTaskActions();
   const founder = useStore().client.hello?.role === 'founder';
+  const served = { history: useServes('task.history').served };
   const off = {
     done: useOff('task.done'),
     reopen: useOff('task.reopen'),
@@ -223,33 +234,51 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       }}
     />
   );
-  return (
-    <View style={{ gap: space.md }}>
-      <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+  const foryou = running && isPerson(t.to, me);
+  const pills = (
+    <View style={{ gap: space.sm }}>
+      <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
         <Pill
           testID="status-menu"
           on={menu === 'status'}
-          label={`${t.state} ▾`}
+          label={`${foryou ? 'Needs you' : t.state} ▾`}
           onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))}
         />
-        {open && !isGate(t) && (
-          <Pill
-            testID="assignee-menu"
-            on={ask === 'assign'}
-            label={`→ ${t.to} ▾`}
-            onPress={() => {
-              setMenu(null);
-              setAsk(ask === 'assign' ? null : 'assign');
-            }}
-          />
-        )}
-        <Pill
-          testID="more-menu"
-          on={menu === 'more'}
-          label="More ▾"
-          onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))}
-        />
+        {later}
       </View>
+      {Object.values(off).some(Boolean) && (
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>{Object.values(off).find(Boolean)}</Text>
+      )}
+    </View>
+  );
+  const more = (
+    <Pressable
+      testID="more-menu"
+      accessibilityRole="button"
+      accessibilityLabel="More"
+      hitSlop={8}
+      onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))}
+      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+    >
+      <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>⋯</Text>
+    </Pressable>
+  );
+  const finish = open && foryou;
+  const bar = finish ? (
+    <View style={{ padding: space.md, borderTopWidth: 1, borderTopColor: c.line }}>
+      <Button
+        testID="task-done"
+        kind="yes"
+        label={isPerson(t.from, me) ? 'Send for review' : 'Done'}
+        disabled={ask !== null || !!off.done}
+        onPress={() => (founder ? void NOW.done().catch(() => {}) : setAsk('done'))}
+        style={{ minHeight: 48 }}
+      />
+    </View>
+  ) : null;
+  return (
+    <>
+      {children({ pills, more, bar, assign: () => (setMenu(null), setAsk(ask === 'assign' ? null : 'assign')) })}
       {menu !== null && (
         <MenuSheet testID={`${menu}-sheet`} onClose={() => setMenu(null)}>
           {menu === 'status' ? (
@@ -284,6 +313,16 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
             <>
               {startable && mine && verb('withdraw', 'Withdraw', off.withdraw, 'withdraw')}
               {open && verb('cancel', running ? 'Stop' : 'Cancel', off.cancel, 'cancel')}
+              {served.history && (
+                <MenuItem
+                  testID="verb-history"
+                  label="History"
+                  onPress={() => {
+                    setMenu(null);
+                    setHistory(true);
+                  }}
+                />
+              )}
               {verb('ask', 'Ask', off.ask, 'ask')}
               {open && verb('merge', 'Merge…', off.merge, 'merge')}
               {open && verb('edit', 'Edit', off.edit, 'edit')}
@@ -291,9 +330,6 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
             </>
           )}
         </MenuSheet>
-      )}
-      {Object.values(off).some(Boolean) && (
-        <Text style={{ color: c.muted, fontSize: font.size.sm }}>{Object.values(off).find(Boolean)}</Text>
       )}
       {reason && <ReasonSheet {...reason} onCancel={() => setAsk(null)} onSubmit={(text) => settle(reason.send(text))} />}
       {ask === 'withdraw' && (
@@ -308,7 +344,8 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         </Sheet>
       )}
       {Panel && <Panel t={t} onClose={() => setAsk(null)} />}
-    </View>
+      {history && <TaskHistorySheet id={t.id} onClose={() => setHistory(false)} />}
+    </>
   );
 }
 

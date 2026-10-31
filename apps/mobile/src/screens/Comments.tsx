@@ -128,8 +128,8 @@ export function CommentBox({ id }: { id: number }) {
         editable={!why}
         value={text}
         onChange={setText}
+        send={<Button testID="memo-send" label="Comment" disabled={!!why || !text.trim()} onPress={send} />}
       />
-      <Button testID="memo-send" label="Comment" disabled={!!why || !text.trim()} onPress={send} />
       {why && <Text style={{ color: c.muted, fontSize: font.size.sm }}>{why}</Text>}
     </View>
   );

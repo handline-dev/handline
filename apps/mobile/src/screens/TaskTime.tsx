@@ -1,27 +1,28 @@
 // Where a task's time went on the phone (docs/pc-app-gaps.md K5): a bar of its segments by length, the total per kind, then each segment.
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { clockTime, span, timeView, type TimeLabel } from '@handline/app-core';
 import type { TimeSegment } from '@handline/client';
 import { useServes, useTaskTime } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
-import { Button } from '#src/screens/parts.tsx';
 
 const length = (seconds: number) => span(seconds * 1000);
 
+const TONE = (c: ReturnType<typeof usePalette>): Record<TimeLabel, string> => ({
+  working: c.run,
+  founder: c.wait,
+  task: c.block,
+  agent: c.muted,
+  account: c.block,
+  waiting: c.muted,
+  queued: c.muted,
+  starting: c.accent,
+});
+
 export function TaskTime({ segments }: { segments: TimeSegment[] }) {
   const c = usePalette();
-  const tone: Record<TimeLabel, string> = {
-    working: c.run,
-    founder: c.wait,
-    task: c.block,
-    agent: c.muted,
-    account: c.block,
-    waiting: c.muted,
-    queued: c.muted,
-    starting: c.accent,
-  };
+  const tone = TONE(c);
   const { rows, totals, seconds } = timeView(segments);
   return (
     <View testID="task-time" accessibilityLabel={`${seconds} seconds in all`} style={{ gap: space.sm }}>
@@ -52,21 +53,36 @@ export function TaskTime({ segments }: { segments: TimeSegment[] }) {
   );
 }
 
-/** The Time control and, once opened, the segments. The read starts when it is opened; a daemon without task.time shows nothing. */
-export function TaskTimeSection({ id }: { id: number }) {
+/** The one-line Time: "42m left", a short bar by stretch and the word for the stretch it is in; a tap opens the segments. Nothing for a daemon without task.time or a task with no stretches. */
+export function TaskTimeLine({ id, left, over }: { id: number; left?: string; over?: boolean }) {
+  const c = usePalette();
   const { served } = useServes('task.time');
   const [open, setOpen] = useState(false);
-  if (!served) return null;
+  const segments = useTaskTime(id).data?.segments ?? [];
+  if (!served || !segments.length) return left ? <Text style={{ color: over ? c.block : c.muted }}>{left}</Text> : null;
+  const { rows, totals, seconds } = timeView(segments);
+  const word = totals.find((x) => x.label === rows.at(-1)?.label)?.word ?? length(seconds);
   return (
     <View style={{ gap: space.sm }}>
-      <Button testID="task-time-toggle" label={open ? 'Hide time' : 'Time'} onPress={() => setOpen(!open)} />
-      {open ? <Rows id={id} /> : null}
+      <Pressable
+        testID="task-time-toggle"
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${left ?? 'Time'}, ${length(seconds)} in all`}
+        onPress={() => setOpen(!open)}
+        style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+      >
+        {left ? <Text style={{ color: over ? c.block : c.ink }}>{left}</Text> : null}
+        <View style={{ width: 80, height: 6, borderRadius: 3, overflow: 'hidden', flexDirection: 'row', backgroundColor: c.panel }}>
+          {rows.map((r, i) => (
+            <View key={i} style={{ width: `${r.share * 100}%`, backgroundColor: TONE(c)[r.label] }} />
+          ))}
+        </View>
+        <Text style={{ color: c.muted, flexShrink: 1 }} numberOfLines={1}>
+          {word}
+        </Text>
+      </Pressable>
+      {open ? <TaskTime segments={segments} /> : null}
     </View>
   );
-}
-
-function Rows({ id }: { id: number }) {
-  const c = usePalette();
-  const segments = useTaskTime(id).data?.segments ?? [];
-  return segments.length ? <TaskTime segments={segments} /> : <Text style={{ color: c.muted }}>No time yet.</Text>;
 }
