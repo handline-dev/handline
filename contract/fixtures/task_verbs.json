@@ -372,6 +372,85 @@
    ]
   },
   {
+   "name": "task.handoff.not_to_the_founder",
+   "spec": "task.handoff",
+   "about": "An agent handing a task to human is refused: it keeps the task and asks with @human.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.handoff",
+      "params": {
+       "task": 1,
+       "to": "human",
+       "note": "n",
+       "request_id": "conf-2"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": "Ask the founder with @human in a memo; keep the task.",
+      "data": {
+       "code": "refused"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.new.not_to_the_founder",
+   "spec": "task.new",
+   "about": "An agent opening a task owned by human is refused the same way.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "t",
+       "request_id": "conf-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": "Ask the founder with @human in a memo; keep the task.",
+      "data": {
+       "code": "refused"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "task.handoff.needs_a_request_id",
    "spec": "task.handoff",
    "about": "A write without a request_id is bad_request naming it.",

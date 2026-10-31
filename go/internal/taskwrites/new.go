@@ -153,6 +153,9 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if noParent && hasParent {
 			return nil, badParam("no_parent and parent together: choose one", "no_parent")
 		}
+		if owner == human && c.Caller.Actor() != human {
+			return nil, refusal(askFounderInstead)
+		}
 		tags, err := TagList(p, "tags")
 		if err != nil {
 			return nil, err

@@ -145,6 +145,9 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	if t == nil {
 		return fmt.Sprintf("no task T%d", tid), "", nil
 	}
+	if owner != nil && *owner == human && t.Owner != human && by != human {
+		return askFounderInstead, "", nil
+	}
 	reshape := title != nil || priority != nil || estimate != nil || timeoutS != nil || body != nil
 	if owner != nil && *owner != t.Owner && *owner != human {
 		if why, err := undeliverable(tx, t, *owner, home); err != nil || why != "" {

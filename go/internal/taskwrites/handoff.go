@@ -40,6 +40,9 @@ type Handover struct {
 	After        func() string
 }
 
+// askFounderInstead is the refusal when an agent gives a task to the founder: it keeps the task and asks them in a comment.
+const askFounderInstead = "Ask the founder with @human in a memo; keep the task."
+
 // handoffRefusal is why the task may not go to `to`, or "": anyone hands an open task on, with a note (its asker takes it back so).
 func handoffRefusal(t *task, to string, agents []string) string {
 	switch {
@@ -85,6 +88,9 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 			return nil, e
 		}
 		me := c.Caller.Actor()
+		if to == human && me != human {
+			return nil, refusal(askFounderInstead)
+		}
 		said := strings.TrimSpace(textsafe.Text(note))
 		var (
 			h     Handover
