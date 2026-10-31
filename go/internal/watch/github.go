@@ -80,13 +80,31 @@ func (g *GitHub) Check(ctx context.Context, target, until string, since time.Tim
 }
 
 type ghCheck struct {
-	Typename   string `json:"__typename"`
-	Name       string
-	Context    string
-	Status     string
-	Conclusion string
-	State      string
-	StartedAt  string
+	Typename string `json:"__typename"`
+	Name     string
+	// WorkflowName tells apart checks of one name in different workflows; a rerun stays in its workflow.
+	WorkflowName string `json:"workflowName"`
+	Context      string
+	Status       string
+	Conclusion   string
+	State        string
+	StartedAt    string
+}
+
+// waiting is a check that has not finished: a check run not COMPLETED, or a commit status PENDING or EXPECTED.
+func (c ghCheck) waiting() bool {
+	if c.Typename == "StatusContext" {
+		return c.State == "PENDING" || c.State == "EXPECTED"
+	}
+	return c.Status != "COMPLETED"
+}
+
+// started orders runs of one check. A run still waiting that has no real start time yet (queued, or just rerun) is the newest of all.
+func (c ghCheck) started() string {
+	if c.waiting() && (c.StartedAt == "" || strings.HasPrefix(c.StartedAt, "0001-")) {
+		return "\xff"
+	}
+	return c.StartedAt
 }
 
 // latest keeps one entry per check, the one that started last (a later entry on a tie), in the order the checks first appear. A check that was
@@ -95,13 +113,13 @@ func latest(rollup []ghCheck) []ghCheck {
 	var out []ghCheck
 	at := map[string]int{}
 	for _, c := range rollup {
-		key := c.Typename + "\x00" + c.Name + c.Context
+		key := c.Typename + "\x00" + c.WorkflowName + "\x00" + c.Name + c.Context
 		i, seen := at[key]
 		switch {
 		case !seen:
 			at[key] = len(out)
 			out = append(out, c)
-		case c.StartedAt >= out[i].StartedAt:
+		case c.started() >= out[i].started():
 			out[i] = c
 		}
 	}
@@ -109,9 +127,9 @@ func latest(rollup []ghCheck) []ghCheck {
 }
 
 // ciVerdict reads `gh pr view --json state,mergeCommit,statusCheckRollup,commits`. A check run is waiting until it completes and ok when
-// it concludes SUCCESS, NEUTRAL or SKIPPED; a commit status is waiting while PENDING or EXPECTED and ok when SUCCESS. Every check ok is
-// passed and any other end is failed, once none waits. Only the latest run of each check counts. A PR that closes while its CI still waits is failed: that CI will not finish. A PR
-// with no checks NoCIWait after its head commit and the watch's start has no CI, and is passed.
+// it concludes SUCCESS, NEUTRAL or SKIPPED; a commit status is waiting while PENDING or EXPECTED and ok when SUCCESS. Only the latest run
+// of each check counts. Every check ok is passed and any other end is failed, once none waits. A PR that closes while its CI still waits
+// is failed: that CI will not finish. A PR with no checks NoCIWait after its head commit and the watch's start has no CI, and is passed.
 func ciVerdict(out []byte, since, now time.Time) (Verdict, string, error) {
 	var pr struct {
 		State   string
@@ -138,11 +156,11 @@ func ciVerdict(out []byte, since, now time.Time) (Verdict, string, error) {
 	}
 	var failed []string
 	for _, c := range latest(pr.Rollup) {
-		waiting, ok, name := c.Status != "COMPLETED", c.Conclusion == "SUCCESS" || c.Conclusion == "NEUTRAL" || c.Conclusion == "SKIPPED", c.Name
+		ok, name := c.Conclusion == "SUCCESS" || c.Conclusion == "NEUTRAL" || c.Conclusion == "SKIPPED", c.Name
 		if c.Typename == "StatusContext" {
-			waiting, ok, name = c.State == "PENDING" || c.State == "EXPECTED", c.State == "SUCCESS", c.Context
+			ok, name = c.State == "SUCCESS", c.Context
 		}
-		if waiting {
+		if c.waiting() {
 			if closed {
 				return Failed, "closed before CI", nil
 			}

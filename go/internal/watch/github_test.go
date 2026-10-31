@@ -60,6 +60,12 @@ func TestPRChecksReadAsACIVerdict(t *testing.T) {
 		}
 		return `{"__typename":"CheckRun","name":"` + name + `","status":"` + status + `","conclusion":"` + conclusion + `","startedAt":"` + started + `"}`
 	}
+	queued := func(name string) string {
+		return `{"__typename":"CheckRun","name":"` + name + `","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z"}`
+	}
+	inFlow := func(workflow, name, conclusion, started string) string {
+		return `{"__typename":"CheckRun","workflowName":"` + workflow + `","name":"` + name + `","status":"COMPLETED","conclusion":"` + conclusion + `","startedAt":"` + started + `"}`
+	}
 	old, fresh := "2026-10-20T11:00:00Z", "2026-10-20T11:55:00Z"
 	early, now := time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	for _, c := range []struct {
@@ -82,7 +88,11 @@ func TestPRChecksReadAsACIVerdict(t *testing.T) {
 		{pr("OPEN", fresh, run("pr-rules", "SUCCESS", t2), run("pr-rules", "CANCELLED", t1), ok), early, Passed, "ci passed"}, // whatever order the rollup lists them in
 		{pr("OPEN", fresh, run("pr-rules", "CANCELLED", t1), ok), early, Failed, "ci failed: pr-rules"},                       // cancelled with no newer run is not green
 		{pr("OPEN", fresh, run("pr-rules", "SUCCESS", t1), run("pr-rules", "FAILURE", t2)), early, Failed, "ci failed: pr-rules"},
-		{pr("OPEN", fresh, run("pr-rules", "FAILURE", t1), run("pr-rules", "", t2)), early, Waiting, ""}, // the rerun is still going
+		{pr("OPEN", fresh, run("pr-rules", "FAILURE", t1), run("pr-rules", "", t2)), early, Waiting, ""},                              // the rerun is still going
+		{pr("OPEN", fresh, run("pr-rules", "FAILURE", t1), queued("pr-rules")), early, Waiting, ""},                                   // a queued rerun has no start time yet
+		{pr("OPEN", fresh, queued("pr-rules"), run("pr-rules", "FAILURE", t1)), early, Waiting, ""},                                   // in either order
+		{pr("OPEN", fresh, inFlow("a", "test", "FAILURE", t1), inFlow("b", "test", "SUCCESS", t2)), early, Failed, "ci failed: test"}, // the same name in another workflow is another check
+		{pr("OPEN", fresh, failed, run("pr-rules", "CANCELLED", t1), run("pr-rules", "SUCCESS", t2)), early, Failed, "ci failed: apps"},
 	} {
 		var args []string
 		v, e, err := gh(c.out, nil, &args).Check(context.Background(), "o/r#7", "ci", c.since)
