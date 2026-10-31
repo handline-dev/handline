@@ -71,7 +71,7 @@ func ReturnFounderTasks(d *sql.DB, home string, tell Teller) (said []string, err
 		}
 		err = func() error {
 			var err error
-			h, asked, err = handOff(tx, tell, b.id, "daemon", b.to, "Ask the founder with a comment naming them; this task stays with you.", agents)
+			h, asked, err = handOff(tx, tell, b.id, "daemon", b.to, "Ask the founder with a comment naming them; this task stays with you.", agents, true)
 			if err == nil && !asked.OK {
 				err = fmt.Errorf("handing it to %s was refused: %s", b.to, asked.Msg)
 			}

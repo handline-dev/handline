@@ -173,6 +173,7 @@ type AskIn struct {
 	ParentID                       int64
 	Kind                           string
 	SendNow, OnBehalfOf            bool
+	System                         bool // the daemon's own step (taskwrites.AskReq.System): no team edge is checked
 	Speaker                        *string
 	Notify                         bool
 	NoCard                         bool
@@ -239,6 +240,9 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		return o, nil
 	}
 	d := t.Route(requester, in.Target, int(depth))
+	if in.System && !d.Allowed && t.Known(in.Target) {
+		d = team.Decision{Allowed: true, Reason: "the daemon's own step", ChainDepth: int(depth)}
+	}
 	now := e.now()
 	if !d.Allowed {
 		if must(db.StandingDenial(q, requester, in.Target, in.Body, in.Files, now-team.AskWindowS)) == 0 {

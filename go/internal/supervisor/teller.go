@@ -178,7 +178,7 @@ func (e *Env) Done(tid int64, by, owner string, told []db.Notice, forget []db.In
 // TaskAsk routes the request that delivers a task, in the transaction of the write that opens or moves it; in.Within is that write, run once
 // the ask is allowed. A handoff types nothing here (its push waits for the commit, after the move, in HandedOver); task.new asks for it.
 func (e *Env) TaskAsk(tx *sql.Tx, in taskwrites.AskReq) (*taskwrites.Asked, error) {
-	out, err := e.Ask(tx, AskIn{Target: in.To, Body: in.Body, Requester: in.From, Kind: in.Kind, NoCard: in.NoCard, Notify: in.Notify,
+	out, err := e.Ask(tx, AskIn{Target: in.To, Body: in.Body, Requester: in.From, Kind: in.Kind, NoCard: in.NoCard, Notify: in.Notify, System: in.System,
 		Within: func(_ db.Q, rid int64, _ string) error { return in.Within(rid) }})
 	if err != nil {
 		return nil, err

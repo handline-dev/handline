@@ -90,7 +90,7 @@ func EndReviews(d *sql.DB, home string, tell Teller) (said []string, err error) 
 				_, err := db.SetTaskQueued(tx, r.id, "daemon")
 				return err
 			}
-			h, asked, err = handOff(tx, tell, r.id, "daemon", to, "for review: "+r.report, agents)
+			h, asked, err = handOff(tx, tell, r.id, "daemon", to, "for review: "+r.report, agents, true)
 			if err == nil && !asked.OK {
 				err = fmt.Errorf("handing T%d to %s was refused: %s", r.id, to, asked.Msg)
 			}
