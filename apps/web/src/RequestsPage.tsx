@@ -22,6 +22,8 @@ import { WORKTREE_SAID, dueText, factsOf, label, memberOf, sourceFull, sourceWor
 import { useKeepPlace } from '#src/useKeepPlace.ts';
 import { Fold } from '#src/Fold.tsx';
 import { LaterButton, LaterFold, useLaterToast } from '#src/RequestsLater.tsx';
+import { FromYou, RequestsViewSwitch, type RequestsView } from '#src/RequestsFromYou.tsx';
+import { SpareAnswers, SpareAsk, useSpare } from '#src/RequestsSpare.tsx';
 import { NewTask } from '#src/NewTask.tsx';
 import { BlocksLine } from '#src/BlocksLine.tsx';
 import { goTasks, goTerminal } from '#src/route.ts';
@@ -37,6 +39,7 @@ import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
 import { useHeldAnswers, type HeldStep } from '#src/HeldAnswers.tsx';
 import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
+import { useKey } from '#src/useKey.ts';
 
 const REQUEST_KEYS: KeyRows = [
   ['J K', 'move down and up the requests'],
@@ -55,19 +58,6 @@ const KEY_OF: Partial<Record<CardAction['type'], string>> = {
   change: 'C',
   open: '↵',
 };
-
-/** Runs `f` on a plain key press anywhere on the page except while a field has the focus. */
-function useKey(f: (key: string) => boolean) {
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (e.metaKey || e.ctrlKey || e.altKey || el?.closest('input,textarea,select,[contenteditable],[role=dialog]')) return;
-      if (f(e.key.toLowerCase())) e.preventDefault();
-    };
-    window.addEventListener('keydown', on);
-    return () => window.removeEventListener('keydown', on);
-  });
-}
 
 /** Outside the component: the compiler reads an assignment to `location` in a handler as a mutation of a value it owns. */
 const goHash = (to: string) => void (location.hash = to);
@@ -98,6 +88,7 @@ function CardDetail({
   const verb = useVerbRun(card.agent ?? '');
   const [asking, setAsking] = useState(false);
   const [text, setText] = useState('');
+  const spare = useSpare(card);
   // The daemon's own words for a refused write; the buttons stay usable.
   const refused = [answer, prompt, done, read].find((w) => w.isError)?.error;
   const writer = { 'inbox.reply': answer, 'prompt.answer': prompt, 'task.done': done, 'inbox.mark_read': read };
@@ -205,7 +196,9 @@ function CardDetail({
         kind={requestGroup(card)}
         code={card.kind === 'approval'}
         ask={
-          card.detail ? (
+          spare ? (
+            <SpareAsk n={spare} />
+          ) : card.detail ? (
             <Fold note={wt ? factsOf(card.detail) : card.detail} long={card.task != null && noteIsLong(card.detail)}>
               {(t) => <p className={`m-0${card.task != null && !wt ? '' : ' whitespace-pre-wrap'}`}>{t}</p>}
             </Fold>
@@ -228,7 +221,12 @@ function CardDetail({
           </>
         }
       >
-        {sure ? (
+        {spare ? (
+          <SpareAnswers
+            n={spare}
+            onAnswer={(evidence, line) => holdWrites(line, [['task.done', { task: spare.task, evidence, reason: true }]])}
+          />
+        ) : sure ? (
           <>
             <span className="text-sm text-bad">Remove for good? Uncommitted files are lost.</span>
             <DsButton kind="danger" label="Remove" onClick={() => run(main.find((a) => a.type === 'worktree' && a.answer === 'force')!)} />
@@ -245,7 +243,7 @@ function CardDetail({
             />
           ))
         )}
-        {laterKeyOf(card) ? <LaterButton card={card} at={later} now={now} onPut={(at) => onLater(card, at)} /> : null}
+        {laterKeyOf(card) && !spare ? <LaterButton card={card} at={later} now={now} onPut={(at) => onLater(card, at)} /> : null}
       </Answer>
       {refused ? (
         <p className="m-0 mt-1 text-xs text-bad" role="alert">
@@ -291,6 +289,7 @@ export function RequestsPage() {
   const wide = useWide(1100);
   const now = useNow();
   const [pick, setPick] = useState<string | null>(null);
+  const [view, setView] = useState<RequestsView>('for_you');
   const [asking, setAsking] = useState(false);
   const later = useLaterToast(all.later);
   const putOffAndLeave = (card: Card, at: LaterAt | null) => {
@@ -332,6 +331,8 @@ export function RequestsPage() {
   const sheet = asking ? (
     <NewTask request agents={leads.length ? leads : (agents.data?.agents ?? []).map((a) => a.name)} onClose={() => setAsking(false)} />
   ) : null;
+  const switcher = <RequestsViewSwitch view={view} onView={setView} forYou={all.cards.length} />;
+  if (view === 'from_you') return <FromYou wide={wide} switcher={switcher} />;
   if (!wide && sel)
     return (
       <ScrollPage col aria-label="Request">
@@ -344,8 +345,9 @@ export function RequestsPage() {
     <ScrollPage beside={wide} className="requests-page" aria-label="Requests">
       <PageHead>
         <PageTitle>
-          Requests <span className="muted">{all.cards.length}</span> <Kbd className="ui-keys">J K</Kbd>
+          Requests <Kbd className="ui-keys">J K</Kbd>
         </PageTitle>
+        {switcher}
         <DsButton iconOnly icon={Plus} label="New request" size="s" onClick={() => setAsking(true)} />
       </PageHead>
       {loading ? (

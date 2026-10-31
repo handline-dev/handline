@@ -110,6 +110,14 @@ export const SEEDS: Record<string, Seed> = {
     });
     d.requests.add({ title: 'Settings in one place', task: 5983, status: 'done', agent: 'handline.pc', done: 6 });
     d.requests.add({ title: 'Why is the build so slow today?', kind: 'message', agent: 'handline' });
+    // The tasks the rows open, so a row's detail has something to show.
+    for (const [id, title, to, state] of [
+      [6071, 'Show the usage graph first', 'handline.pc', 'doing'],
+      [6068, 'Open a new shell from the + menu', 'handline.pc', 'doing'],
+      [6020, 'Which build is live?', 'handline', 'doing'],
+      [5983, 'Settings in one place', 'handline.pc', 'done'],
+    ] as const)
+      d.tasks.seed({ id, from: ME, to, title, state });
   },
 
   /** The architect is held back for the machine's load: its chat and row say so, and agent.force_start starts it. */
