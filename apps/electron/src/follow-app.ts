@@ -1,9 +1,10 @@
 // Follow-main mode in Electron terms: the checkout the app runs from and a watch on GitHub's main through the repo it was cloned from. When main moves the
 // app prepares the update by itself and reports to the one update notice (update-flow.ts). The decision and the update are in follow.ts.
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, type BrowserWindow } from 'electron';
+import { relaunchCommand } from '#src/launcher-app.ts';
 import { Follower, peekMain, watchMain, WEB_NEXT } from '#src/follow.ts';
 import type { UpdateFlow } from '#src/update-flow.ts';
 
@@ -56,8 +57,10 @@ export function followMain(o: {
         /* no page: it opens on its own default route */
       }
     },
+    // Through launch.ts, not app.relaunch: that would run this same Electron bundle again, and an update that moved Electron's version needs the new one.
     relaunch: () => {
-      app.relaunch();
+      const c = relaunchCommand(process.pid, path.join(o.dir, 'apps', 'electron'));
+      spawn(c.file, c.args, { detached: true, stdio: 'ignore' }).unref();
       app.quit();
     },
   });

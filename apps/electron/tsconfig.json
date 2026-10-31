@@ -1,4 +1,15 @@
 {
   "extends": "@handline/config/tsconfig.node.json",
-  "include": ["src", "test", "build.ts", "dev.ts", "dev-team.ts", "follow-start.ts", "launch.ts", "watch.ts", "package.ts"]
+  "include": [
+    "src",
+    "test",
+    "build.ts",
+    "dev.ts",
+    "dev-team.ts",
+    "follow-start.ts",
+    "launch.ts",
+    "app-install.ts",
+    "watch.ts",
+    "package.ts"
+  ]
 }

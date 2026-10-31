@@ -14,7 +14,10 @@ const run = (cwd: string, file: string, args: string[]): void => {
   }
 };
 
-const gitDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim();
+// The launcher in /Applications runs this from the app's own checkout, so the repo it was cloned from is named for it.
+const gitDir =
+  process.env.HANDLINE_SOURCE_GIT ??
+  execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim();
 const dir = process.env.HANDLINE_FOLLOW_DIR ?? path.join(os.homedir(), '.local', 'share', 'handline', 'app-main');
 
 if (!fs.existsSync(path.join(dir, '.git'))) {
