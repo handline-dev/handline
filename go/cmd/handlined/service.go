@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +10,7 @@ import (
 	"github.com/handline/handline/go/internal/service"
 )
 
-const serviceUsage = "usage: handlined service install [--allow-live-home] | upgrade [--force] [<dir or Handline.app>] | rollback | status [--json] | uninstall"
+const serviceUsage = "usage: handlined service ensure [<dir or Handline.app>] | install [--allow-live-home] | upgrade [--force] [<dir or Handline.app>] | rollback | status [--json] | stop | uninstall"
 
 // serviceCommand is `handlined service ...` on the home HANDLINE_HOME names (the default home otherwise). install and upgrade take
 // the handlined and hl in <dir>, the folder this binary is in by default (the app bundle's).
@@ -18,6 +19,16 @@ func serviceCommand(args []string) int {
 	var msg string
 	var err error
 	switch {
+	case len(args) >= 1 && len(args) <= 2 && args[0] == "ensure": // one JSON line, which the app shows
+		src := ownDir()
+		if len(args) == 2 {
+			src = args[1]
+		}
+		line, code := ensureLine(s.Ensure(src))
+		fmt.Println(line)
+		return code
+	case len(args) == 1 && args[0] == "stop":
+		msg, err = s.Stop()
 	case len(args) == 1 && args[0] == "install":
 		msg, err = s.Install(ownDir(), false)
 	case len(args) == 2 && args[0] == "install" && args[1] == "--allow-live-home":
@@ -59,4 +70,13 @@ func serviceCommand(args []string) int {
 func ownDir() string {
 	exe, _ := os.Executable()
 	return filepath.Dir(paths.Resolved(exe))
+}
+
+// ensureLine is what service ensure prints, and its exit code: 1 when the version the app carries is not the one running.
+func ensureLine(e service.Ensured) (string, int) {
+	b, _ := json.Marshal(e)
+	if e.State == "failed" || e.State == "kept" {
+		return string(b), 1
+	}
+	return string(b), 0
 }
