@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +15,10 @@ import (
 
 // rig is a scratch home with a fake launchd and one daemon process: launchd starts the binary current names, daemon.upgrade execs
 // another in the same process (the pid stays), and a daemon that does not answer dies and is started again from current, as
-// KeepAlive does. Each daemon is a script that prints its version, and answers the probe with it unless it is broken.
+// KeepAlive does. Each daemon is a script that prints its version, and answers the probe with it unless it is broken. The gateway
+// job is a second fake process with its own calls.
 type rig struct {
+	gw      gateway
 	t       *testing.T
 	s       *Service
 	root    string
@@ -26,6 +29,46 @@ type rig struct {
 	refuse  error           // what daemon.upgrade answers instead of taking the binary
 	noLoad  bool            // launchd refuses bootstrap
 	failing map[string]bool // versions whose daemon does not come up, whatever their bytes
+}
+
+// gateway is the fake gateway job: launchd starts the binary current names, which answers with its version unless it is broken
+// or the gateway is set to fail.
+type gateway struct {
+	loaded  bool
+	exe     string
+	starts  int
+	calls   []string
+	failing bool
+	onLoad  func() // runs at bootstrap, before the job's process starts
+}
+
+func (r *rig) startGateway() {
+	r.gw.exe, r.gw.starts = "", r.gw.starts+1
+	if p, err := filepath.EvalSymlinks(filepath.Join(r.s.Bin, current, "handlined")); err == nil && r.gw.loaded {
+		r.gw.exe = p
+	}
+}
+
+// gatewayLaunchctl is launchd for the gateway job.
+func (r *rig) gatewayLaunchctl(args ...string) (string, error) {
+	r.gw.calls = append(r.gw.calls, args[0])
+	switch args[0] {
+	case "print":
+		if !r.gw.loaded {
+			return "not found", errors.New("exit 113")
+		}
+	case "bootstrap":
+		if r.gw.onLoad != nil {
+			r.gw.onLoad()
+		}
+		r.gw.loaded = true
+		r.startGateway()
+	case "bootout":
+		r.gw.loaded, r.gw.exe = false, ""
+	case "kickstart":
+		r.startGateway()
+	}
+	return "", nil
 }
 
 func newRig(t *testing.T) *rig {
@@ -39,7 +82,21 @@ func newRig(t *testing.T) *rig {
 		Home: filepath.Join(root, "home"), Label: "test.handline.service", Bin: filepath.Join(root, "bin"),
 		Plist: filepath.Join(root, "LaunchAgents", "test.handline.service.plist"), Wait: 300 * time.Millisecond,
 		Version: builtVersion,
+		Listen:  "127.0.0.1:7443", GatewayWait: 300 * time.Millisecond, GatewayPid: filepath.Join(root, "gateway.pid"),
+		GatewayProbe: func() (string, error) {
+			if r.gw.exe == "" {
+				return "", errors.New("not running")
+			}
+			out, err := exec.Command(r.gw.exe, "-health").Output()
+			if err != nil || r.gw.failing {
+				return "", errors.New("not running")
+			}
+			return strings.TrimSpace(string(out)), nil
+		},
 		Launchctl: func(args ...string) (string, error) {
+			if strings.Contains(args[len(args)-1], ".gateway") {
+				return r.gatewayLaunchctl(args...)
+			}
 			r.calls = append(r.calls, args[0])
 			switch args[0] {
 			case "print":
@@ -727,5 +784,183 @@ func TestInstallWritesThisProcesssPath(t *testing.T) {
 	r.s.Install(r.build("v1", false), false)
 	if body := mustRead(t, r.s.Plist); !strings.Contains(body, "<key>PATH</key><string>"+os.Getenv("PATH")+"</string>") {
 		t.Fatal(body)
+	}
+}
+
+func TestEnsureRunsTheGatewayOnTheDaemonsVersion(t *testing.T) {
+	r := newRig(t)
+	app := r.build("v1", false)
+	if got := r.s.Ensure(app); got.State != "started" {
+		t.Fatalf("%+v", got)
+	}
+	gw := r.s.gatewayJob()
+	if gw.Label != "test.handline.service.gateway" || filepath.Dir(gw.Plist) != filepath.Dir(r.s.Plist) {
+		t.Fatalf("%s %s", gw.Label, gw.Plist)
+	}
+	body := mustRead(t, gw.Plist)
+	for _, want := range []string{"<string>" + filepath.Join(r.s.Bin, "current", "handlined") + "</string><string>-home</string>",
+		"<string>-gateway</string><string>-listen</string><string>127.0.0.1:7443</string></array>", "gateway.err.log", "<key>KeepAlive</key><true/>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the gateway job lacks %s:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "-claude") || strings.Contains(body, "-advertise") {
+		t.Errorf("%s", body)
+	}
+	if want, _ := filepath.EvalSymlinks(filepath.Join(r.s.Bin, "v1", "handlined")); r.gw.exe != want {
+		t.Fatalf("gateway runs %q", r.gw.exe)
+	}
+	r.gw.calls = nil
+	if got := r.s.Ensure(app); got.State != "running" || strings.Join(r.gw.calls, " ") != "print" || r.gw.starts != 1 {
+		t.Fatalf("a second ensure: %+v, gateway calls %v, starts %d", got, r.gw.calls, r.gw.starts)
+	}
+}
+
+func TestANewVersionRestartsTheGateway(t *testing.T) {
+	r := newRig(t)
+	r.s.Ensure(r.build("1.0.0+aaaaaaa", false))
+	body := mustRead(t, r.s.gatewayJob().Plist)
+	r.gw.calls = nil
+	if got := r.s.Ensure(r.build("1.1.0+bbbbbbb", false)); got.State != "upgraded" {
+		t.Fatalf("%+v", got)
+	}
+	if want, _ := filepath.EvalSymlinks(filepath.Join(r.s.Bin, "1.1.0+bbbbbbb", "handlined")); r.gw.exe != want || r.gw.starts != 2 {
+		t.Fatalf("gateway runs %q after %d starts", r.gw.exe, r.gw.starts)
+	}
+	if strings.Join(r.gw.calls, " ") != "print kickstart" || mustRead(t, r.s.gatewayJob().Plist) != body {
+		t.Fatalf("calls %v; the job file changed", r.gw.calls)
+	}
+}
+
+func TestTheGatewayKeepsItsAddressUnlessGivenOne(t *testing.T) {
+	r := newRig(t)
+	app := r.build("v1", false)
+	r.s.Listen, r.s.Advertise = "100.1.2.3:7443", "mac.ts.net"
+	r.s.Ensure(app)
+	r.s.Listen, r.s.Advertise = "", ""
+	r.gw.calls = nil
+	if got := r.s.Ensure(app); got.State != "running" || strings.Join(r.gw.calls, " ") != "print" {
+		t.Fatalf("kept: %+v, gateway calls %v", got, r.gw.calls)
+	}
+	if body := mustRead(t, r.s.gatewayJob().Plist); !strings.Contains(body, "<string>-listen</string><string>100.1.2.3:7443</string><string>-advertise</string><string>mac.ts.net</string>") {
+		t.Fatal(body)
+	}
+	r.s.Listen = "127.0.0.1:7443" // the network changed: given values win, and only the gateway job is rewritten
+	r.calls, r.gw.calls = nil, nil
+	pid := r.pid
+	if got := r.s.Ensure(app); got.State != "running" || strings.Join(r.gw.calls, " ") != "print print bootout print bootstrap print enable" {
+		t.Fatalf("given: %+v, gateway calls %v", got, r.gw.calls)
+	}
+	if body := mustRead(t, r.s.gatewayJob().Plist); !strings.Contains(body, "<string>127.0.0.1:7443</string></array>") {
+		t.Fatal(body)
+	}
+	if strings.Join(r.calls, " ") != "print" || r.pid != pid {
+		t.Fatalf("the daemon was touched: calls %v", r.calls)
+	}
+}
+
+func TestEnsureWithNoGatewayAddressWritesNothing(t *testing.T) {
+	r := newRig(t)
+	r.s.Listen = ""
+	app := r.build("v1", false)
+	if got := r.s.Ensure(app); got != (Ensured{State: "failed", Reason: "gateway:no address to listen on: pass --listen"}) {
+		t.Fatalf("%+v", got)
+	}
+	if _, err := os.Stat(r.s.Plist); err == nil || len(r.calls) != 0 || len(r.gw.calls) != 0 {
+		t.Fatalf("written: calls %v %v", r.calls, r.gw.calls)
+	}
+}
+
+func TestAGatewayThatDoesNotAnswerFailsEnsure(t *testing.T) {
+	r := newRig(t)
+	r.gw.failing = true
+	got := r.s.Ensure(r.build("v1", false))
+	if got.State != "failed" || got.Version != "v1" || !strings.HasPrefix(got.Reason, "gateway:v1 did not come up within 300ms") ||
+		!strings.HasSuffix(got.Reason, filepath.Join(r.s.Home, "logs", "gateway.err.log")) {
+		t.Fatalf("%+v", got)
+	}
+	if r.s.Current() != "v1" || !r.loaded {
+		t.Fatal("the daemon did not stay on v1")
+	}
+}
+
+// stray is a process the gateway pid file names, run by no job: a handlined -gateway when gateway, any other program otherwise.
+func (r *rig) stray(gateway bool) (pid int, exited <-chan struct{}) {
+	dir, _ := os.MkdirTemp(r.root, "stray-")
+	prog, arg := filepath.Join(dir, "handlined"), "-gateway"
+	if !gateway {
+		prog, arg = filepath.Join(dir, "other"), "-x"
+	}
+	os.WriteFile(prog, []byte("#!/bin/sh\ntrap 'sleep 0.5; exit 0' TERM\nwhile :; do sleep 0.1; done\n"), 0o755) // slow to exit
+	cmd := exec.Command(prog, arg)
+	if err := cmd.Start(); err != nil {
+		r.t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+	r.t.Cleanup(func() { cmd.Process.Kill() })
+	os.WriteFile(r.s.GatewayPid, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600)
+	time.Sleep(100 * time.Millisecond) // ps sees the script, not the fork
+	return cmd.Process.Pid, done
+}
+
+func TestEnsureStopsAGatewayRunByNoJob(t *testing.T) {
+	r := newRig(t)
+	_, exited := r.stray(true)
+	r.gw.onLoad = func() {
+		select {
+		case <-exited:
+		default:
+			t.Error("the job was loaded while the hand-run gateway still ran")
+		}
+	}
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" || !r.gw.loaded {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestEnsureLeavesAnotherProgramOnTheGatewaysPid(t *testing.T) {
+	r := newRig(t)
+	_, exited := r.stray(false)
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" {
+		t.Fatalf("%+v", got)
+	}
+	select {
+	case <-exited:
+		t.Fatal("a process that is no gateway was stopped")
+	default:
+	}
+}
+
+func TestALoadedGatewayJobsOwnProcessIsLeftToLaunchd(t *testing.T) {
+	r := newRig(t)
+	app := r.build("v1", false)
+	r.s.Ensure(app)
+	_, exited := r.stray(true) // stands for the job's own gateway, which the pid file names
+	r.s.Listen = "100.1.2.3:7443"
+	if got := r.s.Ensure(app); got.State != "running" {
+		t.Fatalf("%+v", got)
+	}
+	select {
+	case <-exited:
+		t.Fatal("the job's own gateway was signalled; bootout stops it")
+	default:
+	}
+}
+
+func TestAnUnloadedGatewayJobIsLoadedAgain(t *testing.T) {
+	r := newRig(t)
+	app := r.build("v1", false)
+	r.s.Ensure(app)
+	r.gw.loaded, r.gw.exe = false, "" // booted out by hand; its file is unchanged
+	if got := r.s.Ensure(app); got.State != "running" || !r.gw.loaded || r.gw.exe == "" {
+		t.Fatalf("%+v, gateway loaded %v", got, r.gw.loaded)
+	}
+}
+
+func TestTheLiveGatewayJobIsDevOrcapipeGateway(t *testing.T) {
+	s := &Service{Label: LiveLabel, Plist: "/L/dev.orcapipe.daemon.plist"}
+	if g := s.gatewayJob(); g.Label != "dev.orcapipe.gateway" || g.Plist != "/L/dev.orcapipe.gateway.plist" || s.Label != LiveLabel {
+		t.Fatalf("%s %s", g.Label, g.Plist)
 	}
 }

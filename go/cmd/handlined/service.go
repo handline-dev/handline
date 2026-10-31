@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/service"
 )
 
-const serviceUsage = "usage: handlined service ensure [<dir or Handline.app>] | install [--allow-live-home] | upgrade [--force] [<dir or Handline.app>] | rollback | status [--json] | stop | uninstall"
+const serviceUsage = "usage: handlined service ensure [--listen <addr> [--advertise <name>]] [<dir or Handline.app>] | install [--allow-live-home] | upgrade [--force] [<dir or Handline.app>] | rollback | status [--json] | stop | uninstall"
 
 // serviceCommand is `handlined service ...` on the home HANDLINE_HOME names (the default home otherwise). install and upgrade take
 // the handlined and hl in <dir>, the folder this binary is in by default (the app bundle's).
@@ -19,10 +20,11 @@ func serviceCommand(args []string) int {
 	var msg string
 	var err error
 	switch {
-	case len(args) >= 1 && len(args) <= 2 && args[0] == "ensure": // one JSON line, which the app shows
-		src := ownDir()
-		if len(args) == 2 {
-			src = args[1]
+	case len(args) >= 1 && args[0] == "ensure": // one JSON line, which the app shows
+		src, ok := ensureArgs(s, args[1:])
+		if !ok {
+			fmt.Fprintln(os.Stderr, serviceUsage)
+			return 2
 		}
 		line, code := ensureLine(s.Ensure(src))
 		fmt.Println(line)
@@ -65,6 +67,25 @@ func serviceCommand(args []string) int {
 	}
 	fmt.Println(msg)
 	return 0
+}
+
+// ensureArgs takes ensure's --listen and --advertise into s (the gateway's address and name; without them the gateway job keeps its
+// own) and gives the source folder, this binary's by default.
+func ensureArgs(s *service.Service, args []string) (src string, ok bool) {
+	src = ownDir()
+	for len(args) > 0 {
+		switch {
+		case len(args) >= 2 && args[0] == "--listen" && args[1] != "":
+			s.Listen, args = args[1], args[2:]
+		case len(args) >= 2 && args[0] == "--advertise":
+			s.Advertise, args = args[1], args[2:]
+		case len(args) == 1 && !strings.HasPrefix(args[0], "-"):
+			src, args = args[0], nil
+		default:
+			return "", false
+		}
+	}
+	return src, s.Advertise == "" || s.Listen != ""
 }
 
 func ownDir() string {
