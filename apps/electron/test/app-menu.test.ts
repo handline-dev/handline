@@ -7,9 +7,9 @@ const labels = (m: MenuItemConstructorOptions[]) => m.map((i) => i.label);
 const sub = (m: MenuItemConstructorOptions[], label: string) =>
   (m.find((i) => i.label === label)?.submenu ?? []) as MenuItemConstructorOptions[];
 
-test('on a Mac the menu bar leads with Handline, then Edit, Go, View and Window', () => {
+test('on a Mac the menu bar leads with Handline, then Edit, View, Go and Window', () => {
   const m = appMenu({ mac: true, go: () => undefined });
-  assert.deepEqual(labels(m), ['Handline', 'Edit', 'Go', 'View', 'Window']);
+  assert.deepEqual(labels(m), ['Handline', 'Edit', 'View', 'Go', 'Window']);
   const app = sub(m, 'Handline');
   assert.ok(app.some((i) => i.role === 'about'));
   assert.ok(app.some((i) => i.role === 'quit'));

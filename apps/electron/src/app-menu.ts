@@ -55,7 +55,6 @@ export function appMenu(a: MenuActions): MenuItemConstructorOptions[] {
         { role: 'selectAll' },
       ],
     },
-    go,
     {
       label: 'View',
       submenu: [
@@ -68,6 +67,7 @@ export function appMenu(a: MenuActions): MenuItemConstructorOptions[] {
         { role: 'togglefullscreen' },
       ],
     },
+    go,
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'close' }] },
   ];
 }
