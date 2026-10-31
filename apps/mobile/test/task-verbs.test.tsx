@@ -50,9 +50,9 @@ describe('the task verbs', () => {
     m.daemon.knobs.latency(300);
     m.daemon.knobs.refuse('task.done', 'state', 'that task is waiting on an audit');
     await press($('sheet-submit'));
-    await until(() => text().includes('done ▾'), 'the optimistic state', 250);
+    await until(() => text().includes('Done ⌄'), 'the optimistic state', 250);
     await until(() => text().includes('that task is waiting on an audit'), 'the reason', 3000);
-    await until(() => text().includes('doing ▾') && $('sheet'), 'the task back, the sheet open');
+    await until(() => text().includes('Working ⌄') && $('sheet'), 'the task back, the sheet open');
     expect(value('sheet-text')).toBe('shipped');
     m.daemon.knobs.clear();
     await press($('sheet-submit'));
@@ -292,7 +292,8 @@ describe('the task verbs', () => {
     await press($('memo-send'));
     await until(() => m.daemon.tasks.get({ task: MINE_DOING }).memos.length === 1, 'the daemon memo');
     const id = m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.id;
-    await until(() => $(`memo-edit-${id}`)?.getAttribute('aria-disabled') !== 'true', 'the numbered memo');
+    await until(() => $(`memo-more-${id}`)?.getAttribute('aria-disabled') !== 'true', 'the numbered memo');
+    await press($(`memo-more-${id}`));
     await press($(`memo-edit-${id}`));
     await fill('memo-edit-text', 'second note');
     m.daemon.knobs.refuse('task.comment.edit', 'state', 'that task is being merged');
@@ -305,10 +306,12 @@ describe('the task verbs', () => {
     await until(() => $('memo-edit-text') === null, 'the box to close');
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('second note');
     expect($(`memo-${id}`)?.textContent).toContain('second note');
+    await press($(`memo-more-${id}`));
     await press($(`memo-delete-${id}`));
     expect(text()).toContain('Delete this comment?');
     await press($('sheet-cancel'));
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos.length).toBe(1);
+    await press($(`memo-more-${id}`));
     await press($(`memo-delete-${id}`));
     m.daemon.knobs.refuse('task.comment.delete', 'state', 'that comment is locked');
     await press($('sheet-submit'));

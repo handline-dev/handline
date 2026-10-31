@@ -1,6 +1,6 @@
 // A task's change history on the phone (docs/pc-app-gaps.md U3), read from task.history through the app-core view the web draws.
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import {
   clockTime,
   dayLabel,
@@ -12,10 +12,10 @@ import {
   type HistoryFold,
 } from '@handline/app-core';
 import type { HistoryRow } from '@handline/client';
-import { useServes, useTaskHistory } from '@handline/app-data';
+import { useTaskHistory } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
-import { Button } from '#src/screens/parts.tsx';
+import { BottomSheet, Button } from '#src/screens/parts.tsx';
 
 const FILTERS: [HistoryFilter, string][] = [
   ['all', 'All'],
@@ -143,16 +143,14 @@ export function TaskHistory({ rows }: { rows: HistoryRow[] }) {
   );
 }
 
-/** The History control and, once opened, the rows. The read starts when it is opened; a daemon without task.history shows nothing. */
-export function TaskHistorySection({ id }: { id: number }) {
-  const { served } = useServes('task.history');
-  const [open, setOpen] = useState(false);
-  if (!served) return null;
+/** The task's changes in a sheet, opened from the ... menu. The read starts when it opens. */
+export function TaskHistorySheet({ id, onClose }: { id: number; onClose: () => void }) {
   return (
-    <View style={{ gap: space.sm }}>
-      <Button testID="task-history-toggle" label={open ? 'Hide history' : 'History'} onPress={() => setOpen(!open)} />
-      {open ? <Rows id={id} /> : null}
-    </View>
+    <BottomSheet testID="task-history-sheet" padded onClose={onClose}>
+      <ScrollView style={{ maxHeight: 520 }}>
+        <Rows id={id} />
+      </ScrollView>
+    </BottomSheet>
   );
 }
 

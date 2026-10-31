@@ -3,14 +3,14 @@
 // chips narrow the list as on the web.
 import { useState } from 'react';
 import {
-  activityOf,
   ago,
   CLOSED,
+  dueOf,
   defaultFilter,
-  foldEvents,
   groupTasks,
   HELD,
   idleText,
+  isGate,
   shown,
   sortTasks,
   TASK_STATES,
@@ -23,7 +23,7 @@ import {
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
-import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
+import { classify, useServes, useTask, useTasks } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { useHistoryValue } from '#src/history.tsx';
 import { Linking, SectionList, ScrollView, Text, View } from 'react-native';
@@ -32,14 +32,13 @@ import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { GroupHead } from '#src/screens/TaskGroupHead.tsx';
 import { Button, EmptyState, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from '#src/screens/parts.tsx';
-import { CommentBox, CommentRow } from '#src/screens/Comments.tsx';
+import { Activity } from '#src/screens/TaskActivity.tsx';
 import { TaskVerbs, useTaskPending } from '#src/screens/TaskActions.tsx';
 import { NewTask } from '#src/screens/TaskForm.tsx';
-import { TaskHistorySection } from '#src/screens/TaskHistory.tsx';
-import { TaskTimeSection } from '#src/screens/TaskTime.tsx';
+import { TaskTimeLine } from '#src/screens/TaskTime.tsx';
+import { BlocksLine, LaterPill, Section, TaskLine } from '#src/screens/TaskHead.tsx';
 import { TaskGraph } from '#src/screens/TaskGraph.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
-import { EventNote } from '#src/screens/EventNote.tsx';
 import { TaskBatch } from '#src/screens/TaskBatch.tsx';
 import { TaskSearch } from '#src/screens/TaskSearch.tsx';
 import { MyRequestsChip, MyRequestsList, useMyRequests } from '#src/screens/MyRequests.tsx';
@@ -54,7 +53,11 @@ const SCOPES: [Scope, string][] = [
 const PRIORITY = { 1: 'P1', 2: 'P2', 3: 'P3' } as const;
 
 export function Tasks(props: { selected: number | null; onSelect: (id: number | null) => void }) {
-  return props.selected != null ? <Detail id={props.selected} onBack={() => props.onSelect(null)} /> : <List onSelect={props.onSelect} />;
+  return props.selected != null ? (
+    <Detail id={props.selected} onBack={() => props.onSelect(null)} onOpen={props.onSelect} />
+  ) : (
+    <List onSelect={props.onSelect} />
+  );
 }
 
 function List(props: { onSelect: (id: number) => void }) {
@@ -268,13 +271,13 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
   );
 }
 
-export function Detail(props: { id: number; onBack: () => void; backLabel?: string }) {
+export function Detail(props: { id: number; onBack: () => void; backLabel?: string; onOpen?: (id: number) => void }) {
   const query = useTask(props.id);
   const { served } = useServes('task.get');
   const gone = query.isError && classify(query.error).kind === 'not_found';
   return (
     <View style={{ flex: 1 }}>
-      <PageHeader back={{ label: props.backLabel ?? 'Tasks', onPress: props.onBack, testID: 'task-back' }} />
+      {query.data ? null : <PageHeader back={{ label: props.backLabel ?? 'Tasks', onPress: props.onBack, testID: 'task-back' }} />}
       {gone ? (
         <EmptyState text="This task no longer exists." />
       ) : (
@@ -285,19 +288,15 @@ export function Detail(props: { id: number; onBack: () => void; backLabel?: stri
           label={`task ${taskRef(props.id)}`}
           empty="This task no longer exists."
         >
-          {query.data ? <Body t={query.data} /> : null}
+          {query.data ? (
+            <Body
+              t={query.data}
+              onOpen={props.onOpen}
+              back={{ label: props.backLabel ?? 'Tasks', onPress: props.onBack, testID: 'task-back' }}
+            />
+          ) : null}
         </Loadable>
       )}
-    </View>
-  );
-}
-
-function Section(props: { title: string; children: React.ReactNode }) {
-  const c = usePalette();
-  return (
-    <View style={{ gap: space.xs }}>
-      <Text style={{ color: c.muted, fontSize: font.size.sm, fontWeight: '700' }}>{props.title}</Text>
-      {props.children}
     </View>
   );
 }
@@ -308,103 +307,95 @@ function deliverySummary(ds: TaskDetail['deliveries']): string {
   return `${ds.length > 1 ? `${ds.length} deliveries, last: ` : ''}${ago(d.at)} · ${d.how} · ${d.outcome}`;
 }
 
-function Body({ t }: { t: TaskDetail }) {
+function Body({
+  t,
+  back,
+  onOpen,
+}: {
+  t: TaskDetail;
+  onOpen?: (id: number) => void;
+  back: { label: string; onPress: () => void; testID: string };
+}) {
   const c = usePalette();
   const now = Date.now();
   const sending = useTaskPending(t.id);
   const watch = watchLine(t);
+  const due = dueOf(t, now);
   const line = (s: string, key: string | number = s) => (
     <Text key={key} style={{ color: c.ink }}>
       {s}
     </Text>
   );
   return (
-    <ScrollView
-      testID="task-detail"
-      automaticallyAdjustKeyboardInsets
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={{ padding: space.lg, gap: space.lg }}
-    >
-      <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>{t.title}</Text>
-      {t.body ? <PrBody id={`task-${t.id}`} agent={t.to} body={t.body} /> : null}
-      <Text style={{ color: c.muted }}>
-        {[`${taskRef(t.id)}`, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}
-      </Text>
-      {watch && (
-        <Text testID="task-watch" style={{ color: c.muted }}>
-          Watches{' '}
-          {watch.url ? (
-            <Text
-              style={{ color: c.accent, textDecorationLine: 'underline' }}
-              accessibilityRole="link"
-              onPress={() => void Linking.openURL(watch.url!)}
-            >
-              {watch.text}
-            </Text>
-          ) : (
-            watch.text
-          )}
-          {watch.result ? ` · ${watch.result}` : ''}
-        </Text>
+    <TaskVerbs t={t} later={<LaterPill id={t.id} />}>
+      {({ pills, more, bar, assign }) => (
+        <>
+          <PageHeader back={back} actions={more} />
+          <ScrollView
+            testID="task-detail"
+            automaticallyAdjustKeyboardInsets
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.lg }}
+          >
+            <TaskLine t={t} canAssign={!CLOSED.includes(t.state) && !isGate(t)} onAssign={assign} />
+            <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>{t.title}</Text>
+            <BlocksLine id={t.id} onOpen={onOpen} />
+            {t.body ? <PrBody id={`task-${t.id}`} agent={t.to} body={t.body} /> : null}
+            {pills}
+            <TaskTimeLine id={t.id} left={due?.text} over={due?.over} running={t.state === 'doing'} />
+            {watch && (
+              <Text testID="task-watch" style={{ color: c.muted }}>
+                Watches{' '}
+                {watch.url ? (
+                  <Text
+                    style={{ color: c.accent, textDecorationLine: 'underline' }}
+                    accessibilityRole="link"
+                    onPress={() => void Linking.openURL(watch.url!)}
+                  >
+                    {watch.text}
+                  </Text>
+                ) : (
+                  watch.text
+                )}
+                {watch.result ? ` · ${watch.result}` : ''}
+              </Text>
+            )}
+            {sending && (
+              <Text testID="task-sending" style={{ color: c.muted }}>
+                Sending…
+              </Text>
+            )}
+            {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
+            {!t.blockers.length && t.status && HELD.includes(t.status.state) ? (
+              <Text style={{ color: c.wait }}>{t.status.text}</Text>
+            ) : null}
+            {!t.status && !t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
+            {!t.status && !t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
+            {t.blockers.length ? (
+              <Section title="Waits on">
+                {t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}
+              </Section>
+            ) : null}
+            {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
+            {t.discarded ? (
+              <Section title="Closed">
+                {line(
+                  `${t.discarded.by} discarded it${t.discarded.batch ? ' in a batch' : ''}${t.discarded.withdrew?.length ? `, withdrawing ${t.discarded.withdrew.length} ${t.discarded.withdrew.length === 1 ? 'request' : 'requests'}` : ''}`,
+                )}
+                {t.discarded.reason ? line(t.discarded.reason, 'why') : null}
+              </Section>
+            ) : null}
+            {t.evidence ? (
+              <Section title="Evidence">
+                <PrBody id={`evidence-${t.id}`} agent={t.to} body={t.evidence} />
+              </Section>
+            ) : null}
+            {t.deliveries.length ? <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section> : null}
+            <Activity t={t} />
+          </ScrollView>
+          {bar}
+        </>
       )}
-      {sending && (
-        <Text testID="task-sending" style={{ color: c.muted }}>
-          Sending…
-        </Text>
-      )}
-      <TaskVerbs t={t} />
-      {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
-      {!t.blockers.length && t.status && HELD.includes(t.status.state) ? <Text style={{ color: c.wait }}>{t.status.text}</Text> : null}
-      {!t.status && !t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
-      {!t.status && !t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
-      {t.blockers.length ? (
-        <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
-      ) : null}
-      {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
-      {t.discarded ? (
-        <Section title="Closed">
-          {line(
-            `${t.discarded.by} discarded it${t.discarded.batch ? ' in a batch' : ''}${t.discarded.withdrew?.length ? `, withdrawing ${t.discarded.withdrew.length} ${t.discarded.withdrew.length === 1 ? 'request' : 'requests'}` : ''}`,
-          )}
-          {t.discarded.reason ? line(t.discarded.reason, 'why') : null}
-        </Section>
-      ) : null}
-      {t.evidence ? (
-        <Section title="Evidence">
-          <PrBody id={`evidence-${t.id}`} agent={t.to} body={t.evidence} />
-        </Section>
-      ) : null}
-      {t.deliveries.length ? <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section> : null}
-      <TaskHistorySection id={t.id} />
-      <TaskTimeSection id={t.id} />
-      <Activity t={t} />
-    </ScrollView>
-  );
-}
-
-/** One list of the comments and the events in words (older events fold), and the one comment box under it. */
-function Activity({ t }: { t: TaskDetail }) {
-  const c = usePalette();
-  const memos = useMemos(t.id).data?.memos ?? t.memos; // the memo list is the one a memo write edits at once
-  const [all, setAll] = useState(false);
-  const { items, hidden } = foldEvents(activityOf(memos, t.timeline), all);
-  return (
-    <Section title="Activity">
-      {hidden ? (
-        <Button testID="activity-more" label={`Show ${hidden} earlier ${hidden === 1 ? 'event' : 'events'}`} onPress={() => setAll(true)} />
-      ) : null}
-      {items.map((i, n) => {
-        const m = i.kind === 'comment' ? memos.find((x) => x.id === i.memo) : undefined;
-        return m ? (
-          <CommentRow key={`${n}-${m.id}`} task={t.id} agent={t.to} memo={m} when={ago(m.at)} />
-        ) : (
-          <View key={`${n}-${i.line}`} style={{ gap: space.xs }}>
-            <Text style={{ color: c.muted }}>{`${i.line} · ${ago(i.at)}`}</Text>
-            {i.note ? <EventNote id={`${n}`} agent={t.to} note={i.note} /> : null}
-          </View>
-        );
-      })}
-      <CommentBox id={t.id} />
-    </Section>
+    </TaskVerbs>
   );
 }
