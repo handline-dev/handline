@@ -138,7 +138,8 @@ export function TaskLine({ i, titles, agent }: { i: TranscriptItem; titles?: Map
   }
   const word = ev === 'changed' ? '' : (VERB[ev] ?? 'changed');
   const icon = ev === 'withdrawn' ? 'dismiss' : ev === 'changed' ? 'edit' : 'opened';
-  const said = ev === 'changed' ? [sentence(row.parts), by].filter(Boolean).join(' ') : [by, sentence(row.parts)].filter(Boolean).join(' · ');
+  const said =
+    ev === 'changed' ? [sentence(row.parts), by].filter(Boolean).join(' ') : [by, sentence(row.parts)].filter(Boolean).join(' · ');
   return <TaskCard {...base} kind="small" icon={icon} what={word ? `${word[0]!.toUpperCase()}${word.slice(1)}` : ''} said={said} />;
 }
 
