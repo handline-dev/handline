@@ -219,9 +219,9 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode; onM
                 </Text>
                 {stateOf(a) === 'needs_login' ? (
                   <Text style={{ color: c.wait }}>Login needed</Text>
-                ) : (
+                ) : a.agents_running ? (
                   <Text style={{ color: c.muted }}>{agentsLine(a)}</Text>
-                )}
+                ) : null}
               </View>
               {stateOf(a) === 'needs_login' ? (
                 <Button
