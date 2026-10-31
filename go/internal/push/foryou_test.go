@@ -4,7 +4,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,19 +64,19 @@ func TestWatchSendsTheNoteOfEachForYouEvent(t *testing.T) {
 	a := s.platforms["apns"].(*apns)
 	a.client, a.host, a.sandboxHost = prod.Client(), prod.URL, prod.URL
 
-	events, stop, done := make(chan stream.Entry, 8), make(chan struct{}), make(chan struct{})
-	go func() { s.Watch(stop, events); close(done) }()
+	events, done := make(chan stream.Entry, 8), make(chan struct{})
 	for _, e := range []stream.Entry{opened("task", "7", "decide", "bob", "Ship the build?", 1), closed("task", "7", 0),
 		{Topic: "tasks", Type: "task.created"}, opened("task", "7", "decide", "bob", "Ship the build?", 1)} {
 		events <- e
 	}
-	var got []seen
-	for deadline := time.Now().Add(5 * time.Second); len(got) < 6 && time.Now().Before(deadline); {
-		got = append(got, prod.take()...)
-		time.Sleep(10 * time.Millisecond)
+	close(events)
+	go func() { s.Watch(make(chan struct{}), events); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Watch did not return when events closed")
 	}
-	close(stop)
-	<-done
+	got := prod.take()
 	if len(got) != 6 { // two APNs devices, three notes
 		t.Fatalf("got %d sends: %+v", len(got), got)
 	}
@@ -87,6 +90,43 @@ func TestWatchSendsTheNoteOfEachForYouEvent(t *testing.T) {
 	}
 	if aps, _ := got[4].body["aps"].(map[string]any); got[4].header.Get("apns-collapse-id") != "task:7" || aps["badge"] != float64(1) {
 		t.Errorf("the returned item is shown again: %v %v", got[4].header, got[4].body)
+	}
+}
+
+// Tee appends every event and queues only the for_you ones it appended; with the queue full it logs and the append still succeeds.
+func TestTeeQueuesOnlyAppendedForYouEventsAndNeverWaits(t *testing.T) {
+	var logged []string
+	s := &Sender{Log: func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }}
+	var appended []string
+	fail := false
+	emit := func(e stream.Entry) (*stream.Event, error) {
+		if fail {
+			return nil, errors.New("disk full")
+		}
+		appended = append(appended, e.Type)
+		return &stream.Event{}, nil
+	}
+	notes := make(chan stream.Entry, 1)
+	tee := s.Tee(emit, notes)
+	for _, e := range []stream.Entry{{Topic: "tasks", Type: "task.created"}, closed("task", "7", 0)} {
+		if _, err := tee(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(notes) != 1 || (<-notes).Type != "for_you.closed" {
+		t.Fatal("only the for_you event is queued")
+	}
+	fail = true
+	if _, err := tee(closed("task", "8", 0)); err == nil || len(notes) != 0 {
+		t.Fatalf("an event that was not appended is not queued: %v", err)
+	}
+	fail = false
+	tee(closed("task", "9", 0))
+	if _, err := tee(closed("task", "10", 0)); err != nil || len(notes) != 1 || len(appended) != 4 {
+		t.Fatalf("a full queue still appends: %v %d %v", err, len(notes), appended)
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], "queue is full") {
+		t.Errorf("logged: %q", logged)
 	}
 }
 

@@ -31,16 +31,44 @@ func ForYouNote(e stream.Entry) (Note, bool) {
 	return Note{}, false
 }
 
-// Watch sends the note of each event from events, one at a time and in order, until stop closes.
+// Emit appends one event to the stream (stream.Hub.Append).
+type Emit = func(stream.Entry) (*stream.Event, error)
+
+// Tee is emit that also puts each for_you event it appended on notes for Watch. It never waits: with notes full the event is logged and
+// gets no note, so a slow push service does not hold the caller.
+func (s *Sender) Tee(emit Emit, notes chan<- stream.Entry) Emit {
+	return func(e stream.Entry) (*stream.Event, error) {
+		ev, err := emit(e)
+		if err == nil && e.Topic == "for_you" {
+			select {
+			case notes <- e:
+			default:
+				s.log("push: the queue is full, no note for %s", e.Type)
+			}
+		}
+		return ev, err
+	}
+}
+
+// Watch sends the note of each event from events, one at a time and in order, until stop or events closes.
 func (s *Sender) Watch(stop <-chan struct{}, events <-chan stream.Entry) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { <-stop; cancel() }()
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	for {
 		select {
 		case <-stop:
 			return
-		case e := <-events:
+		case e, open := <-events:
+			if !open {
+				return
+			}
 			if n, ok := ForYouNote(e); ok {
 				if err := s.Notify(ctx, n); err != nil {
 					s.log("push: %v", err)

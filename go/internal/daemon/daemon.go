@@ -290,19 +290,9 @@ func Start(cfg Config) (*Daemon, error) {
 	if cfg.Watch && !cfg.Gateway {
 		hrSignature := watcher.HRSignature(cfg.Home)
 		emit := d.hub.Append
-		if d.push != nil { // each for_you event is also a note; the queue keeps a slow push service from holding the watch
+		if d.push != nil { // each for_you event is also a note
 			notes := make(chan stream.Entry, 256)
-			emit = func(e stream.Entry) (*stream.Event, error) {
-				ev, err := d.hub.Append(e)
-				if err == nil && e.Topic == "for_you" {
-					select {
-					case notes <- e:
-					default:
-						cfg.Log("push: the queue is full, a for_you note is dropped")
-					}
-				}
-				return ev, err
-			}
+			emit = d.push.Tee(emit, notes)
 			d.wg.Add(1)
 			go func() {
 				defer d.wg.Done()
