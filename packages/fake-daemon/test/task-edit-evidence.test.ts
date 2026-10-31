@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type RpcError } from '@handline/client';
-import { setup } from '#src/helpers.ts';
+import { second, setup } from '#src/helpers.ts';
 
 const code = (e: unknown) => (e as RpcError).data?.code;
 
@@ -19,5 +19,9 @@ test('a done task keeps its brief and result editable, and an open one has no re
   assert.equal(code(await s.client.call('task.edit', { task, evidence: ' ', request_id: 'e5' }).catch((e) => e)), 'refused');
   const h = await s.client.call('task.history', { task });
   assert.ok(h.rows.some((r) => r.field === 'evidence' && r.was === 'built' && r.now === 'rebuilt'));
+  const agent = second(s.daemon, s.net, { client: 'handline.architect' });
+  await agent.start();
+  assert.equal(code(await agent.call('task.edit', { task, evidence: 'PASS', request_id: 'e6' }).catch((e) => e)), 'refused');
+  agent.close();
   s.client.close();
 });
