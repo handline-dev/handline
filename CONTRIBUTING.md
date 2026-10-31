@@ -22,7 +22,8 @@ request without it is not merged.
 
 ## 2. What a good change looks like
 
-- Tests for what you change, in the same commit. `tools/test.sh` runs them; see
+- Unit tests for logic you change, in the same commit. A screen change adds no render test; it shows
+  before and after pictures instead, unless it changes one of the kept flow files listed in AGENTS.md. `tools/test.sh` runs them; see
   [docs/development.md](docs/development.md).
 - Commit messages, code comments and docs say what changed and why, in words. They carry no
   personal data (emails, real names, home paths, tokens) and no ids from a private tracker or chat.
