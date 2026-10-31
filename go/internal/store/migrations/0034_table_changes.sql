@@ -1,10 +1,7 @@
--- A counter for each table the watcher's detectors read, bumped by a trigger on every insert, update and delete, whoever writes (the
--- daemon, hl hook, hl launch, the gateway). The watcher looked at PRAGMA data_version, which moves on any commit, and re-ran every
--- detector's whole read about four times a second, though most commits are to tables no detector reads (stream_log, rpc_replies,
--- token_calls, hook_applied, usage_samples, write_effects). It now runs a detector only when a table it names has a new count.
--- Two tables are counted in part: events other than the kinds below, which no detector reads, and cursors other than the watcher's own
--- ("stream:"), which its scans write. watcher/tables_test.go fails when a detector reads a table it does not name, or a named table has no
--- count here; a detector that reads a new table needs a later migration with that table's three triggers.
+-- table_changes counts the changes of each table a watcher detector reads, bumped by triggers whoever writes. The watcher runs a detector
+-- only when a table it names has a new count. A detector that reads a new table needs its three triggers in a later migration
+-- (watcher/tables_test.go fails until it has them). events other than eight noisy kinds no detector reads, and cursors other than the
+-- watcher's own stream:* ones, are counted in part; every other listed table entirely.
 CREATE TABLE IF NOT EXISTS table_changes (name TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID;
 
 INSERT OR IGNORE INTO table_changes(name) VALUES
