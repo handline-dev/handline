@@ -69,8 +69,12 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
               }}
             />
           </View>
-          {x.warn ? <Icon name="warn" decorative size={14} color={c.block} /> : null}
-          <Text style={{ color: x.warn ? c.block : c.ink }}>{x.value}</Text>
+          <View style={{ width: 128, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: space.xs }}>
+            {x.warn ? <Icon name="warn" decorative size={14} color={c.block} /> : null}
+            <Text numberOfLines={1} style={{ color: x.warn ? c.block : c.ink }}>
+              {x.value}
+            </Text>
+          </View>
         </View>
       ))}
       {onOpen ? (
