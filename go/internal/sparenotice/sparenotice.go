@@ -6,6 +6,7 @@ package sparenotice
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,11 +40,21 @@ type Env struct {
 	// Ask opens the founder's task; Tell sends the same words to handline.
 	Ask  func(title, body string, tags ...string) (int64, error)
 	Tell func(text string) error
-	Now  func() time.Time
-	Log  func(format string, a ...any)
+	// Close ends the founder's task with these words (their done on it). nil leaves a notice open after its time.
+	Close func(tid int64, words string) error
+	Now   func() time.Time
+	Log   func(format string, a ...any)
 
 	checked time.Time
 }
+
+// A notice is a loss at a time; once that time has passed it is wrong, and the sweep closes it. until is when, lost the words it ends with.
+type pending struct {
+	Until int64  `json:"until"`
+	Lost  string `json:"lost"`
+}
+
+func pendingKey(tid int64) string { return fmt.Sprintf("spare_notice_until:%d", tid) }
 
 type told struct {
 	At   int64   `json:"at"`
@@ -55,6 +66,9 @@ func metaKey(acct string) string { return "spare_notice:" + acct }
 // Sweep sends the notice for each account that will lose a tenth of its week or more within two days with nothing queued for it.
 func (e *Env) Sweep(int64) error {
 	now := e.Now()
+	if err := e.expire(now); err != nil {
+		return err
+	}
 	if !e.checked.IsZero() && now.Sub(e.checked) < CheckEvery {
 		return nil
 	}
@@ -69,6 +83,39 @@ func (e *Env) Sweep(int64) error {
 		}
 		if err := e.notify(acct, *f.LeftAtReset, e.ResetAt(acct)); err != nil {
 			return fmt.Errorf("%s: %w", acct, err)
+		}
+	}
+	return nil
+}
+
+// expire closes each notice whose loss time has passed, with the words that it was lost; a notice already answered is only forgotten.
+func (e *Env) expire(now time.Time) error {
+	if e.Close == nil {
+		return nil
+	}
+	keys, err := db.MetaNames(e.Q, "spare_notice_until:")
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		raw, ok, err := db.Meta(e.Q, key)
+		var p pending
+		if err != nil {
+			return err
+		}
+		if !ok || json.Unmarshal([]byte(raw), &p) != nil || p.Until > now.Unix() {
+			continue
+		}
+		tid, _ := strconv.ParseInt(strings.TrimPrefix(key, "spare_notice_until:"), 10, 64)
+		if t, err := db.GetTask(e.Q, tid); err != nil {
+			return err
+		} else if t != nil && !t.Ended() {
+			if err := e.Close(tid, p.Lost); err != nil {
+				return fmt.Errorf("closing the notice T%d: %w", tid, err)
+			}
+		}
+		if err := db.ClearMeta(e.Q, key); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -115,6 +162,11 @@ func Words(acct string, left float64, at time.Time, spare []int64) string {
 	return text + " These spare tasks can use it: " + TaskList(spare) + "."
 }
 
+// Lost is the notice once its time has passed.
+func Lost(acct string, left float64, at time.Time) string {
+	return fmt.Sprintf("%.0f%% of %s's weekly use was lost at %s.", left, acct, at.Local().Format("15:04"))
+}
+
 // TaskList writes task numbers as "T1, T2".
 func TaskList(ids []int64) string {
 	names := make([]string, len(ids))
@@ -134,7 +186,12 @@ func (e *Env) notify(acct string, left float64, resetAt int64) error {
 	if len(spare) > 0 {
 		body += "\nTasks: " + TaskList(spare) + "\nAnswer start to queue them. They wait for the 5-hour and load holds like any task."
 	}
-	if _, err := e.Ask(text, body, NoticeTag); err != nil {
+	tid, err := e.Ask(text, body, NoticeTag)
+	if err != nil {
+		return err
+	}
+	lost, _ := json.Marshal(pending{Until: resetAt, Lost: "Its time passed unanswered. " + Lost(acct, left, time.Unix(resetAt, 0))})
+	if err := db.SetMeta(e.Q, pendingKey(tid), string(lost)); err != nil {
 		return err
 	}
 	if e.Tell != nil {
