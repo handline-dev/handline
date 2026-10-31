@@ -56,6 +56,8 @@ export interface PkgPorts {
 /** Offers a newer build once, when the app is idle: downloaded, checked and unpacked before the person is asked. */
 export class SelfUpdater implements PkgUpdater {
   private busy = false;
+  /** Restart now was pressed and has not failed: a second press must not swap again, which would remove the only copy of the old app. */
+  private going = false;
   private ports: PkgPorts;
   private flow: UpdateFlow;
   private base: string;
@@ -100,9 +102,12 @@ export class SelfUpdater implements PkgUpdater {
   }
 
   private async go(staged: string): Promise<void> {
+    if (this.going) return;
+    this.going = true;
     try {
       await this.ports.swapAndRestart(staged);
     } catch (e) {
+      this.going = false;
       this.flow.failed(e instanceof Error ? e.message : String(e), () => void this.go(staged));
     }
   }

@@ -31,10 +31,8 @@ test('a later version is newer; a dev build is older than any release', () => {
   assert.ok(isNewer('0.0.0', '0.0.0-dev'));
 });
 
-function rig(o: { current?: string; idle?: boolean; sum?: string } = {}) {
-  const calls: string[] = [];
-  const flow = new UpdateFlow();
-  const ports: PkgPorts = {
+function rigPorts(o: { current?: string; idle?: boolean; sum?: string } = {}, calls: string[] = []): PkgPorts {
+  return {
     current: () => o.current ?? '0.1.41',
     text: async (url) => (calls.push(`text ${url}`), YML),
     download: async (url, progress) => (calls.push(`download ${url}`), progress(0.5), '/tmp/x.zip'),
@@ -43,6 +41,12 @@ function rig(o: { current?: string; idle?: boolean; sum?: string } = {}) {
     idle: async () => o.idle ?? true,
     swapAndRestart: async (s) => void calls.push(`swap ${s}`),
   };
+}
+
+function rig(o: { current?: string; idle?: boolean; sum?: string } = {}) {
+  const calls: string[] = [];
+  const flow = new UpdateFlow();
+  const ports = rigPorts(o, calls);
   return { flow, calls, u: new SelfUpdater(ports, flow, 'https://example.org/dl/') };
 }
 
@@ -63,6 +67,30 @@ test('a newer build is downloaded, checked and unpacked, then offered once; Rest
   r.flow.act('restart');
   await new Promise((res) => setImmediate(res));
   assert.equal(r.calls.at(-1), 'swap /stage/Handline.app');
+});
+
+test('Restart now pressed twice swaps once; after a failure it can be pressed again', async () => {
+  const swaps: string[] = [];
+  let release: () => void = () => undefined;
+  let fail = true;
+  const r = rig();
+  const flow = r.flow;
+  const ports = {
+    ...rigPorts(),
+    swapAndRestart: (s: string) => (swaps.push(s), new Promise<void>((res, rej) => (release = fail ? () => rej(new Error('no')) : res))),
+  };
+  const u = new SelfUpdater(ports, flow, 'https://example.org/dl');
+  await u.check();
+  flow.act('restart');
+  flow.act('restart');
+  assert.equal(swaps.length, 1);
+  release();
+  await new Promise((res) => setImmediate(res));
+  assert.equal(flow.view.phase, 'failed');
+  fail = false;
+  flow.act('retry');
+  await new Promise((res) => setImmediate(res));
+  assert.equal(swaps.length, 2);
 });
 
 test('the same version, a busy app or a failed fetch offers nothing', async () => {
