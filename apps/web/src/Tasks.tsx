@@ -23,6 +23,7 @@ import { TaskDetail } from '#src/TaskDetail.tsx';
 import { TaskColumns } from '#src/TaskGraph.tsx';
 import { NewTask } from '#src/NewTask.tsx';
 import { Row } from '#src/TaskRows.tsx';
+import { MyRequestsList, useMyRequests } from '#src/MyRequests.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from '#src/TasksHead.tsx';
 import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from '#src/TaskSheets.tsx';
 import { Button, ScrollPage } from '#src/ui/index.ts';
@@ -128,6 +129,8 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const now = useNow();
   const [filter, setFilter] = useState<TaskFilter>(defaultFilter);
   const [scope, setScope] = useState<Scope>('open');
+  const [mineOnly, setMineOnly] = useState(false); // the My requests chip: the founder's own open tasks, with how far each is
+  const mine = useMyRequests();
   const me = useMe();
   const [sort, setSort] = useState<{ by: TaskColumn; reverse: boolean }>({ by: 'priority', reverse: false });
   const [cursor, setCursor] = useState<number | null>(null);
@@ -345,7 +348,8 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         agents={taskAgents(all)}
         filter={filter}
         scope={scope}
-        onScope={setScope}
+        onScope={(s) => (setScope(s), s === 'closed' && setMineOnly(false))}
+        requests={{ count: mine.rows.length, on: mineOnly, toggle: () => (setMineOnly(!mineOnly), setScope('open')) }}
         filtering={open === 'states'}
         view={graph ? 'graph' : 'list'}
         query={query}
@@ -356,7 +360,9 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
       />
       <AnimatedList>{open === 'new' ? <NewTask key="NewTask" agents={agents} onClose={shut} /> : null}</AnimatedList>
       <View q={q} served={listServed} shape="tasks" what="tasks">
-        {rows.length === 0 ? (
+        {mineOnly && !graph ? (
+          <MyRequestsList groups={mine.groups} pending={mine.pending} />
+        ) : rows.length === 0 ? (
           <div className="empty">
             {none ? (
               <>
