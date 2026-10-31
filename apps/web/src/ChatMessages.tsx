@@ -86,7 +86,7 @@ const shellBlocks = (m: ChatMessage, n: number) =>
     .slice(0, n)
     .reduce((c, p) => c + ('text' in p ? parseBlocks(p.text).filter((b) => b.kind === 'code' && isShell(b.lang)).length : 0), 0);
 
-/** Under an agent's message, shown on hover: copy, quote, and how long ago. Nothing is drawn at rest, but the room stays so the list does not jump. */
+/** Under an agent's message, shown on hover: copy, quote, and how long ago. They fill the 16 px gap under the message (the row takes back the 8 px of the list's gap), so nothing moves when they appear. */
 function HoverBar({ m, onPick }: { m: ChatMessage; onPick?: (m: ChatMessage, quote?: string) => void }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -95,12 +95,19 @@ function HoverBar({ m, onPick }: { m: ChatMessage; onPick?: (m: ChatMessage, quo
       setTimeout(() => setCopied(false), 1500);
     });
   };
+  const TOOL = 'icon inline-grid size-4 place-items-center rounded-sm';
   return (
     <div
-      className={`msg-hover -mt-1 flex h-6 items-center gap-1 text-ink-3 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100 [.peer:hover+&]:opacity-100 ${MSG_META}`}
+      className={`msg-hover flex h-4 items-center gap-2 text-ink-3 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100 [.peer:hover+&]:opacity-100 ${MSG_META} mt-0!`}
     >
-      <Button variant="ghost" size="sm" icon={copied ? 'done' : 'copy'} label={copied ? 'Copied' : 'Copy'} onClick={copy} />
-      {onPick && m.id >= 0 ? <Button variant="ghost" size="sm" icon="reply" label="Quote" onClick={() => onPick(m)} /> : null}
+      <button type="button" className={TOOL} aria-label={copied ? 'Copied' : 'Copy'} title={copied ? 'Copied' : 'Copy'} onClick={copy}>
+        <Icon name={copied ? 'done' : 'copy'} size={12} label={copied ? 'Copied' : 'Copy'} />
+      </button>
+      {onPick && m.id >= 0 ? (
+        <button type="button" className={TOOL} aria-label="Quote" title="Quote" onClick={() => onPick(m)}>
+          <Icon name="reply" size={12} label="Quote" />
+        </button>
+      ) : null}
       <time dateTime={m.at} title={full(m.at)}>
         {ago(m.at)} ago
       </time>

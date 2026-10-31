@@ -65,7 +65,7 @@ export const ChatRow = memo(function ChatRow({
   return (
     <AnimatedItem
       instant={instant}
-      className="max-w-full has-[>_.msg]:relative has-[>_.msg.person]:max-w-[70%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
+      className="max-w-full has-[>_.msg]:relative has-[>_.msg-hover]:-mb-2 has-[>_.msg.person]:max-w-[70%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-stretch"
     >
       {e.kind === 'fold' ? (
         <FoldLine f={e} folds={folds} titles={titles} agent={agent} />

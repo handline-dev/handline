@@ -1,6 +1,6 @@
 // The message box: Enter sends, Shift+Enter breaks the line, the up arrow recalls what was sent, `/` and `#` open menus, Ctrl+R lists the history,
 // and an unsent draft is kept per agent.
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { KV, Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
@@ -25,6 +25,39 @@ const COMPOSE_KEYS: KeyRows = [
   ['#', 'refer to a task or a message'],
   ['Esc Esc', 'clear the box (the draft is kept)'],
 ];
+
+/** The box grows with its words up to 40% of the chat pane, then scrolls inside: the send row and the reply bar stay where they are. */
+function useGrow(text: string, pane: HTMLElement | null) {
+  const box = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const t = box.current;
+    if (!t) return;
+    t.style.height = 'auto';
+    const cap = (pane?.clientHeight ?? window.innerHeight) * 0.4;
+    t.style.height = `${Math.min(t.scrollHeight, cap)}px`;
+    t.style.overflowY = t.scrollHeight > cap ? 'auto' : 'hidden';
+  }, [text, pane]);
+  return box;
+}
+
+/** The paperclip: picks pictures from the disk, as a paste or a drop does. */
+function AttachButton({ add }: { add: (files: File[]) => void }) {
+  const files = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input
+        ref={files}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        aria-label="Picture files"
+        onChange={(e) => (add(Array.from(e.target.files ?? [])), (e.target.value = ''))}
+      />
+      <Button variant="ghost" size="sm" icon="attach" label="Attach a picture" onClick={() => files.current?.click()} />
+    </>
+  );
+}
 
 export function Compose(props: {
   agent: string;
@@ -62,7 +95,7 @@ export function Compose(props: {
   const [refused, setRefused] = useState<string | null>(null); // a /word this agent does not take: said, never sent
   const [now, setNow] = useState(false); // join the running turn instead of queueing behind it; back to queue after each send
   const back = useRef(-1);
-  const box = useRef<HTMLTextAreaElement>(null);
+  const box = useGrow(text, pane);
   const openTerminal = useOpenTerminal(detail);
   const cmd = text.startsWith('!'); // command mode: the box shows it with the colour and the type alone
   const set = (v: string) => {
@@ -248,6 +281,7 @@ export function Compose(props: {
           onKeyDown={onKey}
         />
         <div className={COMPOSER_BAR}>
+          {canAttach.ok ? <AttachButton add={att.add} /> : null}
           {clearing ? (
             <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
               <Icon name="warn" size={14} label="Esc again clears the draft" />
