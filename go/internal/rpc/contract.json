@@ -347,6 +347,9 @@
  "task.comment.list": {
   "role": "agent"
  },
+ "task.comment.recipients": {
+  "role": "agent"
+ },
  "task.comment.send_now": {
   "role": "member"
  },

@@ -10,6 +10,7 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/delivery"
+	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
@@ -427,22 +428,49 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) e
 }
 
 // TellMemoOf is TellMemo for memo mid, whose tell to each reader is kept (db.LinkMemoTell) so the memo can show who has read it; mid 0 keeps none.
-func (e *Env) TellMemoOf(q db.Q, tid, mid int64, by, what, text, to string, now bool) (err error) {
+func (e *Env) TellMemoOf(q db.Q, tid, mid int64, by, what, text, to string, now bool) error {
+	return e.TellMemoSkipping(q, tid, mid, by, what, text, to, now, nil)
+}
+
+// TellMemoSkipping is TellMemoOf that leaves the agents in skip out.
+func (e *Env) TellMemoSkipping(q db.Q, tid, mid int64, by, what, text, to string, now bool, skip []string) (err error) {
 	defer Catch(&err)
 	row := must(db.GetTask(q, tid))
 	if row == nil {
 		return nil
 	}
 	body := memoLine(tid, what, by, text)
-	named := e.mentioned(text)
-	for _, a := range e.memoReaders(row, by, named) {
-		if delivery.ClassOf(delivery.Memo, now || by == db.Human || a == to || slices.Contains(named, a), false) != delivery.ClassNow {
-			continue // a memo nobody asked this reader to act on is on the board, not in its inbox
+	for _, r := range e.memoRecipients(row, by, text, to, now) {
+		if slices.Contains(skip, r.Agent) {
+			continue
 		}
-		rid := e.typeSay(q, a, body, "task memo")
-		e.linkMemoTell(q, mid, a, rid)
+		rid := e.typeSay(q, r.Agent, body, "task memo")
+		e.linkMemoTell(q, mid, r.Agent, rid)
 	}
 	return nil
+}
+
+// memoRecipients is the one rule for whom a comment on row is told: an agent it names with @ or that was said it (to) is asked; when the
+// founder wrote it, or it is sent now, who the task answers to (owner) and its assignee are told too. A comment that aims at no one is on the
+// board and in no agent's inbox.
+func (e *Env) memoRecipients(row *db.Task, by, text, to string, now bool) []taskwrites.Recipient {
+	named := e.mentioned(text)
+	var out []taskwrites.Recipient
+	for _, a := range e.memoReaders(row, by, named) {
+		asked := a == to || slices.Contains(named, a)
+		if delivery.ClassOf(delivery.Memo, now || by == db.Human || asked, false) != delivery.ClassNow {
+			continue
+		}
+		why := "owner"
+		switch {
+		case asked:
+			why = "asked"
+		case a == row.Owner:
+			why = "assignee"
+		}
+		out = append(out, taskwrites.Recipient{Agent: a, Why: why})
+	}
+	return out
 }
 
 // linkMemoTell keeps that request rid told reader of memo mid; a failure is logged, since the tell itself went out.

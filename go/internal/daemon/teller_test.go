@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"database/sql"
+	"fmt"
 	"github.com/handline/handline/go/internal/db"
 	"os"
 	"path/filepath"
@@ -246,5 +247,54 @@ func TestNoTellingWhenThePortsAreNotAllSet(t *testing.T) {
 	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"@bob mind the cache","request_id":"m1"}}`))
 	if got := agents.said("bob"); got != "" {
 		t.Fatalf("nothing is told: %q", got)
+	}
+}
+
+// recipients answers who add then tells, by one rule: with and without skip, for the founder's comment and an agent's.
+func TestCommentRecipientsAreExactlyWhoAddThenTells(t *testing.T) {
+	d, agents := tellDaemon(t, true)
+	tid, err := db.NewTask(d.db, "job", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	founder, agent := pipeTo(t, d, "k"), pipeTo(t, d, "")
+	recipients := func(f *pipeConn, text string) string {
+		var out []string
+		list, _ := result(t, f.ask(fmt.Sprintf(`{"jsonrpc":"2.0","id":5,"method":"task.comment.recipients","params":{"task":%d,"text":%q}}`, tid, text)))["recipients"].([]any)
+		for _, r := range list {
+			row := r.(map[string]any)
+			out = append(out, fmt.Sprint(row["agent"], ":", row["why"]))
+		}
+		return strings.Join(out, ",")
+	}
+	told := func(who string) bool { return strings.Contains(agents.said(who), "mind the cache") }
+	n := 0
+	add := func(f *pipeConn, skip string) {
+		n++
+		result(t, f.ask(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.comment.add","params":{"task":%d,"text":"@alice mind the cache","skip":%s,"request_id":"rc%d"}}`, 10+n, tid, skip, n)))
+	}
+	if got := recipients(founder, "@alice mind the cache"); got != "alice:asked,bob:assignee" {
+		t.Fatalf("the founder's comment is for who it names and the assignee: %q", got)
+	}
+	if got := recipients(agent, "@alice mind the cache"); got != "alice:asked" {
+		t.Fatalf("an agent's comment is for who it names: %q", got)
+	}
+	if got := recipients(agent, "no one named"); got != "" {
+		t.Fatalf("a comment naming no one is told to no one: %q", got)
+	}
+	add(founder, `[]`)
+	if !told("alice") || !told("bob") {
+		t.Fatalf("add told other than recipients said: alice %v bob %v", told("alice"), told("bob"))
+	}
+	d2, agents2 := tellDaemon(t, true)
+	tid2, _ := db.NewTask(d2.db, "job", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
+	result(t, pipeTo(t, d2, "k").ask(fmt.Sprintf(`{"jsonrpc":"2.0","id":9,"method":"task.comment.add","params":{"task":%d,"text":"@alice mind the cache","skip":["bob"],"request_id":"rs1"}}`, tid2)))
+	if !strings.Contains(agents2.said("alice"), "mind the cache") || strings.Contains(agents2.said("bob"), "mind the cache") {
+		t.Fatalf("a skipped assignee was told, or the one not skipped was not: alice %q bob %q", agents2.said("alice"), agents2.said("bob"))
+	}
+	var kept int
+	d2.db.QueryRow("SELECT COUNT(*) FROM task_memos WHERE task_id = ?", tid2).Scan(&kept)
+	if kept != 1 {
+		t.Fatalf("the comment stays on the task: %d", kept)
 	}
 }

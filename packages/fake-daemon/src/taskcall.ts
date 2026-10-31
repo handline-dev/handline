@@ -30,6 +30,8 @@ export function taskCall(
         return tasks.get(p, agent);
       case 'task.comment.list':
         return tasks.comments(p, agent);
+      case 'task.comment.recipients':
+        return tasks.recipients(p, person);
       case 'task.new':
         return ok('Task asked.', { task: tasks.create(p, person, agent) });
       case 'task.edit':

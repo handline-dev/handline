@@ -540,6 +540,8 @@ export interface TasksMethods {
   text: string;
   /** Tell every reader at once, even mid-turn. */
   now?: boolean;
+  /** Agents not to tell of this comment, from the ones task.comment.recipients names. Skipping the assignee is allowed; the comment stays on the task either way. A name that would not have been told is ignored. */
+  skip?: string[];
   /** The comment on the same task this one answers (Memo.reply_to). Refused (not_found memo) when the task has no such comment. */
   reply?: number;
   /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
@@ -548,12 +550,26 @@ export interface TasksMethods {
 }; result: Accepted & {
     memo: number;
   } };
+  "task.comment.recipients": { params: {
+  task: number;
+  /** The comment as typed; only its @names count. */
+  text: string;
+  /** As task.comment.add: every reader, not only the ones aimed at. */
+  now?: boolean;
+}; result: {
+    recipients: {
+      agent: string;
+      why: "asked" | "assignee" | "owner";
+    }[];
+  } };
   "task.memo.add": { params: {
   task: number;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
   /** Tell every reader at once, even mid-turn. */
   now?: boolean;
+  /** Agents not to tell of this comment, from the ones task.comment.recipients names. Skipping the assignee is allowed; the comment stays on the task either way. A name that would not have been told is ignored. */
+  skip?: string[];
   /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
   files?: string[];
   request_id: RequestId;
@@ -723,6 +739,7 @@ export const TASKS_METHODS: { [K in keyof TasksMethods]: { role: Role; callers: 
   "task.comment.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.memo.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.comment.add": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.recipients": { role: "agent", callers: null, write: false, since: 1 },
   "task.memo.add": { role: "agent", callers: null, write: true, since: 1 },
   "task.comment.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.edit": { role: "agent", callers: null, write: true, since: 1 },
