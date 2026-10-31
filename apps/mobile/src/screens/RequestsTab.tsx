@@ -1,7 +1,7 @@
 // The Requests tab: what waits on the person in the PC's four groups (Allow, Decide, Review, Do by hand), each row with its title, where it came from
 // and how long it has waited. A row opens its item full screen; the list is the one the item's "n of N" walks.
 import { FlatList, Pressable, Text, View } from 'react-native';
-import { REQUEST_GROUPS, ago, requestGroup, sourceWord, type Card } from '@handline/app-core';
+import { REQUEST_GROUPS, ago, requestGroup, sourceWord, type Card, type LaterAt } from '@handline/app-core';
 import { useInbox, useMyTurn, useServes } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
@@ -9,10 +9,16 @@ import type { Held } from '#src/heldAnswers.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { PageHeader } from '#src/screens/parts.tsx';
 import { RequestItem } from '#src/screens/RequestItem.tsx';
+import { LaterFold, type Deferred } from '#src/screens/RequestsLater.tsx';
 
 /** The cards that wait now: what a held answer took off the list is not among them, and none is counted twice. */
 export function useRequestCards(held: Held): Card[] {
   return useMyTurn().cards.filter((c) => !held.away.includes(c.key));
+}
+
+/** The items put off to Later, with when each returns; one a held answer took away is not among them. */
+export function useRequestLater(held: Held): Deferred[] {
+  return useMyTurn().later.filter((l) => !held.away.includes(l.card.key));
 }
 
 /** The cards in the order the list shows them, group by group. */
@@ -23,6 +29,9 @@ export function RequestsTab(props: {
   /** The open item's key, or null for the list. */
   item: string | null;
   onItem: (key: string | null) => void;
+  /** What is put off, and the call that puts an item off (a time) or returns it (null). */
+  later: Deferred[];
+  onLater: (card: Card, at: LaterAt | null) => void;
   onTask: (id: number) => void;
 }) {
   const c = usePalette();
@@ -31,13 +40,16 @@ export function RequestsTab(props: {
   const { served } = useServes('inbox.list');
   const ordered = inOrder(cards);
   const at = ordered.findIndex((x) => x.key === props.item);
-  const card = at >= 0 ? ordered[at] : undefined;
+  const off = props.later.find((l) => l.card.key === props.item);
+  const card = at >= 0 ? ordered[at] : off?.card;
   if (card)
     return (
       <RequestItem
         key={card.key}
         card={card}
-        at={{ n: at + 1, of: ordered.length }}
+        at={at >= 0 ? { n: at + 1, of: ordered.length } : null}
+        later={off?.at ?? null}
+        onLater={props.onLater}
         held={props.held}
         onBack={() => props.onItem(null)}
         onStep={(by) => props.onItem(ordered[at + by]?.key ?? props.item)}
@@ -56,8 +68,16 @@ export function RequestsTab(props: {
           </Text>
         }
       />
-      <Loadable query={query} served={served} isEmpty={cards.length === 0} skeleton="inbox" label="Requests" empty="Nothing needs you.">
+      <Loadable
+        query={query}
+        served={served}
+        isEmpty={cards.length === 0 && props.later.length === 0}
+        skeleton="inbox"
+        label="Requests"
+        empty="Nothing needs you."
+      >
         <FlatList
+          ListFooterComponent={<LaterFold items={props.later} onOpen={props.onItem} />}
           data={REQUEST_GROUPS.filter((g) => cards.some((x) => requestGroup(x) === g))}
           keyExtractor={(g) => g}
           renderItem={({ item: g }) => {
