@@ -34,7 +34,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   (`tools/pr-open.sh` refuses one).
 - New work goes in Go. The Python package `handline/` is gone; Python stays only in `tools/` and `contract/` (dev and test harnesses).
 - A screen change posts a before and after picture of each screen it adds or changes (PC and phone
-  where both change) on its task, for the founder to look at first, before any PR. The PR body
+  where both change) on its task, for the founder to look at first. The PR body
   carries no pictures.
 - Main requires the go and apps checks (branch protection): a PR merges once they are green.
 - Before you ask for a review, merge the current target (`story/<n>`, or main)
@@ -115,9 +115,9 @@ agent (ROLE.md, base.md); this file does not repeat them.
 ## How we work
 
 - Tests: write unit tests for logic (Go, contract, app-core, app-data, electron main) in the same
-  commit as the change. A screen change adds no render test: it posts before/after pictures on its task,
-  unless it changes one of the kept flow files, which are then updated.
-  Kept flow files, web: app, chat, chat-writes, tasks, new-agent, my-turn, terminal, terminal-copy-paste,
+  commit as the change. A screen change posts pictures and adds no render test; if it changes a kept
+  flow, update that flow's test file (`apps/web/test/<name>.test.tsx`, `apps/mobile/test/<name>.test.tsx`).
+  Kept flows, web: app, chat, chat-writes, tasks, new-agent, my-turn, terminal, terminal-copy-paste,
   u9, pairing, shell, chat-markdown. Mobile: screens, chat-tab, send-box, new-agent, requests-tab,
   task-verbs, terminal-input, prompts, chat-markdown. Work is not done until the tests pass. While iterating, run only the
   tests you touched (`cd go && go test ./internal/<pkg> -run <name>`); do not run the
