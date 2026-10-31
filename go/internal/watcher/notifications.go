@@ -23,6 +23,10 @@ type Notifications struct {
 
 func (*Notifications) Name() string { return "notifications" }
 
+func (*Notifications) Tables() []string {
+	return []string{"cursors", "events", "prompt_blocks", "tasks"}
+}
+
 const (
 	eventsCursor  = "stream:events"
 	promptsCursor = "stream:prompts"

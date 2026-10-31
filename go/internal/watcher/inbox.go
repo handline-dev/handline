@@ -42,6 +42,10 @@ type Inbox struct {
 
 func (*Inbox) Name() string { return "inbox" }
 
+func (*Inbox) Tables() []string {
+	return []string{"cursors", "events", "requests", "task_requests", "tasks"}
+}
+
 func (n *Inbox) now() time.Time {
 	if n.Now != nil {
 		return n.Now()

@@ -42,6 +42,11 @@ type Tasks struct {
 
 func (*Tasks) Name() string { return "tasks" }
 
+// Tables are the tables its reads touch (tables_test.go holds a list to what they touch).
+func (*Tasks) Tables() []string {
+	return []string{"agent_state", "events", "meta", "requests", "task_blocks", "task_memos", "task_requests", "task_tags", "tasks"}
+}
+
 // rowsPrint reads every row of query as text, keyed by its first column, so two reads are equal exactly when the rows are.
 func rowsPrint(q *sql.DB, query string, args ...any) (map[int64]string, error) {
 	rows, err := q.Query(query, args...)

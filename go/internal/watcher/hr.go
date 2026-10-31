@@ -21,6 +21,9 @@ type HR struct {
 
 func (*HR) Name() string { return "hr" }
 
+// Tables are none: its store is files, which the Watcher's Signature (HRSignature) watches.
+func (*HR) Tables() []string { return nil }
+
 // HRSignature is whether the store changed: the proposal files by name and modification time.
 func HRSignature(home string) func() string {
 	return func() string {

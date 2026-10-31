@@ -14,6 +14,8 @@ type Prefs struct {
 
 func (*Prefs) Name() string { return "prefs" }
 
+func (*Prefs) Tables() []string { return []string{"prefs"} }
+
 func (p *Prefs) Scan(q *sql.DB, emit Emit) error {
 	rows, err := q.Query("SELECT person, nav FROM prefs ORDER BY person")
 	if err != nil {

@@ -17,6 +17,10 @@ type Requests struct {
 
 func (*Requests) Name() string { return "requests" }
 
+func (*Requests) Tables() []string {
+	return []string{"events", "requests", "task_blocks", "task_memos", "task_requests", "tasks"}
+}
+
 func (r *Requests) Scan(_ *sql.DB, emit Emit) error {
 	now := time.Now
 	if r.Now != nil {

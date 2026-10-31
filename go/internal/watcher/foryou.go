@@ -36,6 +36,10 @@ func ForYouSignature(q *sql.DB) string {
 
 func (*ForYou) Name() string { return "for_you" }
 
+func (*ForYou) Tables() []string {
+	return []string{"agent_state", "cursors", "events", "prefs", "prompt_blocks", "requests", "task_blocks", "task_requests", "task_tags", "tasks"}
+}
+
 func (w *ForYou) Scan(_ *sql.DB, emit Emit) error {
 	items, _, err := w.Reads.ForYou()
 	if err != nil {
