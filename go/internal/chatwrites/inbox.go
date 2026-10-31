@@ -295,7 +295,7 @@ func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
 		res.Tell = func() string {
 			out := tell()
 			if w.tell != nil && w.e.Wired() {
-				w.tell.MemoChanged(tid.Int64, mid, me, "added", body, true)
+				w.tell.MemoChanged(tid.Int64, mid, me, "added", body, true, nil)
 			}
 			return out
 		}

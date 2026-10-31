@@ -6,7 +6,30 @@ import { TaskFailure, TaskStore, type Row } from '#src/taskstore.ts';
 /** `@human` in a comment: at the start or after a character that is not part of a name. */
 const NAMES_HUMAN = /(?:^|[^A-Za-z0-9._@-])@human(?:[^A-Za-z0-9_-]|$)/;
 
+/** An `@name` in a comment, as the daemon reads it: at the start or after a character that is not part of a name. */
+const NAMED = /(?:^|[^A-Za-z0-9._@-])@([A-Za-z0-9][A-Za-z0-9._-]*)/g;
+
 export class TaskComments extends TaskStore {
+  /**
+   * task.comment.recipients: who the daemon tells of a comment, and why, by its one rule. An agent named with `@` is asked; when the founder
+   * wrote it (or it is sent now) who the task answers to and its assignee are told too. Never the writer.
+   */
+  recipients(p: Record<string, unknown>, person: string): { recipients: { agent: string; why: 'asked' | 'assignee' | 'owner' }[] } {
+    const t = this.find(p.task);
+    const named = [...String(p.text).matchAll(NAMED)].map((m) => m[1]!.replace(/[.-]+$/, '')).filter((n) => this.isAgent(n));
+    const aimed = p.now === true || !this.isAgent(person);
+    const seen = new Set<string>(['', person, 'human']);
+    const recipients: { agent: string; why: 'asked' | 'assignee' | 'owner' }[] = [];
+    for (const agent of [t.from, t.to, ...named]) {
+      if (seen.has(agent)) continue;
+      seen.add(agent);
+      const asked = named.includes(agent);
+      if (!asked && !aimed) continue;
+      recipients.push({ agent, why: asked ? 'asked' : agent === t.to ? 'assignee' : 'owner' });
+    }
+    return { recipients };
+  }
+
   memo(p: Record<string, unknown>, op: 'add' | 'edit' | 'delete', person: string, agent = false): number {
     const t = this.find(p.task);
     const memos = (t.memos ??= []);

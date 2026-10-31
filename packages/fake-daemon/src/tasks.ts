@@ -71,6 +71,7 @@ const BASIC = new Set([
   'tasks.list',
   'task.get',
   'task.comment.list',
+  'task.comment.recipients',
   'task.history',
   'task.time',
   'task.new',
