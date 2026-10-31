@@ -52,6 +52,11 @@ func TestRequestsAreReadFromTheirTreeOfTasks(t *testing.T) {
 		len(r["holders"].([]string)) != 2 || len(r["prs"].([]int64)) != 1 {
 		t.Errorf("a tree is counted: %v", r)
 	}
+	for k, want := range map[string]string{"T10": "sub 1/2 done, now dev, in review", "T20": "done", "T30": "sub 0/1 done, now lead, waiting on you", "msg_aaaaaaaaaaa3": ""} {
+		if by[k]["progress"] != want {
+			t.Errorf("%s progress %q, want %q", k, by[k]["progress"], want)
+		}
+	}
 	if rows[0]["task"] != int64(30) && rows[0]["cursor"].(string) < rows[len(rows)-1]["cursor"].(string) {
 		t.Errorf("newest first: %v", rows)
 	}

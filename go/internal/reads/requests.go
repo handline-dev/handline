@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -35,12 +36,13 @@ type requestNode struct {
 	id, at, pr int64
 	owner      string
 	open       bool
+	blocked    bool // it waits on another open task
 }
 
 // RequestRows is requests.list's rows, newest activity first, before filtering by state and paging.
 func (e *Env) RequestRows(now int64) ([]map[string]any, error) {
 	since := now - requestWindowS
-	roots, err := query(e.DB, "SELECT id, title, owner, from_request, created_at, done_evidence, done_at FROM tasks WHERE opened_by = ? AND owner != ? "+
+	roots, err := query(e.DB, "SELECT id, title, owner, from_request, created_at, done_evidence, done_at FROM tasks WHERE COALESCE(reporter, opened_by) = ? AND owner != ? "+
 		"AND parent_task IS NULL AND discarded_by IS NULL AND (done_evidence IS NULL OR done_at >= ?) ORDER BY id", human, human, since)
 	if err != nil {
 		return nil, err
@@ -67,7 +69,8 @@ func (e *Env) RequestRows(now int64) ([]map[string]any, error) {
 		tree := nodes[id]
 		status, holders, prs := reqDoing, map[string]bool{}, map[int64]bool{}
 		open, done, last, waiting, review := 0, 0, r.i("created_at"), false, false
-		for _, n := range tree {
+		var now, rootNow *requestNode // now: the open task under the root with the latest activity; the root's own when nothing is under it
+		for i, n := range tree {
 			last = max(last, n.at)
 			if n.id != id {
 				if n.open {
@@ -83,6 +86,11 @@ func (e *Env) RequestRows(now int64) ([]map[string]any, error) {
 				waiting = true
 			} else if n.owner != db.Gate {
 				holders[n.owner] = true
+				if n.id == id {
+					rootNow = &tree[i]
+				} else if now == nil || n.at >= now.at {
+					now = &tree[i]
+				}
 			}
 			if n.pr != 0 {
 				review, prs[n.pr] = true, true
@@ -96,9 +104,17 @@ func (e *Env) RequestRows(now int64) ([]map[string]any, error) {
 		case review:
 			status = reqReview
 		}
+		if now == nil {
+			now = rootNow
+		}
 		agent := r.str("owner")
+		nowAgent, blocked := any(nil), false
+		if now != nil && status != reqDone {
+			nowAgent, blocked = now.owner, now.blocked
+		}
 		row := map[string]any{"kind": "task", "task": id, "ref": nil, "title": r.str("title"), "status": status, "agent": agent,
-			"holders": sortedKeys(holders), "open": open, "done": done, "prs": sortedNums(prs), "reason": nil, "unread_comments": unread[id],
+			"holders": sortedKeys(holders), "open": open, "done": done, "prs": sortedNums(prs), "now": nowAgent, "blocked": blocked,
+			"progress": progressLine(status, open, done, nowAgent, blocked), "reason": nil, "unread_comments": unread[id],
 			"created": ts(r["created_at"]), "last_activity": ts(last), "cursor": cursorOf(last, "t", id)}
 		if rid := r.i("from_request"); rid != 0 {
 			row["ref"] = origins[rid].ref
@@ -116,11 +132,34 @@ func (e *Env) RequestRows(now int64) ([]map[string]any, error) {
 			status, reason = reqNoWork, m.str("no_work")
 		}
 		out = append(out, map[string]any{"kind": "message", "task": nil, "ref": db.MsgPrefix + m.str("ref"), "title": head(firstLine(m.str("body")), 80),
-			"status": status, "agent": m.str("target"), "holders": []string{}, "open": 0, "done": 0, "prs": []int64{}, "reason": reason, "unread_comments": 0,
+			"status": status, "agent": m.str("target"), "holders": []string{}, "open": 0, "done": 0, "prs": []int64{}, "now": nil, "blocked": false, "progress": "", "reason": reason, "unread_comments": 0,
 			"created": ts(m["ts"]), "last_activity": ts(m["ts"]), "cursor": cursorOf(m.i("ts"), "m", m.i("id"))})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i]["cursor"].(string) > out[j]["cursor"].(string) })
 	return out, nil
+}
+
+// progressLine is a request in one line: `sub 3/5 done, now daemon-core, in review`.
+func progressLine(status string, open, done int, now any, blocked bool) string {
+	if status == reqDone {
+		return "done"
+	}
+	var parts []string
+	if open+done > 0 {
+		parts = append(parts, fmt.Sprintf("sub %d/%d done", done, open+done))
+	}
+	if who, ok := now.(string); ok {
+		parts = append(parts, "now "+who)
+	}
+	switch {
+	case status == reqWaitingOnYou:
+		parts = append(parts, "waiting on you")
+	case blocked:
+		parts = append(parts, "blocked")
+	case status == reqReview:
+		parts = append(parts, "in review")
+	}
+	return strings.Join(parts, ", ")
 }
 
 // cursorOf orders rows by last activity, then kind and number; text of one width sorts as it reads.
@@ -137,9 +176,10 @@ const plainMessagesSQL = "SELECT id, ref, ts, target, body, no_work FROM request
 
 // requestNodes is the tasks of every request's tree, by the root's number: the root and every task under it, kept or ended since.
 func (e *Env) requestNodes(since int64) (map[int64][]requestNode, error) {
-	rows, err := query(e.DB, "WITH RECURSIVE sub(root, id) AS (SELECT id, id FROM tasks WHERE opened_by = ? AND owner != ? AND parent_task IS NULL "+
+	rows, err := query(e.DB, "WITH RECURSIVE sub(root, id) AS (SELECT id, id FROM tasks WHERE COALESCE(reporter, opened_by) = ? AND owner != ? AND parent_task IS NULL "+
 		"UNION SELECT s.root, k.id FROM tasks k JOIN sub s ON k.parent_task = s.id) "+
 		"SELECT s.root, t.id, t.owner, COALESCE(t.pr, 0) AS pr, (t.done_evidence IS NULL AND t.discarded_by IS NULL) AS open, "+
+		"EXISTS(SELECT 1 FROM task_blocks b JOIN tasks w ON w.id = b.blocks_on WHERE b.task_id = t.id AND b.dormant = 0 AND w.done_evidence IS NULL AND w.discarded_by IS NULL) AS blocked, "+
 		"MAX(t.created_at, COALESCE(t.done_at, 0), COALESCE(t.edited_at, 0), COALESCE(t.discarded_at, 0), "+
 		"COALESCE((SELECT MAX(m.created_at) FROM task_memos m WHERE m.task_id = t.id), 0)) AS at "+
 		"FROM sub s JOIN tasks t ON t.id = s.id WHERE t.discarded_by IS NULL OR t.discarded_at >= ? ORDER BY t.id", human, human, since)
@@ -148,7 +188,7 @@ func (e *Env) requestNodes(since int64) (map[int64][]requestNode, error) {
 	}
 	out := map[int64][]requestNode{}
 	for _, r := range rows {
-		out[r.i("root")] = append(out[r.i("root")], requestNode{id: r.i("id"), owner: r.str("owner"), pr: r.i("pr"), open: r.i("open") == 1, at: r.i("at")})
+		out[r.i("root")] = append(out[r.i("root")], requestNode{id: r.i("id"), owner: r.str("owner"), pr: r.i("pr"), open: r.i("open") == 1, blocked: r.i("blocked") == 1, at: r.i("at")})
 	}
 	return out, nil
 }

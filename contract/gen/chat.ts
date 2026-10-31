@@ -294,7 +294,7 @@ export type ChatAction = {
   needs?: string;
 };
 
-/** One row of the founder's requests. */
+/** One row of the founder's requests. A request is a task whose reporter is the founder (a task opened by them or made from their message), top of its tree. */
 export type RequestRow = {
   /** task: a request the founder opened (task.request, or a task of their own for a lead). message: a message of theirs that is not a task yet. */
   kind: "task" | "message";
@@ -317,6 +317,12 @@ export type RequestRow = {
   done: number;
   /** PRs of the open tasks in the tree. */
   prs: number[];
+  /** The agent holding the open task with the latest activity under the request (the one at work now); null once done, when the founder holds the open one, or for a message. */
+  now: string | null;
+  /** The open task named by `now` waits on another open task (task_blocks, not dormant). */
+  blocked: boolean;
+  /** The request's state in one line for the list, from the same facts as the fields: `sub 3/5 done, now daemon-core, in review` (subtasks done of all under the request's own task; the agent at work now; `in review` with a PR, `waiting on you`, `blocked`). Without subtasks `now daemon-core, in review`; empty for a message; `done` once done. */
+  progress: string;
   /** Why a message needs no work (status no_work). */
   reason: string | null;
   /** Agents' comments on the request that the founder has not read: what its inbox line counts. */
