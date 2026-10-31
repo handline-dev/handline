@@ -1,24 +1,20 @@
 # How much the web app draws in everyday scenarios (apps/web/scripts/perf/run.ts), checked against apps/web/perf-budget.json:
-# nightly, and on pull requests that change the web app or the packages it draws from. Headless Chrome only.
+# nightly (about 18:30 UTC) and on a manual run only, not on pull requests. Headless Chrome only.
+# A failed run comments on one open issue titled "Nightly perf run failed" (opened if none), so a bad week is one thread.
 name: perf
 
 on:
   schedule:
-    - cron: '30 18 * * *' # 03:30 KST
+    - cron: '30 18 * * *'
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'apps/web/**'
-      - 'packages/app-*/**'
-      - 'packages/fake-daemon/**'
 
 concurrency:
-  group: perf-${{ github.event.pull_request.number || github.ref }}
+  group: perf-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   web:
@@ -39,3 +35,13 @@ jobs:
           name: perf
           path: apps/web/scripts/perf/out/perf.json
           if-no-files-found: ignore
+      - if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Nightly perf run failed'
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number,title -q "[.[]|select(.title==\"$title\")][0].number // empty")"
+          body="The perf run failed on $GITHUB_REF_NAME ($GITHUB_EVENT_NAME): $RUN"
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
