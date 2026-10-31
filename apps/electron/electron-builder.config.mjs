@@ -38,4 +38,6 @@ export default {
     entitlementsInherit: developerId ? 'assets/entitlements.mac.plist' : undefined,
   },
   dmg: { sign: false },
+  // The address of the rolling release (.github/workflows/mac-release.yml): with it electron-builder writes latest-mac.yml next to the zip.
+  publish: process.env.HANDLINE_UPDATE_URL ? { provider: 'generic', url: process.env.HANDLINE_UPDATE_URL } : undefined,
 };
