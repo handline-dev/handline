@@ -39,7 +39,9 @@ APP_MAIN="\${HANDLINE_FOLLOW_DIR:-$DATA/app-main}"
 mkdir -p "$DATA"
 exec >>"$DATA/launcher.log" 2>&1
 echo "== $(date) open"
-notify() { osascript -e "display notification \\"$1\\" with title \\"Handline\\"" >/dev/null 2>&1; }
+# A notification from osascript wears the Script Editor icon, so the message is a short dialog with the Handline icon that closes itself.
+ICON="$(cd "$(dirname "$0")/../Resources" && pwd)/Handline.icns"
+notify() { osascript -e "display dialog \\"$1\\" with title \\"Handline\\" buttons {\\"OK\\"} default button 1 giving up after 8 with icon POSIX file \\"$ICON\\"" >/dev/null 2>&1 & }
 
 # Already running: bring its window to the front.
 running=$(pgrep -f 'Handline-[0-9.]+\\.app/Contents/MacOS/Electron( |$)' | head -1)
@@ -65,10 +67,10 @@ if [ ! -d "$APP_MAIN/.git" ]; then
   notify "Handline cannot start: run pnpm app once from the repo first."
   exit 1
 fi
-export HANDLINE_SOURCE_GIT=$(git -C "$APP_MAIN" remote get-url origin)
+export ICON HANDLINE_SOURCE_GIT=$(git -C "$APP_MAIN" remote get-url origin)
 notify "Handline is starting. It brings itself up to the latest main first, which can take a few minutes."
 cd "$APP_MAIN" || exit 1
-nohup bash -c 'node apps/electron/follow-start.ts || osascript -e "display notification \\"Handline could not start. See ~/.local/share/handline/launcher.log\\" with title \\"Handline\\""' >>"$DATA/launcher.log" 2>&1 &
+nohup bash -c 'node apps/electron/follow-start.ts || osascript -e "display dialog \\"Handline could not start. See ~/.local/share/handline/launcher.log\\" with title \\"Handline\\" buttons {\\"OK\\"} default button 1 with icon POSIX file \\"$ICON\\""' >>"$DATA/launcher.log" 2>&1 &
 `;
 }
 

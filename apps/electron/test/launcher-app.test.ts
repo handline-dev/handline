@@ -49,3 +49,9 @@ test('a second open while the first is still building says so and starts nothing
   assert.ok(at < s.indexOf('nohup'), 'before the start');
   assert.match(s.slice(at, s.indexOf('nohup')), /already starting[\s\S]*exit 0/);
 });
+
+test('the launcher tells the person with a dialog that carries the Handline icon, not a notification that wears the Script Editor icon', () => {
+  const s = launcherScript();
+  assert.doesNotMatch(s, /display notification/);
+  assert.match(s, /with icon POSIX file/);
+});

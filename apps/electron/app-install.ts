@@ -4,29 +4,12 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { makeIcns } from '#src/icns.ts';
 import { infoPlist, launcherScript } from '#src/launcher-app.ts';
 
 const dir = process.env.HANDLINE_APPLICATIONS_DIR ?? '/Applications';
 const target = path.join(dir, 'Handline.app');
 const work = `${target}.installing-${process.pid}`;
-const icon = path.join(import.meta.dirname, 'assets', 'icon.png');
-
-/** Handline.icns from the 1024 px icon: every size macOS asks for, made with sips and iconutil. */
-function makeIcns(out: string): void {
-  const set = `${work}.iconset`;
-  fs.mkdirSync(set, { recursive: true });
-  try {
-    for (const size of [16, 32, 128, 256, 512]) {
-      for (const scale of [1, 2]) {
-        const name = `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`;
-        execFileSync('sips', ['-z', String(size * scale), String(size * scale), icon, '--out', path.join(set, name)], { stdio: 'ignore' });
-      }
-    }
-    execFileSync('iconutil', ['-c', 'icns', set, '-o', out]);
-  } finally {
-    fs.rmSync(set, { recursive: true, force: true });
-  }
-}
 
 if (os.platform() !== 'darwin') {
   console.error('app:install makes a Mac app: it runs on a Mac only');
@@ -38,7 +21,7 @@ try {
   fs.mkdirSync(path.join(work, 'Contents', 'Resources'), { recursive: true });
   fs.writeFileSync(path.join(work, 'Contents', 'Info.plist'), infoPlist());
   fs.writeFileSync(path.join(work, 'Contents', 'MacOS', 'Handline'), launcherScript(), { mode: 0o755 });
-  makeIcns(path.join(work, 'Contents', 'Resources', 'Handline.icns'));
+  makeIcns(path.join(work, 'Contents', 'Resources', 'Handline.icns'), work);
   execFileSync('codesign', ['--force', '--sign', '-', work]);
   fs.rmSync(target, { recursive: true, force: true });
   fs.renameSync(work, target);

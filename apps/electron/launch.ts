@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { buildPath, bundleExe, bundlePath, PLIST_NAMES } from '#src/handline-bundle.ts';
+import { makeIcns } from '#src/icns.ts';
 
 const require = createRequire(import.meta.url);
 const electron = require('electron') as string; // the path of the executable inside Electron.app
@@ -23,6 +24,7 @@ function handlineBundle(from: string, to: string): string {
     execFileSync('cp', ['-Rc', from, work]); // an APFS clone: no second 750 MB
     const plist = path.join(work, 'Contents', 'Info.plist');
     for (const [key, value] of PLIST_NAMES) execFileSync('plutil', ['-replace', key, '-string', value, plist]);
+    makeIcns(path.join(work, 'Contents', 'Resources', 'electron.icns'), work); // the file the copy's Info.plist names: Finder, the Dock and Cmd-Tab show Handline's mark
     // Editing the plist breaks the bundle's seal, and Apple Silicon wants a signature: the outer seal only, the frameworks keep their own.
     execFileSync('codesign', ['--force', '--sign', '-', work]);
     fs.renameSync(work, to);
