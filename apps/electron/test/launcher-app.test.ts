@@ -24,11 +24,11 @@ test('a second open brings the running Handline bundle to the front instead of s
   const s = launcherScript();
   const pattern = /pgrep -f '([^']+)'/.exec(s)?.[1] ?? '';
   const re = new RegExp(pattern);
-  assert.ok(re.test('/Users/x/.local/share/handline/Handline-38.8.6.app/Contents/MacOS/Handline .'));
-  assert.ok(re.test('/Users/x/.local/share/handline/Handline-38.8.6.app/Contents/MacOS/Handline'));
+  assert.ok(re.test('/Users/x/.local/share/handline/Handline-38.8.6.app/Contents/MacOS/Electron .'));
+  assert.ok(re.test('/Users/x/.local/share/handline/Handline-38.8.6.app/Contents/MacOS/Electron'));
   assert.ok(
     !re.test(
-      '/Users/x/.local/share/handline/Handline-38.8.6.app/Contents/Frameworks/Handline Helper (GPU).app/Contents/MacOS/Handline Helper (GPU)',
+      '/Users/x/.local/share/handline/Handline-38.8.6.app/Contents/Frameworks/Handline Helper (GPU).app/Contents/MacOS/Electron Helper (GPU)',
     ),
   );
   assert.ok(!re.test('/bin/bash /Applications/Handline.app/Contents/MacOS/Handline'), 'the launcher does not find itself');

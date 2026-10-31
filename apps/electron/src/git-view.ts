@@ -7,12 +7,15 @@ import type { OpenDeps } from '#src/open.ts';
 
 const run = (cwd: string, args: string[]): Promise<Buffer | null> =>
   new Promise((resolve) =>
-    execFile('git', ['-C', cwd, ...args], { encoding: 'buffer', maxBuffer: 20 * 1024 * 1024, timeout: 10_000 }, (err, out) => resolve(err ? null : out)),
+    execFile('git', ['-C', cwd, ...args], { encoding: 'buffer', maxBuffer: 20 * 1024 * 1024, timeout: 10_000 }, (err, out) =>
+      resolve(err ? null : out),
+    ),
   );
 
 export const gitView: NonNullable<OpenDeps['git']> = {
   async hasBranch(cwd, name) {
-    for (const ref of [`refs/heads/${name}`, `refs/remotes/origin/${name}`]) if (await run(cwd, ['rev-parse', '--verify', '--quiet', ref])) return true;
+    for (const ref of [`refs/heads/${name}`, `refs/remotes/origin/${name}`])
+      if (await run(cwd, ['rev-parse', '--verify', '--quiet', ref])) return true;
     return false;
   },
   async show(cwd, ref, file) {

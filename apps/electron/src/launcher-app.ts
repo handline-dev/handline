@@ -42,7 +42,7 @@ echo "== $(date) open"
 notify() { osascript -e "display notification \\"$1\\" with title \\"Handline\\"" >/dev/null 2>&1; }
 
 # Already running: bring its window to the front.
-running=$(pgrep -f 'Handline-[0-9.]+\\.app/Contents/MacOS/Handline( |$)' | head -1)
+running=$(pgrep -f 'Handline-[0-9.]+\\.app/Contents/MacOS/Electron( |$)' | head -1)
 if [ -n "$running" ]; then
   exe=$(ps -o command= -p "$running")
   open "\${exe%/Contents/MacOS/*}"

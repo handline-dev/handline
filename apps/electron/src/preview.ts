@@ -58,7 +58,12 @@ export class Preview {
       // A link that wants a new window stays out: the preview is one page.
       this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     }
-    this.view.setBounds({ x: Math.round(p.x), y: Math.round(p.y), width: Math.max(0, Math.round(p.width)), height: Math.max(0, Math.round(p.height)) });
+    this.view.setBounds({
+      x: Math.round(p.x),
+      y: Math.round(p.y),
+      width: Math.max(0, Math.round(p.width)),
+      height: Math.max(0, Math.round(p.height)),
+    });
     if (p.url !== this.shown) {
       this.shown = p.url;
       void this.view.webContents.loadURL(p.url).catch(() => undefined);
@@ -71,7 +76,9 @@ export class Preview {
     if (!fromWindow(e, this.origin)) return bad('not from the app window');
     if (!this.view) return { ok: false, code: 'unavailable', message: 'The preview is not showing.' };
     const image = await this.view.webContents.capturePage();
-    return image.isEmpty() ? { ok: false, code: 'unavailable', message: 'The preview is blank.' } : { ok: true, png: image.toPNG().toString('base64') };
+    return image.isEmpty()
+      ? { ok: false, code: 'unavailable', message: 'The preview is blank.' }
+      : { ok: true, png: image.toPNG().toString('base64') };
   }
 
   close(): void {

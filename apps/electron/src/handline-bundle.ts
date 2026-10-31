@@ -7,9 +7,14 @@ export const bundlePath = (dir: string, version: string): string => path.join(di
 /** The folder a half-made copy is built in, renamed to its place once whole; the process id keeps two first launches apart. */
 export const buildPath = (to: string, pid: number): string => `${to}.building-${pid}`;
 
-/** The plist keys that make the menu bar, the dock and the Activity Monitor say Handline. */
+/**
+ * The plist keys that make the menu bar and the dock say Handline. The executable keeps its name: Electron takes an executable that is not called
+ * Electron for a packaged app, which then looks for its page and its binaries in Resources.
+ */
 export const PLIST_NAMES: readonly (readonly [string, string])[] = [
   ['CFBundleName', 'Handline'],
   ['CFBundleDisplayName', 'Handline'],
-  ['CFBundleExecutable', 'Handline'],
 ];
+
+/** The executable of a bundle made by launch.ts. */
+export const bundleExe = (to: string): string => path.join(to, 'Contents', 'MacOS', 'Electron');

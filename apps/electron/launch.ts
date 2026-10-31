@@ -6,21 +6,21 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { buildPath, bundlePath, PLIST_NAMES } from '#src/handline-bundle.ts';
+import { buildPath, bundleExe, bundlePath, PLIST_NAMES } from '#src/handline-bundle.ts';
 
 const require = createRequire(import.meta.url);
 const electron = require('electron') as string; // the path of the executable inside Electron.app
 
 /** Electron.app copied as Handline-<version>.app, once; returns its executable. A finished copy is never touched, so a running app keeps its own. */
 function handlineBundle(from: string, to: string): string {
-  const exe = path.join(to, 'Contents', 'MacOS', 'Handline');
+  const exe = bundleExe(to);
   if (fs.existsSync(exe)) return exe;
+  fs.rmSync(to, { recursive: true, force: true }); // a bundle without its executable is one an older launcher made, with the executable renamed
   const work = buildPath(to, process.pid);
   fs.rmSync(work, { recursive: true, force: true });
   try {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     execFileSync('cp', ['-Rc', from, work]); // an APFS clone: no second 750 MB
-    fs.renameSync(path.join(work, 'Contents', 'MacOS', 'Electron'), path.join(work, 'Contents', 'MacOS', 'Handline'));
     const plist = path.join(work, 'Contents', 'Info.plist');
     for (const [key, value] of PLIST_NAMES) execFileSync('plutil', ['-replace', key, '-string', value, plist]);
     // Editing the plist breaks the bundle's seal, and Apple Silicon wants a signature: the outer seal only, the frameworks keep their own.
