@@ -35,10 +35,18 @@ type Chat struct {
 	done    map[int64]string  // request -> the message as last said, for the ones touched in the second the cursor is at
 	open    map[int64]bool    // the prompts told open and not yet told closed
 	working map[string]string
+	running bool           // a command run was still running at the last look
 	unbound map[int64]bool // the fresh session starts whose session id was not known at the last look
 }
 
 func (*Chat) Name() string { return "chat" }
+
+func (*Chat) Tables() []string {
+	return []string{"agent_view", "cursors", "events", "meta", "operations", "prompt_blocks", "requests", "session_starts", "task_requests", "tasks"}
+}
+
+// Pending is whether a command run was still running at the last look and the terminal host is asked: its window ends without a write.
+func (c *Chat) Pending() bool { return c.running && c.Panes != nil }
 
 func encoded(v any) string {
 	b, _ := json.Marshal(v)
@@ -145,6 +153,10 @@ func (c *Chat) runs(q *sql.DB, emit Emit) error {
 	first := c.runSeen == nil
 	if first {
 		c.runSeen = map[string]string{}
+	}
+	c.running = false
+	for _, r := range all {
+		c.running = c.running || r.State == "running"
 	}
 	pass := c.Reads.ChatRequests()
 	for _, r := range all {

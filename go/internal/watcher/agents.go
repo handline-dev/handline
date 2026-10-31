@@ -18,6 +18,8 @@ type Agents struct {
 
 func (*Agents) Name() string { return "agents" }
 
+func (*Agents) Tables() []string { return []string{"agent_view"} }
+
 func stateOf(view string) string {
 	var v struct {
 		State string `json:"state"`
