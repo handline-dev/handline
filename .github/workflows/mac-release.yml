@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   plan:
@@ -33,7 +33,8 @@ jobs:
         run: |
           build=true
           if [ "${{ github.event_name }}" = schedule ]; then
-            at="$(gh release view mac-nightly --repo "$GITHUB_REPOSITORY" --json targetCommitish -q .targetCommitish 2>/dev/null || true)"
+            # The release notes end with the commit the build was made from.
+            at="$(gh release view mac-nightly --repo "$GITHUB_REPOSITORY" --json body -q .body 2>/dev/null | sed -n 's/^Commit: //p' | head -1 || true)"
             [ "$at" != "$GITHUB_SHA" ] || build=false
           fi
           echo "build=$build" >> "$GITHUB_OUTPUT"
@@ -42,6 +43,9 @@ jobs:
     if: needs.plan.outputs.build == 'true'
     runs-on: macos-14
     timeout-minutes: 60
+    permissions:
+      contents: write
+      issues: write
     env:
       VERSION: 0.1.${{ github.run_number }}
       HANDLINE_UPDATE_URL: https://github.com/${{ github.repository }}/releases/download/mac-nightly
@@ -69,12 +73,38 @@ jobs:
           ls -l
           for f in latest-mac.yml Handline-*-universal-mac.zip Handline-*-universal.dmg; do ls $f >/dev/null || { echo "missing $f"; exit 1; }; done
           grep -q "version: $VERSION" latest-mac.yml
-      - name: Replace the rolling release
+          # The file the app downloads must be the one latest-mac.yml names: the sha512 in the yml is base64 of the digest.
+          for f in Handline-*-universal-mac.zip Handline-*-universal.dmg; do
+            want="$(awk -v n="$f" '$1=="-" && $2=="url:" && $3==n {g=1} g && $1=="sha512:" {print $2; exit}' latest-mac.yml)"
+            got="$(shasum -a 512 "$f" | cut -d' ' -f1 | xxd -r -p | base64)"
+            [ -n "$want" ] && [ "$want" = "$got" ] || { echo "sha512 of $f is not the one in latest-mac.yml"; exit 1; }
+          done
+      - name: Update the rolling release, new files first, latest-mac.yml last, old files out at the end
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd apps/electron/release
-          gh release delete mac-nightly --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
-          gh release create mac-nightly latest-mac.yml Handline-*-universal-mac.zip Handline-*-universal.dmg Handline-*.blockmap \
-            --repo "$GITHUB_REPOSITORY" --prerelease --target "$(git rev-parse HEAD)" --title "Handline for Mac $VERSION" \
-            --notes "Mac build $VERSION of main. latest-mac.yml is what the app reads to see if it is up to date."
+          notes="Mac build $VERSION of main. latest-mac.yml is what the app reads to see if it is up to date.
+          Commit: $(git rev-parse HEAD)"
+          assets=(Handline-*-universal-mac.zip Handline-*-universal.dmg Handline-*.blockmap)
+          if gh release view mac-nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload mac-nightly "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload mac-nightly latest-mac.yml --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit mac-nightly --repo "$GITHUB_REPOSITORY" --title "Handline for Mac $VERSION" --notes "$notes"
+            for old in $(gh release view mac-nightly --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'); do
+              case " ${assets[*]} latest-mac.yml " in *" $old "*) ;; *) gh release delete-asset mac-nightly "$old" --repo "$GITHUB_REPOSITORY" --yes ;; esac
+            done
+          else
+            gh release create mac-nightly latest-mac.yml "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --prerelease --target "$(git rev-parse HEAD)" --title "Handline for Mac $VERSION" --notes "$notes"
+          fi
+      - if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Nightly Mac build failed'
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number,title -q "[.[]|select(.title==\"$title\")][0].number // empty")"
+          body="The Mac build failed on $GITHUB_REF_NAME ($GITHUB_EVENT_NAME): $RUN"
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
