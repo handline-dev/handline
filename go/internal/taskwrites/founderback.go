@@ -21,7 +21,7 @@ func ReturnFounderTasks(d *sql.DB, home string, tell Teller) (said []string, err
 	if done, _, _ := db.Meta(d, founderBackKey); done == "done" {
 		return nil, nil
 	}
-	rows, err := d.Query("SELECT t.id, t.opened_by, " +
+	rows, err := d.Query("SELECT t.id, t.opened_by, t.title, " +
 		"COALESCE((SELECT e.payload FROM events e WHERE e.kind = 'task_handoff' AND json_valid(e.payload) AND json_extract(e.payload, '$.task_id') = t.id " +
 		"AND json_extract(e.payload, '$.to') = 'human' AND json_extract(e.payload, '$.from') NOT IN ('human', 'gate', 'daemon') ORDER BY e.id DESC LIMIT 1), '') " +
 		"FROM tasks t WHERE t.owner = 'human' AND t.done_evidence IS NULL AND t.discarded_by IS NULL")
@@ -29,14 +29,14 @@ func ReturnFounderTasks(d *sql.DB, home string, tell Teller) (said []string, err
 		return nil, err
 	}
 	type back struct {
-		id               int64
-		to, note, opener string
+		id                      int64
+		to, note, opener, title string
 	}
 	var all []back
 	for rows.Next() {
 		var b back
 		var payload string
-		if err := rows.Scan(&b.id, &b.opener, &payload); err != nil {
+		if err := rows.Scan(&b.id, &b.opener, &b.title, &payload); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -78,12 +78,16 @@ func ReturnFounderTasks(d *sql.DB, home string, tell Teller) (said []string, err
 			if err != nil {
 				return err
 			}
-			body := strings.TrimSpace("@human " + b.note)
-			mid, err := db.AddMemo(tx, b.id, b.to, body)
+			// with no note the ask is the task's title, and it is the daemon's words: the agent wrote none
+			author, body := b.to, strings.TrimSpace("@human "+b.note)
+			if strings.TrimSpace(b.note) == "" {
+				author, body = "daemon", "@human "+b.title
+			}
+			mid, err := db.AddMemo(tx, b.id, author, body)
 			if err != nil {
 				return err
 			}
-			return syncMemoAsk(tx, b.id, mid, b.to, body)
+			return syncMemoAsk(tx, b.id, mid, author, body)
 		}()
 		if err == nil {
 			err = tx.Commit()

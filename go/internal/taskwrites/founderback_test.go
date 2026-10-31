@@ -24,10 +24,18 @@ func TestFounderTasksGoBackToWhoHandedThemOver(t *testing.T) {
 		}
 	}
 	if count(t, sdb, "SELECT COUNT(*) FROM task_memos WHERE task_id = 1 AND author = 'w' AND body = '@human which one?'") != 1 ||
-		count(t, sdb, "SELECT COUNT(*) FROM requests WHERE requester = 'w' AND target = 'human' AND state = 'queued'") != 2 || len(f.handed) != 2 {
+		count(t, sdb, "SELECT COUNT(*) FROM requests WHERE requester = 'w' AND target = 'human' AND state = 'queued'") != 1 || len(f.handed) != 2 {
 		t.Errorf("each goes back with an ask to the founder, and its owner is told: %+v", f.handed)
 	}
+	if count(t, sdb, "SELECT COUNT(*) FROM task_memos WHERE task_id = 2 AND author = 'daemon' AND body = '@human opened'") != 1 ||
+		count(t, sdb, "SELECT COUNT(*) FROM requests WHERE requester = 'daemon' AND target = 'human' AND body = '@human opened'") != 1 {
+		t.Errorf("a task handed over with no note asks with its title, in the daemon's name")
+	}
+	sdb.Exec("UPDATE tasks SET owner = 'human' WHERE id = 2") // the founder may take a task, and it stays theirs after a restart
 	if again, err := ReturnFounderTasks(sdb, home, f); err != nil || len(again) != 0 {
 		t.Fatalf("it runs once: %q %v", again, err)
+	}
+	if count(t, sdb, "SELECT COUNT(*) FROM tasks WHERE id = 2 AND owner = 'human'") != 1 {
+		t.Fatal("a task the founder took stays theirs")
 	}
 }
