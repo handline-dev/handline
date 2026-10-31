@@ -5,7 +5,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
-| `devices.list` | founder |  | none | `{devices}` |  |  |
+| `devices.list` | founder |  | none | `{devices, push_platforms}` |  |  |
 | `device.pair` | founder | yes | `name?`, `ttl_s?`, `request_id` | `Accepted & {code, expires_at, fingerprint, uri}` | `refused` |  |
 | `device.redeem` | anonymous | yes | `code`, `name`, `request_id` | `Accepted & {token, device}` | `refused` | pairing_code, attempt_limit |
 | `device.revoke` | founder | yes | `device`, `request_id` | `Accepted` | `refused`, `not_found` |  |

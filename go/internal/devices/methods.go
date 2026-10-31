@@ -103,13 +103,16 @@ func Register(s *rpc.Server, m *Manager, emit Emit) {
 		return map[string]any{"accepted": true}, nil
 	}})
 	s.Register("devices.list", rpc.Method{Role: "founder", Handler: func(c *rpc.Conn, p map[string]any) (any, error) {
-		list := []map[string]any{}
+		list, platforms := []map[string]any{}, []string{}
 		if m != nil {
 			var err error
 			if list, err = m.List(); err != nil {
 				return nil, err
 			}
+			if m.PushPlatforms != nil {
+				platforms = m.PushPlatforms
+			}
 		}
-		return map[string]any{"devices": list}, nil
+		return map[string]any{"devices": list, "push_platforms": platforms}, nil
 	}})
 }

@@ -66,10 +66,22 @@
        "items": {
         "$ref": "#/components/schemas/Device"
        }
+      },
+      "push_platforms": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "enum": [
+         "apns",
+         "fcm"
+        ]
+       },
+       "description": "The platforms the daemon has push credentials for (config.yaml). Empty is push off: no device is sent a notification, whatever token it gave."
       }
      },
      "required": [
-      "devices"
+      "devices",
+      "push_platforms"
      ]
     }
    },

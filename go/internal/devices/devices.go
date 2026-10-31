@@ -74,6 +74,8 @@ type Manager struct {
 	maxConns   int
 	// Log, when set, hears of each connection closed to make room: a client that leaks connections shows up by its device's name.
 	Log func(format string, args ...any)
+	// PushPlatforms is the platforms the daemon has push credentials for; none is push off.
+	PushPlatforms []string
 }
 
 // MaxConnsPerDevice is how many connections one paired device may hold open at once. A client that leaks sockets fills the daemon's

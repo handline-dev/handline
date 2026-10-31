@@ -17,6 +17,8 @@ export type Device = {
 export interface DevicesMethods {
   "devices.list": { params: { [key: string]: unknown }; result: {
     devices: Device[];
+    /** The platforms the daemon has push credentials for (config.yaml). Empty is push off: no device is sent a notification, whatever token it gave. */
+    push_platforms: ("apns" | "fcm")[];
   } };
   "device.pair": { params: {
   name?: string;
