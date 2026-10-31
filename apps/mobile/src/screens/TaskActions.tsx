@@ -6,7 +6,7 @@ import { isPerson, taskRef } from '@handline/app-core';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
-import { useOff, usePendingAny, useServes, useTaskActions } from '@handline/app-data';
+import { useOff, usePendingAny, useServes, useTaskActions, useTaskTime } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import type { IconName } from '#src/screens/Icon.tsx';
@@ -20,9 +20,10 @@ import { MergeTasks, ReleaseTask } from '#src/screens/TaskReleaseMerge.tsx';
 const CLOSED = ['done', 'discarded'];
 
 /** The state in the design system's words, with the glyph that repeats it. */
-function taskStateWord(state: string, foryou: boolean, blocked: boolean): { word: string; icon?: IconName } {
-  if (foryou) return { word: 'Needs you', icon: 'needs' };
+function taskStateWord(state: string, foryou: boolean, blocked: boolean, starting: boolean): { word: string; icon?: IconName } {
+  if (foryou) return { word: 'Needs you', icon: 'hand' };
   if (blocked && state === 'doing') return { word: 'Blocked', icon: 'paused' };
+  if (starting && state === 'doing') return { word: 'Starting', icon: 'booting' };
   const WORDS: Record<string, { word: string; icon?: IconName }> = {
     doing: { word: 'Working', icon: 'working' },
     done: { word: 'Done', icon: 'done' },
@@ -250,8 +251,10 @@ export function TaskVerbs({
       }}
     />
   );
+  const stretches = useTaskTime(t.id).data?.segments ?? [];
+  const starting = stretches.length > 0 && !stretches.some((s) => s.kind === 'working');
   const foryou = running && isPerson(t.to, me);
-  const stateWord = taskStateWord(t.state, foryou, t.blockers.length > 0);
+  const stateWord = taskStateWord(t.state, foryou, t.blockers.length > 0, starting);
   const pills = (
     <View style={{ gap: space.sm }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
@@ -286,7 +289,8 @@ export function TaskVerbs({
     <View style={{ padding: space.md, borderTopWidth: 1, borderTopColor: c.line }}>
       <Button
         testID="task-done"
-        kind="yes"
+        kind="primary"
+        icon="done"
         label={isPerson(t.from, me) ? 'Send for review' : 'Done'}
         disabled={ask !== null || !!off.done}
         onPress={() => (founder ? void NOW.done().catch(() => {}) : setAsk('done'))}

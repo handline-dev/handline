@@ -1,12 +1,14 @@
 // A task's comments on the phone (docs/pc-app-gaps.md U11): add, edit and delete, each a `useWrite` that shows at once and rolls back with the daemon's reason.
 import { useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import { isPerson } from '@handline/app-core';
+import { useStore } from '@handline/app-react';
 import type { MemoFile, MemoReader } from '@handline/client';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
-import { Button } from '#src/screens/parts.tsx';
+import { Button, MenuItem, MenuSheet } from '#src/screens/parts.tsx';
 import { CommentReaders } from '#src/screens/CommentReaders.tsx';
 import { MemoFiles } from '#src/screens/MemoFiles.tsx';
 import { Sheet } from '#src/screens/TaskActions.tsx';
@@ -14,7 +16,7 @@ import { PrBody } from '#src/screens/PrBody.tsx';
 
 const small = { paddingVertical: space.sm, paddingHorizontal: space.md } as const;
 
-/** One comment with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
+/** One comment; on one's own, a ... opens Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
 export function CommentRow({
   task,
   agent,
@@ -33,26 +35,48 @@ export function CommentRow({
   const offDelete = useOff('task.comment.delete');
   const [ask, setAsk] = useState<null | 'edit' | 'delete'>(null);
   const [text, setText] = useState('');
+  const [menu, setMenu] = useState(false);
+  const mine = isPerson(memo.author, useStore().me);
   const sending = memo.id < 0; // not yet numbered by the daemon
   const close = () => (setAsk(null), edit.reset(), del.reset());
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
-      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{`${memo.author} ${when}`}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{`${mine ? 'You' : memo.author} ${when}`}</Text>
       {ask === 'edit' ? null : <PrBody id={`memo-${memo.id}`} agent={agent} body={memo.text} />}
       {memo.files?.length ? <MemoFiles files={memo.files} /> : null}
       {memo.readers?.length ? <CommentReaders memo={memo.id} readers={memo.readers} /> : null}
-      {ask === null && (
-        <View style={{ flexDirection: 'row', gap: space.sm }}>
-          <Button
+      {ask === null && mine && (
+        <Pressable
+          testID={`memo-more-${memo.id}`}
+          accessibilityRole="button"
+          accessibilityLabel="Edit or delete this comment"
+          disabled={sending || (!!offEdit && !!offDelete)}
+          hitSlop={8}
+          onPress={() => setMenu(true)}
+          style={{ alignSelf: 'flex-start', minHeight: 44, minWidth: 44, justifyContent: 'center' }}
+        >
+          <Text style={{ color: c.muted, fontSize: font.size.lg, fontWeight: '700' }}>⋯</Text>
+        </Pressable>
+      )}
+      {menu && (
+        <MenuSheet testID="memo-menu" onClose={() => setMenu(false)}>
+          <MenuItem
             testID={`memo-edit-${memo.id}`}
             label="Edit"
-            disabled={sending || !!offEdit}
-            onPress={() => (setText(memo.text), setAsk('edit'))}
+            disabled={!!offEdit}
+            note={offEdit}
+            onPress={() => (setMenu(false), setText(memo.text), setAsk('edit'))}
           />
-          <Button testID={`memo-delete-${memo.id}`} label="Delete" disabled={sending || !!offDelete} onPress={() => setAsk('delete')} />
-        </View>
+          <MenuItem
+            testID={`memo-delete-${memo.id}`}
+            label="Delete"
+            danger
+            disabled={!!offDelete}
+            note={offDelete}
+            onPress={() => (setMenu(false), setAsk('delete'))}
+          />
+        </MenuSheet>
       )}
-      {ask === null && (offEdit || offDelete) && <Text style={{ color: c.muted, fontSize: font.size.sm }}>{offEdit || offDelete}</Text>}
       {ask === 'edit' && (
         <View style={{ gap: space.sm }}>
           <TextInput

@@ -292,7 +292,8 @@ describe('the task verbs', () => {
     await press($('memo-send'));
     await until(() => m.daemon.tasks.get({ task: MINE_DOING }).memos.length === 1, 'the daemon memo');
     const id = m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.id;
-    await until(() => $(`memo-edit-${id}`)?.getAttribute('aria-disabled') !== 'true', 'the numbered memo');
+    await until(() => $(`memo-more-${id}`)?.getAttribute('aria-disabled') !== 'true', 'the numbered memo');
+    await press($(`memo-more-${id}`));
     await press($(`memo-edit-${id}`));
     await fill('memo-edit-text', 'second note');
     m.daemon.knobs.refuse('task.comment.edit', 'state', 'that task is being merged');
@@ -305,10 +306,12 @@ describe('the task verbs', () => {
     await until(() => $('memo-edit-text') === null, 'the box to close');
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('second note');
     expect($(`memo-${id}`)?.textContent).toContain('second note');
+    await press($(`memo-more-${id}`));
     await press($(`memo-delete-${id}`));
     expect(text()).toContain('Delete this comment?');
     await press($('sheet-cancel'));
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos.length).toBe(1);
+    await press($(`memo-more-${id}`));
     await press($(`memo-delete-${id}`));
     m.daemon.knobs.refuse('task.comment.delete', 'state', 'that comment is locked');
     await press($('sheet-submit'));

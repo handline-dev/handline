@@ -10,7 +10,7 @@ import { usePalette } from '#src/theme.ts';
 const length = (seconds: number) => span(seconds * 1000);
 
 const TONE = (c: ReturnType<typeof usePalette>): Record<TimeLabel, string> => ({
-  working: c.run,
+  working: c.accent,
   founder: c.wait,
   task: c.block,
   agent: c.muted,
@@ -60,8 +60,7 @@ export function TaskTimeLine({ id, left, over, running }: { id: number; left?: s
   const [open, setOpen] = useState(false);
   const segments = useTaskTime(id).data?.segments ?? [];
   if (!served || !segments.length) return left ? <Text style={{ color: over ? c.block : c.muted }}>{left}</Text> : null;
-  const { rows, totals, seconds } = timeView(segments);
-  const word = totals.find((x) => x.label === rows.at(-1)?.label)?.word ?? length(seconds);
+  const { rows, seconds } = timeView(segments);
   return (
     <View style={{ gap: space.sm }}>
       <Pressable
@@ -80,9 +79,11 @@ export function TaskTimeLine({ id, left, over, running }: { id: number; left?: s
             ))}
           </View>
         ) : null}
-        <Text style={{ color: c.muted, flexShrink: 1 }} numberOfLines={1}>
-          {word}
-        </Text>
+        {left ? null : (
+          <Text style={{ color: c.muted, flexShrink: 1 }} numberOfLines={1}>
+            {`${length(seconds)} in all`}
+          </Text>
+        )}
       </Pressable>
       {open ? <TaskTime segments={segments} /> : null}
     </View>

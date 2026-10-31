@@ -66,6 +66,7 @@ export const ICON_SPEC = {
   working: ['LoaderCircle', 'Working'],
   booting: ['CircleDashed', 'Starting'],
   needs: ['Bell', 'Needs you'],
+  hand: ['Hand', 'Needs you'],
   blocked: ['TriangleAlert', 'Blocked'],
   paused: ['CirclePause', 'Paused'],
   idle: ['Circle', 'Idle'],

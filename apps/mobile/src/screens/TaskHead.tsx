@@ -73,6 +73,8 @@ export function LaterPill({ id }: { id: number }) {
       <Pill
         testID="task-later"
         on={!!off}
+        state
+        icon="asleep"
         label={off ? `Later: ${laterWords(off.at)}` : 'Later'}
         onPress={() => setSheet(Date.now())}
         trailing={
