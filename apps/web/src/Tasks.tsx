@@ -1,6 +1,16 @@
 // The Tasks page (docs/design/inbox-tasks-prompts.md §4): what the daemon lists, grouped by status, with filters, sort, ticks, the bridge's keys,
 // and a click on a row opens the task on its own page. Writes go through `useWrite`: an authored one shows at once with a hollow dot, a decided one shows "…".
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import {
   CLOSED,
   defaultFilter,
