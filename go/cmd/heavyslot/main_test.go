@@ -169,14 +169,13 @@ func TestARunWhoseParentDiedKillsItsCommandAndFreesTheSlot(t *testing.T) {
 	}
 	sleep := readPid(t, pidFile)
 	t.Cleanup(func() { syscall.Kill(sleep, syscall.SIGKILL) })
-	for end := time.Now().Add(3 * poll); syscall.Kill(sleep, 0) == nil; time.Sleep(20 * time.Millisecond) {
-		if time.Now().After(end) {
-			t.Fatal("the command outlived the run's parent")
-		}
-	}
+	// The next run gets the slot only once the first run has ended, so its command is gone by then, reaped and not a zombie.
 	b, berr := start(t, bin, slots, nil, "true")
 	if err := b.Wait(); err != nil {
 		t.Fatalf("%v %s", err, berr)
+	}
+	if syscall.Kill(sleep, 0) == nil {
+		t.Fatal("the command outlived the run's parent")
 	}
 }
 

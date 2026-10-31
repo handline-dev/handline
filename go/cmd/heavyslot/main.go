@@ -310,8 +310,9 @@ func describe(record string) string {
 // command is the run's command once started, and whether it has a process group of its own.
 var command struct {
 	sync.Mutex
-	cmd   *exec.Cmd
-	group bool
+	cmd    *exec.Cmd
+	group  bool
+	reaped chan struct{} // closed once the command has been waited for
 }
 
 // signalCommand sends s to the command, to its whole group when it has one; the caller holds command's lock.
@@ -332,6 +333,9 @@ func watchParent(parent int) {
 			command.Lock()
 			fmt.Fprintln(os.Stderr, "heavyslot: the process that started this run is gone; ending it")
 			signalCommand(syscall.SIGKILL)
+			if command.reaped != nil {
+				<-command.reaped // gone for good, not a zombie that outlives this process
+			}
 			os.Exit(128 + int(syscall.SIGHUP))
 		}
 	}
@@ -352,7 +356,7 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "heavyslot: %v\n", err)
 		return 127
 	}
-	command.cmd, command.group = cmd, group
+	command.cmd, command.group, command.reaped = cmd, group, make(chan struct{})
 	command.Unlock()
 	sigs := make(chan os.Signal, 4)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -364,6 +368,7 @@ func run(args []string) int {
 		}
 	}()
 	err := cmd.Wait()
+	close(command.reaped)
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		if ws, ok := exit.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
