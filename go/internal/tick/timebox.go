@@ -2,7 +2,6 @@ package tick
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
@@ -157,7 +156,7 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>` (at most %s). "+
 			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, timefmt.Span(db.MaxTaskTimeoutS, false), tid)
 		// the holder can act on it, and its lead routes; the opener of a task another agent holds cannot
-		for _, who := range dedupe(row.Owner, b.boss(row.Owner)) {
+		for _, who := range []string{row.Owner, b.boss(row.Owner)} {
 			b.note(t, who, text)
 		}
 		check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
@@ -171,17 +170,6 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: nextAt}))
 		t.logf("  T%d: doing, past its %s timeout - %s told", tid, timefmt.Ago(box), row.Owner)
 	}
-}
-
-// dedupe is names without repeats, in order.
-func dedupe(names ...string) []string {
-	var out []string
-	for _, n := range names {
-		if !slices.Contains(out, n) {
-			out = append(out, n)
-		}
-	}
-	return out
 }
 
 // shortTitle is a task's title on one line, cut to TitleShown.
