@@ -9,8 +9,9 @@ import { History, HistoryProvider, useHistoryValue } from '#src/history.tsx';
 import { Accounts } from '#src/screens/Accounts.tsx';
 import { AgentList } from '#src/screens/AgentList.tsx';
 import { AgentPage } from '#src/screens/AgentPage.tsx';
-import { RequestsTab, useRequestCards } from '#src/screens/RequestsTab.tsx';
+import { RequestsTab, useRequestCards, useRequestLater } from '#src/screens/RequestsTab.tsx';
 import { useHeldAnswers } from '#src/heldAnswers.ts';
+import { useLaterUndo } from '#src/screens/RequestsLater.tsx';
 import { NewAgent, type Pending } from '#src/screens/NewAgent.tsx';
 import { SettingsPage } from '#src/screens/Settings.tsx';
 import { RequestsPage } from '#src/screens/Requests.tsx';
@@ -103,6 +104,8 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   const read = [useInbox().isPending, useTasks({}).isPending];
   const held = useHeldAnswers((line) => props.store.say(line));
   const cards = useRequestCards(held);
+  const putOff = useRequestLater(held);
+  const later = useLaterUndo(putOff);
   const turn = cards.length;
   const [item, setItem] = useHistoryValue<string | null>('requests.item', null);
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', props.startOn ?? 'agents');
@@ -114,7 +117,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
     decided.current = true;
     if (turn > 0 && !open && tab === 'agents') setTab('requests');
   });
-  const itemOpen = tab === 'requests' && cards.some((x) => x.key === item); // an item is full screen: no bell, no tab bar
+  const itemOpen = tab === 'requests' && [...cards, ...putOff.map((l) => l.card)].some((x) => x.key === item); // an item is full screen: no bell, no tab bar
   const [task, setTask] = useHistoryValue<number | null>('home.task', null);
   const [account, setAccount] = useHistoryValue<string | null>('home.account', null);
   const [page, setPage] = useHistoryValue<Page>('home.page', props.pending?.operation ? 'new' : null);
@@ -146,7 +149,14 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
         ) : page === 'new' ? (
           <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
         ) : tab === 'requests' ? (
-          <RequestsTab held={held} item={item} onItem={setItem} onTask={(id) => (setTab('tasks'), setTask(id))} />
+          <RequestsTab
+            held={held}
+            item={item}
+            onItem={setItem}
+            later={putOff}
+            onLater={later.put}
+            onTask={(id) => (setTab('tasks'), setTask(id))}
+          />
         ) : tab === 'tasks' ? (
           <Tasks selected={task} onSelect={setTask} />
         ) : tab === 'usage' ? (
@@ -212,8 +222,12 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
           ))}
         </View>
       )}
-      {held.last ? (
-        <UndoLine line={held.last.line} onUndo={() => held.undo(held.last!.key)} bottom={itemOpen ? 140 : bar + space.sm} />
+      {held.last || later.undo ? (
+        <UndoLine
+          line={held.last?.line ?? later.undo!.line}
+          onUndo={() => (held.last ? held.undo(held.last.key) : later.runUndo())}
+          bottom={itemOpen ? 140 : bar + space.sm}
+        />
       ) : null}
       <DoneCard
         store={props.store}

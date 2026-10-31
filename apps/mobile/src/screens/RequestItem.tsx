@@ -14,8 +14,10 @@ import {
   spareNotice,
   worktreeFacts,
   worktreeSaid,
+  laterKeyOf,
   type Card,
   type CardAction,
+  type LaterAt,
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useTasks, useVerbRun, useWrite } from '@handline/app-data';
@@ -24,6 +26,7 @@ import { usePalette } from '#src/theme.ts';
 import type { Held, Step } from '#src/heldAnswers.ts';
 import { Icon } from '#src/screens/Icon.tsx';
 import { AskChange, ReviewPictures } from '#src/screens/ReviewAsk.tsx';
+import { LaterLine } from '#src/screens/RequestsLater.tsx';
 import { SpareTasks } from '#src/screens/SpareCard.tsx';
 import { Button, MenuItem, MenuSheet } from '#src/screens/parts.tsx';
 
@@ -31,8 +34,12 @@ const BIG = { minHeight: 48 } as const;
 
 export function RequestItem(props: {
   card: Card;
-  /** Where it stands in the list as read top down, 1-based, and how many there are. */
-  at: { n: number; of: number };
+  /** Where it stands in the list as read top down, 1-based, and how many there are; null for an item put off, which is not in the list. */
+  at: { n: number; of: number } | null;
+  /** When the item returns, if it is put off. */
+  later: LaterAt | null;
+  /** Puts the item off until a time or a task, or returns it (null). */
+  onLater: (card: Card, at: LaterAt | null) => void;
   held: Held;
   onBack: () => void;
   onStep: (by: -1 | 1) => void;
@@ -234,6 +241,7 @@ export function RequestItem(props: {
             {rest.length ? <Button testID="request-more" label="More" style={BIG} onPress={() => setMore(true)} /> : null}
           </View>
         )}
+        {laterKeyOf(card) ? <LaterLine card={card} now={now} at={props.later} onPut={props.onLater} onLeave={props.onAnswered} /> : null}
         {openAct ? (
           <Pressable
             testID="request-open"
@@ -299,7 +307,7 @@ function StepButton(props: { testID: string; label: string; icon: 'less' | 'chev
 }
 
 /** The top of an item: back to the list, where this one stands, and up and down. */
-function ItemBar(props: { at: { n: number; of: number }; onBack: () => void; onStep: (by: -1 | 1) => void }) {
+function ItemBar(props: { at: { n: number; of: number } | null; onBack: () => void; onStep: (by: -1 | 1) => void }) {
   const c = usePalette();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, minHeight: 48 }}>
@@ -314,12 +322,21 @@ function ItemBar(props: { at: { n: number; of: number }; onBack: () => void; onS
         <Text style={{ color: c.accent, fontSize: font.size.md }}>Requests</Text>
       </Pressable>
       <View style={{ flex: 1 }} />
-      <Text
-        testID="request-position"
-        style={{ color: c.muted, fontSize: font.size.md, marginRight: space.sm }}
-      >{`${props.at.n} of ${props.at.of}`}</Text>
-      <StepButton testID="request-prev" label="Previous" icon="less" disabled={props.at.n <= 1} onPress={() => props.onStep(-1)} />
-      <StepButton testID="request-next" label="Next" icon="chevron" disabled={props.at.n >= props.at.of} onPress={() => props.onStep(1)} />
+      <Text testID="request-position" style={{ color: c.muted, fontSize: font.size.md, marginRight: space.sm }}>
+        {props.at ? `${props.at.n} of ${props.at.of}` : 'Later'}
+      </Text>
+      {props.at ? (
+        <>
+          <StepButton testID="request-prev" label="Previous" icon="less" disabled={props.at.n <= 1} onPress={() => props.onStep(-1)} />
+          <StepButton
+            testID="request-next"
+            label="Next"
+            icon="chevron"
+            disabled={props.at.n >= props.at.of}
+            onPress={() => props.onStep(1)}
+          />
+        </>
+      ) : null}
     </View>
   );
 }
