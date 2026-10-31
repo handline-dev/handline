@@ -40,6 +40,7 @@ export const reads = {
   'task.history': { resource: 'task-history', id: by('task') },
   'task.time': { resource: 'task-time', id: by('task'), feed: 'tasks' },
   'task.comment.list': { resource: 'memos', id: by('task') },
+  'task.comment.recipients': { resource: 'comment-recipients', feed: 'tasks' },
   'task.view.list': { resource: 'task-views' },
   'task.board': { resource: 'board', feed: 'tasks' },
   'trust.list': { resource: 'trust' },

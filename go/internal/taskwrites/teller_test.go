@@ -31,7 +31,10 @@ type fakeTeller struct {
 	notified  []db.Notice
 }
 
-func (f *fakeTeller) MemoChanged(tid, mid int64, by, what, text string, now bool) {
+func (f *fakeTeller) MemoRecipients(int64, string, string, bool) ([]Recipient, bool) {
+	return nil, true
+}
+func (f *fakeTeller) MemoChanged(tid, mid int64, by, what, text string, now bool, skip []string) {
 	f.memos = append(f.memos, fmt.Sprintf("T%d %s %s %q%s", tid, by, what, text, map[bool]string{true: " now"}[now]))
 }
 func (f *fakeTeller) QueueDelivered(tid int64, by string, queued bool) string {

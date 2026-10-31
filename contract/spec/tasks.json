@@ -2626,7 +2626,7 @@
   },
   {
    "name": "task.comment.add",
-   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. A comment by an agent that names `@human` asks the founder, as the description says. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
+   "summary": "Add a comment; anyone may. It is told only to an agent that has to act on it: each agent it names as @name, and, when the founder wrote it, who the task answers to (its reporter, else its opener) and its assignee; with now every one of those readers, mid-turn too. It is never told to its writer, and a comment that names no one is on the task for whoever reads it, told to no agent. task.comment.recipients says who will be told before posting; skip leaves some of them out. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. A reader at its prompt is told at once and a reader mid-turn at the end of its turn. comment.edit and comment.delete are told the same way. A comment by an agent that names `@human` asks the founder, as the description says. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
    "description": "A comment by an agent that names `@human` asks the founder: it opens one ask to the founder, linked to the task (InboxItem kind ask, `task` and `memo` set), so the task reads waiting on the founder. The ask stays open until (1) the founder replies to it (inbox.reply), (2) the founder adds any comment to that task, (3) the founder marks it read (inbox.mark_read naming its id), (4) its comment is deleted or edited so it no longer names `@human`, or (5) the task is done or discarded. An edit that keeps `@human` keeps the one ask and updates its body; one that adds `@human` opens it.",
    "paramStructure": "by-name",
    "params": [
@@ -2651,6 +2651,18 @@
      "schema": {
       "type": "boolean",
       "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "skip",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+       "type": "string"
+      },
+      "description": "Agents not to tell of this comment, from the ones task.comment.recipients names. Skipping the assignee is allowed; the comment stays on the task either way. A name that would not have been told is ignored."
      }
     },
     {
@@ -2718,6 +2730,82 @@
    ]
   },
   {
+   "name": "task.comment.recipients",
+   "summary": "Who a comment would be told to, before it is posted: the rule task.comment.add uses, computed without writing anything.",
+   "description": "Given the task, the comment text, and whether it would be sent now, returns one row per agent task.comment.add would tell, each with why: `asked` (the text names it as @name), `assignee` (the founder's comment, to the task's assignee) or `owner` (the founder's comment, to who the task answers to). An agent that fits several is named once, by the first of asked, assignee, owner. The caller is the writer and is never listed; a comment by an agent that names no one returns an empty list. Passing the rows' agents as skip to task.comment.add tells exactly the others.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The comment as typed; only its @names count."
+     }
+    },
+    {
+     "name": "now",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "As task.comment.add: every reader, not only the ones aimed at."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "recipients": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "agent": {
+          "type": "string"
+         },
+         "why": {
+          "type": "string",
+          "enum": [
+           "asked",
+           "assignee",
+           "owner"
+          ]
+         }
+        },
+        "required": [
+         "agent",
+         "why"
+        ]
+       }
+      }
+     },
+     "required": [
+      "recipients"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.memo.add",
    "summary": "The old name of task.comment.add: the same params, result and errors. Kept for clients that call it.",
    "paramStructure": "by-name",
@@ -2743,6 +2831,18 @@
      "schema": {
       "type": "boolean",
       "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "skip",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+       "type": "string"
+      },
+      "description": "Agents not to tell of this comment, from the ones task.comment.recipients names. Skipping the assignee is allowed; the comment stays on the task either way. A name that would not have been told is ignored."
      }
     },
     {

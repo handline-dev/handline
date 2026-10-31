@@ -14,10 +14,19 @@ import (
 // here is raised to the caller, whose write is done: a failure is logged and the tick is the net.
 
 // MemoChanged tells whom a memo concerns that it was added, edited or deleted (what), now or in each reader's digest (TellMemo).
-func (e *Env) MemoChanged(tid, mid int64, by, what, text string, now bool) {
-	if err := e.TellMemoOf(e.DB, tid, mid, by, what, text, "", now); err != nil {
+func (e *Env) MemoChanged(tid, mid int64, by, what, text string, now bool, skip []string) {
+	if err := e.TellMemoSkipping(e.DB, tid, mid, by, what, text, "", now, skip); err != nil {
 		e.log("  telling about the memo on T%d failed: %v", tid, err)
 	}
+}
+
+// MemoRecipients is whom a comment by `by` on task tid would be told to, by the rule TellMemoSkipping applies; false when there is no such task.
+func (e *Env) MemoRecipients(tid int64, by, text string, now bool) ([]taskwrites.Recipient, bool) {
+	row, err := db.GetTask(e.DB, tid)
+	if err != nil || row == nil {
+		return nil, false
+	}
+	return e.memoRecipients(row, by, text, "", now), true
 }
 
 // MemoTellSent sends the held tell of a comment, request rid, to its reader at once as a digest of that one notice.

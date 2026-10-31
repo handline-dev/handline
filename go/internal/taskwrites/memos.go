@@ -23,7 +23,10 @@ const CancelVerdict = "withdrawn by the founder"
 type Teller interface {
 	// MemoChanged tells whom a memo concerns (the holder of a doing task, who the task answers to, the agents it names with @) that it was
 	// added, edited or deleted (what), with the memo's text: at once when now, else a reader mid-turn hears at the end of its turn.
-	MemoChanged(tid, mid int64, by, what, text string, now bool)
+	// skip leaves those agents out of the telling (a comment's skip); the memo stays on the task.
+	MemoChanged(tid, mid int64, by, what, text string, now bool, skip []string)
+	// MemoRecipients is who MemoChanged would tell of a comment by `by` with this text, and why, without telling anyone. A missing task is nil, false.
+	MemoRecipients(tid int64, by, text string, now bool) ([]Recipient, bool)
 	// QueueDelivered sends a queued task to its free owner, or raises the founder's card, and answers what happened.
 	QueueDelivered(tid int64, by string, queued bool) string
 	// Discarded types the says a discard wrote, moves the owner on to its next task, advances the owners it freed, and removes the inbox
@@ -60,6 +63,12 @@ type Teller interface {
 	MemoTellSent(rid int64)
 }
 
+// Recipient is an agent a comment is told to, and why: asked (named with @), assignee or owner (the founder's comment).
+type Recipient struct {
+	Agent string `json:"agent"`
+	Why   string `json:"why"`
+}
+
 func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.discard", rpc.Method{Role: "agent", Write: true, Handler: discardMethod(home, tell)})
 	s.Register("task.withdraw", rpc.Method{Role: "agent", Write: true, Handler: withdrawMethod(home, tell)})
@@ -86,6 +95,7 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 		s.Register(verb+"edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(home, tell)})
 		s.Register(verb+"delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
 	}
+	s.Register("task.comment.recipients", rpc.Method{Role: "agent", Handler: memoRecipients(tell)})
 	s.Register("task.comment.send_now", rpc.Method{Role: "member", Write: true, Handler: memoSendNow(tell)})
 	s.Register("task.view.save", rpc.Method{Role: "member", Write: true, Handler: viewSave})
 	s.Register("task.view.delete", rpc.Method{Role: "member", Write: true, Handler: viewDelete})
@@ -183,6 +193,10 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 		if err != nil {
 			return nil, err
 		}
+		skip, err := optionalNames(p, "skip")
+		if err != nil {
+			return nil, err
+		}
 		reply, hasReply, err := optionalTask(p, "reply")
 		if err != nil {
 			return nil, err
@@ -243,9 +257,56 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if lines := store.FileLines(files); lines != "" {
 				told += "\n" + lines
 			}
-			tell.MemoChanged(tid, added, c.Caller.Actor(), "added", told, now)
+			tell.MemoChanged(tid, added, c.Caller.Actor(), "added", told, now, skip)
 		}
 		return out, err
+	}
+}
+
+// optionalNames is a list of names (strings) in p[key], or none.
+func optionalNames(p map[string]any, key string) ([]string, error) {
+	if p[key] == nil {
+		return nil, nil
+	}
+	list, ok := p[key].([]any)
+	if !ok || len(list) > 20 {
+		return nil, badParam(key+" is at most 20 names", key)
+	}
+	out := make([]string, 0, len(list))
+	for _, v := range list {
+		name, ok := v.(string)
+		if !ok {
+			return nil, badParam(key+" is a list of names", key)
+		}
+		out = append(out, name)
+	}
+	return out, nil
+}
+
+// memoRecipients is task.comment.recipients: who task.comment.add would tell, by the same rule (Teller.MemoRecipients), nothing written.
+func memoRecipients(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+	return func(c *rpc.Conn, p map[string]any) (any, error) {
+		tid, err := taskID(p)
+		if err != nil {
+			return nil, err
+		}
+		body, err := text(p, "text")
+		if err != nil {
+			return nil, err
+		}
+		now, err := optionalBool(p, "now")
+		if err != nil {
+			return nil, err
+		}
+		out := []Recipient{}
+		if tell != nil {
+			got, found := tell.MemoRecipients(tid, c.Caller.Actor(), body, now)
+			if !found {
+				return nil, refusal(fmt.Sprintf("no task T%d", tid))
+			}
+			out = append(out, got...)
+		}
+		return map[string]any{"recipients": out}, nil
 	}
 }
 
@@ -292,7 +353,7 @@ func memoEdit(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, er
 			return accepted(fmt.Sprintf("memo %d on T%d edited", mid, tid), nil), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, mid, c.Caller.Actor(), "edited", body, false)
+			tell.MemoChanged(tid, mid, c.Caller.Actor(), "edited", body, false, nil)
 		}
 		return out, err
 	}
@@ -334,7 +395,7 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			return accepted(fmt.Sprintf("memo %d deleted from T%d", mid, tid), nil), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, mid, c.Caller.Actor(), "deleted", "", false)
+			tell.MemoChanged(tid, mid, c.Caller.Actor(), "deleted", "", false, nil)
 		}
 		return out, err
 	}

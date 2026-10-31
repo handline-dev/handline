@@ -193,6 +193,232 @@
      }
     }
    ]
+  },
+  {
+   "name": "task.comment.recipients.unknown_task_is_not_found",
+   "spec": "task.comment.recipients",
+   "about": "Who a comment on a task nobody opened would be told to: not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.comment.recipients",
+      "params": {
+       "task": 999999,
+       "text": "hi"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.comment.recipients.text_is_required",
+   "spec": "task.comment.recipients",
+   "about": "The text decides who is named, so a call without it is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.comment.recipients",
+      "params": {
+       "task": 999999
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.comment.recipients.name_with_at_is_asked_and_no_name_is_nobody",
+   "spec": "task.comment.recipients",
+   "about": "An agent's comment is told to the agent it names with @ and to no one else; one that names no one is told to no agent. Needs --var task_owner=NAME: an agent other than the caller.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{task_owner}}",
+       "title": "the recipients task",
+       "body": "a brief",
+       "request_id": "conf-rcp-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.comment.recipients",
+      "params": {
+       "task": "{{tid}}",
+       "text": "@{{task_owner}} please look"
+      }
+     },
+     "result": {
+      "recipients": [
+       {
+        "agent": "{{task_owner}}",
+        "why": "asked"
+       }
+      ],
+      "$exact": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.comment.recipients",
+      "params": {
+       "task": "{{tid}}",
+       "text": "a note for whoever reads the task"
+      }
+     },
+     "result": {
+      "recipients": []
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.comment.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "@{{task_owner}} please look",
+       "skip": [
+        "{{task_owner}}"
+       ],
+       "request_id": "conf-rcp-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "memo": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.comment.list",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "memos": {
+       "$contains": {
+        "text": "@{{task_owner}} please look"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.comment.add.skip_is_a_list_of_names",
+   "spec": "task.comment.add",
+   "about": "skip names agents: anything else is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.comment.add",
+      "params": {
+       "task": 999999,
+       "text": "a comment",
+       "skip": "alice",
+       "request_id": "conf-rcp-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "skip"
+      }
+     }
+    }
+   ]
   }
  ]
 }
