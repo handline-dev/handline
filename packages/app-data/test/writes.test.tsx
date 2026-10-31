@@ -10,6 +10,7 @@ import {
   useAgents,
   useChat,
   useChatActions,
+  useBusy,
   usePending,
   useWrite,
   writes,
@@ -254,6 +255,22 @@ describe('writes', () => {
     expect(stub.count('task.done')).toBe(2);
     act(() => w.get().mutate({ task: 7, evidence: 'ok' }));
     await until(() => stub.count('task.done') === 3, 'the same write again after it settled');
+  });
+
+  it('is busy while a write is in flight and not after; a seen note never counts, so a restart is held only for a real write', async () => {
+    const wait = deferred();
+    const stub = stubClient(() => wait.promise);
+    const store = openStore(stub);
+    const w = probe(() => ({ busy: useBusy(), done: useWrite('task.done', 'a'), seen: useWrite('chat.seen', 'a') }));
+    await mount(store, w.node);
+    expect(w.get().busy).toBe(false);
+    act(() => w.get().seen.mutate({ agent: 'a', id: 1 } as never));
+    await until(() => stub.count('chat.seen') === 1, 'the seen call');
+    expect(w.get().busy).toBe(false);
+    act(() => w.get().done.mutate({ task: 1 } as never));
+    await until(() => w.get().busy, 'busy');
+    wait.resolve({ accepted: true });
+    await until(() => !w.get().busy, 'not busy');
   });
 
   it('a refused write can be pressed again', async () => {
