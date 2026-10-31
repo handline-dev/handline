@@ -136,14 +136,14 @@ function Body(props: {
   const hasFile = useServes('file.read').served && !!detail.worktree;
   const views = (
     <>
-      {(
+      {
         <MenuItem
           testID="menu-terminal"
           label={structured ? 'Transcript' : 'Terminal'}
           icon="terminal"
           onPress={() => (props.setMenu(false), tabs.select(null), store.setTab('terminal'))}
         />
-      )}
+      }
       {hasFile && (
         <MenuItem
           testID="menu-files"
