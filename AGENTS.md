@@ -38,8 +38,8 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   carries no pictures.
 - Main requires the go and apps checks (branch protection): a PR merges once they are green.
 - Before you ask for a review, merge the current target (`story/<n>`, or main)
-  into the branch and run `tools/check.sh <target>`; the review request carries
-  its result line. The auditor sends a request without it back, unreviewed.
+  into the branch, run the tests you touched, and wait for a green `pre-audit` on the pushed head; the review
+  request names that head and carries the result. The auditor sends a request without it back, unreviewed.
 - To ask the founder to look at a change, open a review task under your own, with the before and after pictures in its first comment, and wait on it:
   `hl task new --assign human --parent T<own> --tag review "Review: <what changed>"`, then
   `hl task comment T<new> add --attach before.png --attach after.png "<one line>"`, then `hl task edit T<own> --blocked-by T<new>`.
@@ -116,14 +116,14 @@ agent (ROLE.md, base.md); this file does not repeat them.
 
 - Tests: write unit tests for logic (Go, contract, app-core, app-data, electron main) in the same
   commit as the change. A screen change posts pictures and adds no render test; if it changes a kept
-  flow, update that flow's test file (`apps/web/test/<name>.test.tsx`, `apps/mobile/test/<name>.test.tsx`).
-  Kept flows, web: app, chat-markdown, terminal-xterm-wiring, terminal-copy-paste, route-leave, task-refs, spans,
+  test file, update that file (`apps/web/test/<name>.test.tsx`, `apps/mobile/test/<name>.test.tsx`).
+  Kept test files, web: app, chat-markdown, terminal-xterm-wiring, terminal-copy-paste, route-leave, task-refs, spans,
   command-card, resolve-images, sendKey, by-team, team, chat-fold, screenKeys, solved-stall. Mobile: dev-pair,
   termspans, app-update, scan-pair, chat-scroll. Work is not done until the tests pass. While iterating, run only the
   tests you touched (`cd go && go test ./internal/<pkg> -run <name>`; for an app, the test files you touched and
   the package typecheck); do not run the whole suite before you hand the task to the auditor. The auditor takes the
-  apps result from CI for the PR head and runs locally only what CI does not run, such as Go with `-race` at the exact sha
-  (`HANDLINE_GO_RACE=1 tools/check.sh <target>`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
+  apps result from CI for the PR head and runs locally only what CI does not run, such as Go with `-race` at the exact sha for a Go change
+  (`HANDLINE_GO_RACE=1 tools/test-go.sh`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
   background); a count you quote is not a verdict. `tools/check.sh` runs nothing for documentation; for anything else
   it runs, in order: the app checks (`pnpm turbo test typecheck lint` when an app or JS workspace file changed, else
   `pnpm --dir packages/app-data test`), the contract's generated files being current, then the Go suite (`tools/test-go.sh`).

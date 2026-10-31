@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The tests a change needs, from what it changes against <base> (default main): the one run the auditor makes on a sha.
+# The tests a change needs, from what it changes against <base> (default main): a builder runs the tests it touched; the apps result of a PR head comes from CI.
 #   tools/check.sh [<base>]
 # - nothing changed, or documentation only (docs/, design/, *.md, but not contract/ or skill/): nothing.
 # - anything else: the Go suite (tools/test-go.sh), and the contract's generated files being current.
