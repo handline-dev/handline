@@ -18,6 +18,8 @@ export function ImageBodyInput(props: {
   editable?: boolean;
   /** Shown above the box (the field's name), as the other inputs of a form have. */
   titled?: boolean;
+  /** The send control: with it the picture button and this sit in one box with the text. */
+  send?: React.ReactNode;
 }) {
   const c = usePalette();
   const drafts = useImageDrafts();
@@ -48,28 +50,34 @@ export function ImageBodyInput(props: {
   return (
     <View style={{ gap: space.xs }}>
       {props.titled !== false && <Text style={{ color: c.muted, fontWeight: '600' }}>{props.label}</Text>}
-      <TextInput
-        testID={props.testID}
-        accessibilityLabel={props.label}
-        placeholder={props.placeholder ?? props.label}
-        placeholderTextColor={c.muted}
-        value={props.value}
-        onChangeText={props.onChange}
-        onSelectionChange={(e) => void (cursor.current = e.nativeEvent.selection.end)}
-        editable={props.editable}
-        multiline
-        style={{
-          color: c.ink,
-          borderWidth: 1,
-          borderColor: c.line,
-          borderRadius: radius.m,
-          padding: space.md,
-          minHeight: 96,
-          textAlignVertical: 'top',
-        }}
-      />
+      <View style={props.send ? { borderWidth: 1, borderColor: c.line, borderRadius: radius.m, overflow: 'hidden' } : undefined}>
+        <TextInput
+          testID={props.testID}
+          accessibilityLabel={props.label}
+          placeholder={props.placeholder ?? props.label}
+          placeholderTextColor={c.muted}
+          value={props.value}
+          onChangeText={props.onChange}
+          onSelectionChange={(e) => void (cursor.current = e.nativeEvent.selection.end)}
+          editable={props.editable}
+          multiline
+          style={{
+            color: c.ink,
+            ...(props.send ? {} : { borderWidth: 1, borderColor: c.line, borderRadius: radius.m }),
+            padding: space.md,
+            minHeight: 96,
+            textAlignVertical: 'top',
+          }}
+        />
+        {props.send ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: space.sm }}>
+            <AttachButton picture onPress={() => void pick()} disabled={props.editable === false} />
+            {props.send}
+          </View>
+        ) : null}
+      </View>
       <ImageChips drafts={drafts.drafts} problem={error ?? drafts.problem} onRetry={drafts.retry} onRemove={drafts.remove} />
-      <AttachButton onPress={() => void pick()} disabled={props.editable === false} />
+      {props.send ? null : <AttachButton onPress={() => void pick()} disabled={props.editable === false} />}
     </View>
   );
 }

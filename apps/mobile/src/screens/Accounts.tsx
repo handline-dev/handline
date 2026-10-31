@@ -63,9 +63,8 @@ function Stall({ a }: { a: Account }) {
     <View testID={`stall-${a.name}`} style={{ gap: space.xs }}>
       {a.stalled ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-          <View style={{ borderWidth: 1, borderColor: c.block, borderRadius: 999, paddingHorizontal: space.sm }}>
-            <Text style={{ color: c.block }}>blocked</Text>
-          </View>
+          <Icon name="block" decorative size={14} color={c.block} />
+          <Text style={{ color: c.block }}>blocked</Text>
           <Text style={{ color: c.muted, flexShrink: 1, flex: 1 }}>{stallWord(a.stalled)}</Text>
           {founder && served ? (
             <Button

@@ -133,7 +133,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   return (
     <View style={{ flex: 1 }} {...swipe}>
       <ConnectionBar store={props.store} />
-      {!open && !page && !itemOpen && !(tab === 'usage' && account == null) && (
+      {!open && !page && !itemOpen && !(tab === 'tasks' && task != null) && !(tab === 'usage' && account == null) && (
         <Bell store={props.store} onOpen={() => setPage('notices')} />
       )}
       <Toasts store={props.store} />

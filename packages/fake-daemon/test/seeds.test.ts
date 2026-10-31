@@ -62,3 +62,14 @@ test('my-requests: the founder has five open requests, one waiting on them and o
   assert.equal(items.filter((r) => r.status === 'waiting_on_you').length, 1);
   assert.equal(items.filter((r) => r.blocked === true).length, 1);
 });
+
+test('chat-actions: the open task the founder owns has a body, a time box, two comments and a running stretch', async () => {
+  const { client, daemon } = setup();
+  applySeeds(daemon, 'chat-actions');
+  await client.start();
+  const t = await client.call('task.get', { task: 6902 });
+  assert.equal(t.state, 'doing');
+  assert.equal(t.memos.length, 2);
+  assert.ok(t.body.includes('three steps'));
+  client.close();
+});

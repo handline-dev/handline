@@ -14,34 +14,39 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
   const limits = { ...DEFAULT_LIMITS, ...v };
   if (!r) return null;
   const m = r.machine;
-  const rows: { key: string; icon: 'stats' | 'context' | 'worktrees' | 'tasks'; label: string; value: string; warn: boolean }[] = [
+  const diskUsed = m.disk_total_bytes ? Math.round((1 - m.disk_free_bytes / m.disk_total_bytes) * 100) : 0;
+  const rows: { key: string; icon: 'load' | 'memory' | 'disk' | 'slots'; label: string; value: string; warn: boolean; pct: number }[] = [
     {
       key: 'load',
-      icon: 'stats',
+      icon: 'load',
       label: 'Load',
       value: `${Math.round(m.load_per_core * 100)}%`,
       warn: loadFull(r, limits.load_per_core_pct),
+      pct: (m.load_per_core * 100 / Math.max(300, limits.load_per_core_pct * 1.2, m.load_per_core * 100)) * 100,
     },
     {
       key: 'memory',
-      icon: 'context',
+      icon: 'memory',
       label: 'Memory',
       value: `${bytesText(m.ram_free_bytes)} free`,
       warn: memoryLow(r, limits.ram_free_min_pct),
+      pct: 100 - m.ram_free_pct,
     },
     {
       key: 'disk',
-      icon: 'worktrees',
+      icon: 'disk',
       label: 'Disk',
       value: `${bytesText(m.disk_free_bytes)} left`,
       warn: m.disk_free_bytes < LOW_DISK_BYTES,
+      pct: diskUsed,
     },
     {
       key: 'slots',
-      icon: 'tasks',
+      icon: 'slots',
       label: 'Heavy slots',
       value: `${m.heavy_running} of ${limits.heavy_slots}`,
       warn: m.heavy_running >= limits.heavy_slots,
+      pct: (m.heavy_running / limits.heavy_slots) * 100,
     },
   ];
   return (
@@ -50,7 +55,13 @@ export function Machine({ onOpen }: { onOpen?: () => void }) {
       {rows.map((x) => (
         <View key={x.key} testID={`machine-${x.key}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 32 }}>
           <Icon name={x.icon} decorative size={16} color={c.muted} />
-          <Text style={{ color: c.ink, flex: 1 }}>{x.label}</Text>
+          <Text numberOfLines={1} style={{ color: c.ink, width: 96 }}>{x.label}</Text>
+          <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
+            <View
+              testID={`machine-bar-${x.key}`}
+              style={{ width: `${Math.min(100, Math.max(0, x.pct))}%`, height: 6, borderRadius: 3, backgroundColor: x.warn || x.pct >= 85 ? c.block : x.pct >= 60 ? c.wait : c.ok }}
+            />
+          </View>
           {x.warn ? <Icon name="warn" decorative size={14} color={c.block} /> : null}
           <Text style={{ color: x.warn ? c.block : c.ink }}>{x.value}</Text>
         </View>

@@ -5,7 +5,6 @@ const node = { projectService: false, project: './tsconfig.scripts.json', tsconf
 // Compiler debt: these files fail set-state-in-effect, refs, purity or static-components today and stay at warn. The list only shrinks; a file not in it gets the error.
 const compilerDebt = {
   files: [
-    'src/screens/AccountSettings.tsx',
     'src/screens/Accounts.tsx',
     'src/screens/AgentStrip.tsx',
     'src/screens/AgentTasks.tsx',

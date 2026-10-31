@@ -72,7 +72,7 @@ export function Banner(props: { text: string; error?: boolean; action?: string; 
 export function Button(props: {
   label: string;
   onPress: () => void;
-  kind?: 'yes' | 'no' | 'plain';
+  kind?: 'yes' | 'no' | 'plain' | 'primary';
   disabled?: boolean;
   style?: ViewStyle;
   testID?: string;
@@ -81,9 +81,9 @@ export function Button(props: {
   icon?: IconName;
 }) {
   const c = usePalette();
-  const bg = props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
+  const bg = props.kind === 'primary' ? c.accent : props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
   const solid = props.kind === 'yes' || props.kind === 'no';
-  const ink = solid ? c.onFill : c.ink;
+  const ink = props.kind === 'primary' || solid ? c.onFill : c.ink;
   return (
     <Pressable
       testID={props.testID}
@@ -132,18 +132,20 @@ export function PageHeader(props: {
   return (
     <View style={{ padding: props.bare ? 0 : space.lg, gap: space.sm }}>
       {back ? (
-        <Pressable
-          testID={back.testID}
-          onPress={back.onPress}
-          accessibilityRole="button"
-          accessibilityLabel={`Back to ${back.label}`}
-          hitSlop={12}
-          style={{ alignSelf: 'flex-start' }}
-        >
-          <Text style={{ color: c.accent, fontSize: font.size.lg }}>‹ {back.label}</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Pressable
+            testID={back.testID}
+            onPress={back.onPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Back to ${back.label}`}
+            hitSlop={12}
+          >
+            <Text style={{ color: c.accent, fontSize: font.size.lg }}>‹ {back.label}</Text>
+          </Pressable>
+          {props.title ? null : props.actions}
+        </View>
       ) : null}
-      {props.title || props.actions ? (
+      {props.title || (props.actions && !back) ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           <Text accessibilityRole="header" style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700', flex: 1 }}>
             {props.title}
@@ -178,6 +180,10 @@ export function Pill(props: {
   role?: 'button' | 'radio';
   /** Shown after the label while the pill is on, e.g. the × that takes a chip off. */
   trailing?: React.ReactNode;
+  /** A glyph before the word: a state is a glyph and a word. */
+  icon?: IconName;
+  /** A pill that shows a state, not a choice: no ring, tick or bold when `on`; the trailing mark shows whenever it is given. */
+  state?: boolean;
 }) {
   const c = usePalette();
   return (
@@ -189,8 +195,8 @@ export function Pill(props: {
       style={{
         minHeight: 36,
         justifyContent: 'center',
-        borderWidth: props.on ? 2 : 1,
-        borderColor: props.on ? c.ink : c.line,
+        borderWidth: props.on && !props.state ? 2 : 1,
+        borderColor: props.on && !props.state ? c.ink : c.line,
         borderRadius: 999,
         paddingHorizontal: space.md,
         overflow: 'hidden',
@@ -199,8 +205,11 @@ export function Pill(props: {
       {({ pressed }) => (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-            <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
-            {props.on ? props.trailing : null}
+            {props.icon ? <Icon name={props.icon} decorative size={16} color={c.ink} /> : null}
+            <Text style={{ color: c.ink, fontWeight: props.on && !props.state ? '700' : '400' }}>
+              {props.on && !props.state ? `✓ ${props.label}` : props.label}
+            </Text>
+            {props.on || props.state ? props.trailing : null}
           </View>
           <PressTint on={pressed} />
         </>

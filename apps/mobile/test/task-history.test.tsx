@@ -1,10 +1,10 @@
 // A task's history on the phone's task page, on the fake daemon: rows, folds, chips, long text, and no control without task.history.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { $, box, mount, press, text, until } from '#test/harness.tsx';
+import { $, mount, press, text, until } from '#test/harness.tsx';
 
 const TASK = 1684;
 const rows = (field?: string) =>
-  [...box.querySelectorAll<HTMLElement>('[data-testid^="history-"]')].filter(
+  [...document.querySelectorAll<HTMLElement>('[data-testid^="history-"]')].filter(
     (e) => /^history-(?!filter|order|fold|full)/.test(e.dataset.testid!) && (!field || e.dataset.testid === `history-${field}`),
   );
 
@@ -21,9 +21,10 @@ async function open(prepare?: Parameters<typeof mount>[0]) {
   return m;
 }
 async function openHistory() {
-  expect($('task-history')).toBeNull(); // not read until asked for
-  await press($('task-history-toggle'));
-  await until(() => $('task-history'), 'the history');
+  expect($('task-history-sheet')).toBeNull(); // not read until asked for
+  await press($('more-menu'));
+  await press($('verb-history'));
+  await until(() => $('history-filter-all'), 'the history');
 }
 
 describe('task history', () => {

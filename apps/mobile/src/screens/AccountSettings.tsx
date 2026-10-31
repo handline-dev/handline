@@ -39,9 +39,13 @@ export function Settings({ a }: { a: Account }) {
   const [cap, setCap] = useState(was.cap);
   const [end, setEnd] = useState(was.end);
   // Another client's change arrives through the topic and replaces what the boxes show.
-  useEffect(() => setAlias(was.alias), [was.alias]);
-  useEffect(() => setCap(was.cap), [was.cap]);
-  useEffect(() => setEnd(was.end), [was.end]);
+  const [seen, setSeen] = useState(was);
+  if (seen.alias !== was.alias || seen.cap !== was.cap || seen.end !== was.end) {
+    setSeen(was);
+    if (seen.alias !== was.alias) setAlias(was.alias);
+    if (seen.cap !== was.cap) setCap(was.cap);
+    if (seen.end !== was.end) setEnd(was.end);
+  }
   const n = Number(cap);
   const badCap = cap !== '' && !(Number.isInteger(n) && n >= 1);
   const badEnd = end !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(end.trim());
