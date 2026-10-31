@@ -133,7 +133,9 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   return (
     <View style={{ flex: 1 }} {...swipe}>
       <ConnectionBar store={props.store} />
-      {!open && !page && !itemOpen && <Bell store={props.store} onOpen={() => setPage('notices')} />}
+      {!open && !page && !itemOpen && !(tab === 'usage' && account == null) && (
+        <Bell store={props.store} onOpen={() => setPage('notices')} />
+      )}
       <Toasts store={props.store} />
       <View style={{ flex: 1 }}>
         {open ? (
@@ -160,7 +162,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
         ) : tab === 'tasks' ? (
           <Tasks selected={task} onSelect={setTask} />
         ) : tab === 'usage' ? (
-          <Accounts selected={account} onSelect={setAccount} footer={<Stats />} />
+          <Accounts selected={account} onSelect={setAccount} footer={<Stats />} onMachine={() => setPage('settings')} />
         ) : (
           <AgentList onPage={setPage} />
         )}

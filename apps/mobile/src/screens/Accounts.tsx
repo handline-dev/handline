@@ -1,18 +1,34 @@
 // The accounts on the Usage tab (docs/pc-app-gaps.md G9): one line per account with its gauges, state and agents; one account with its alias and cap to
 // edit (authored: shown at once, put back with the daemon's reason on a refusal) and, for the founder, Remove with a dry run and the name
 // typed to confirm (decided: nothing changes until the daemon accepts).
-import { useEffect, useState, type ReactNode } from 'react';
-import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { FIVE_HOURS_MS, STATE_WORD, agentsLine, paceLine, stallWord, WEEK_MS, gaugeOf, outUntil, span, stateOf } from '@handline/app-core';
+import { useState, type ReactNode } from 'react';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  FIVE_HOURS_MS,
+  STATE_WORD,
+  WEEK_MS,
+  agentsLine,
+  gaugeOf,
+  lostByAccount,
+  outUntil,
+  paceLine,
+  runwayWords,
+  span,
+  stallWord,
+  stateOf,
+} from '@handline/app-core';
 import type { Account, Window } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { classify, sentence, useAccounts, useAccountUsage, useOff, usePending, useServes, useWrite } from '@handline/app-data';
-import { font, radius, space } from '@handline/tokens';
+import { classify, sentence, useAccounts, useAccountUsage, useOff, useOutlook, usePending, useServes, useWrite } from '@handline/app-data';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { AccountLogin } from '#src/screens/AccountLogin.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, EmptyState, PageHeader } from '#src/screens/parts.tsx';
+import { Icon } from '#src/screens/Icon.tsx';
 import { Sheet } from '#src/screens/TaskActions.tsx';
+import { Input, Remove, Settings } from '#src/screens/AccountSettings.tsx';
+import { Machine } from '#src/screens/Machine.tsx';
 
 /** The topic's rows are live; the usage read adds the fields only it carries. */
 function useUsageRows(): Account[] | undefined {
@@ -21,17 +37,22 @@ function useUsageRows(): Account[] | undefined {
   return live?.map((a) => ({ ...usage?.find((u) => u.name === a.name), ...a }));
 }
 
-const SPANS = { '5 hours': FIVE_HOURS_MS, week: WEEK_MS } as const;
+const SPANS = { '5-hour': FIVE_HOURS_MS, week: WEEK_MS } as const;
 
-export function Accounts(props: { selected: string | null; onSelect: (name: string | null) => void; footer?: ReactNode }) {
+export function Accounts(props: {
+  selected: string | null;
+  onSelect: (name: string | null) => void;
+  footer?: ReactNode;
+  onMachine?: () => void;
+}) {
   return props.selected != null ? (
     <One name={props.selected} onBack={() => props.onSelect(null)} />
   ) : (
-    <List onSelect={props.onSelect} footer={props.footer} />
+    <List onSelect={props.onSelect} footer={props.footer} onMachine={props.onMachine} />
   );
 }
 
-/** A stalled account: STALLED and its reason, and for the founder Wake (the row loses the stall at once; a refusal puts it back and says why). */
+/** A stalled account: the word blocked, its reason, and for the founder Wake (the row loses the stall at once; a refusal puts it back and says why). */
 function Stall({ a }: { a: Account }) {
   const c = usePalette();
   const founder = useStore().client.hello?.role === 'founder';
@@ -41,9 +62,11 @@ function Stall({ a }: { a: Account }) {
   return (
     <View testID={`stall-${a.name}`} style={{ gap: space.xs }}>
       {a.stalled ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
-          <Text style={{ color: c.block, fontWeight: '700' }}>STALLED</Text>
-          <Text style={{ color: c.muted, flexShrink: 1 }}>{stallWord(a.stalled)}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <View style={{ borderWidth: 1, borderColor: c.block, borderRadius: 999, paddingHorizontal: space.sm }}>
+            <Text style={{ color: c.block }}>blocked</Text>
+          </View>
+          <Text style={{ color: c.muted, flexShrink: 1, flex: 1 }}>{stallWord(a.stalled)}</Text>
           {founder && served ? (
             <Button
               testID={`wake-${a.name}`}
@@ -88,11 +111,11 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
   const c = usePalette();
   if (!props.w) return <Text style={{ color: c.muted }}>{props.label} no reading</Text>;
   const g = gaugeOf(props.w, SPANS[props.label], Date.now());
-  const tone = g.tone === 'bad' ? c.block : g.tone === 'warn' ? c.wait : c.run;
+  const tone = g.tone === 'bad' ? c.block : g.tone === 'warn' ? c.wait : c.ok;
   return (
     <View testID={`gauge-${props.label}`} style={{ gap: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-        <Text numberOfLines={1} style={{ color: c.muted, width: 76 }}>
+        <Text numberOfLines={1} style={{ color: c.muted, width: 64 }}>
           {props.label}
         </Text>
         <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
@@ -104,15 +127,33 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
             />
           ) : null}
         </View>
-        <Text style={{ color: c.ink, width: 48, textAlign: 'right' }}>
-          {g.pct}%{g.pct >= 100 ? ' full' : g.pct >= 80 ? ' !' : ''}
-        </Text>
+        <View style={{ width: 64, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+          {g.pct >= 80 ? <Icon name={g.pct >= 100 ? 'full' : 'warn'} decorative size={14} color={tone} /> : null}
+          <Text style={{ color: c.ink }}>{g.pct}%</Text>
+        </View>
       </View>
       {props.detail && g.resetIn !== null ? (
         <Text style={{ color: c.muted, fontSize: font.size.sm }}>resets in {span(g.resetIn)}</Text>
       ) : null}
     </View>
   );
+}
+
+/** The one warning under an account's bars: it runs out (amber, with a glyph), or what the week loses at this pace. */
+function Warning(props: { a: Account; runway?: Parameters<typeof runwayWords>[0]; lost?: number }) {
+  const c = usePalette();
+  const { a, runway, lost } = props;
+  const runs = runway && runway.runs_out_in_seconds !== null && stateOf(a) !== 'out' ? runwayWords(runway) : null;
+  if (runs)
+    return (
+      <View testID={`warn-${a.name}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+        <Icon name="warn" decorative size={14} color={c.wait} />
+        <Text style={{ color: c.wait, fontSize: font.size.sm }}>{runs}</Text>
+      </View>
+    );
+  return lost !== undefined ? (
+    <Text testID={`lost-${a.name}`} style={{ color: c.muted, fontSize: font.size.sm }}>{`${Math.round(lost)}% lost at this pace`}</Text>
+  ) : null;
 }
 
 /** Under the week gauge: what the account's pace means for starting agents; nothing with pacing off or no pace. */
@@ -133,14 +174,16 @@ function stateText(a: Account): string {
   return until ? `out until ${span(Date.parse(until) - Date.now())} from now` : s === 'in_use' ? '' : STATE_WORD[s];
 }
 
-function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
+function List(props: { onSelect: (name: string) => void; footer?: ReactNode; onMachine?: () => void }) {
   const c = usePalette();
   const query = useAccounts();
   const { served } = useServes('accounts.list');
   const rows = useUsageRows() ?? [];
+  const outlook = useOutlook('7d').data;
+  const lost = outlook ? lostByAccount(outlook) : [];
   return (
     <View style={{ flex: 1 }}>
-      <PageHeader title="Usage" actions={<Add />} />
+      <PageHeader title="Usage" />
       <Loadable
         query={query}
         served={served}
@@ -152,7 +195,12 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
         <FlatList
           data={rows}
           keyExtractor={(a) => a.name}
-          ListFooterComponent={<>{props.footer}</>}
+          ListFooterComponent={
+            <>
+              <Machine onOpen={props.onMachine} />
+              {props.footer}
+            </>
+          }
           renderItem={({ item: a }) => (
             <Pressable
               testID={`account-${a.name}`}
@@ -165,11 +213,17 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                 backgroundColor: pressed ? c.press : undefined,
               })}
             >
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: c.ink, fontWeight: '600' }}>{a.label}</Text>
-                <Text style={{ color: c.muted }}>{agentsLine(a)}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: space.sm }}>
+                <Text style={{ color: c.ink, fontWeight: '600' }}>
+                  {a.label}
+                  {a.plan ? <Text style={{ color: c.muted, fontWeight: '400' }}>{`  ${a.plan}`}</Text> : null}
+                </Text>
+                {stateOf(a) === 'needs_login' ? (
+                  <Text style={{ color: c.wait }}>Login needed</Text>
+                ) : (
+                  <Text style={{ color: c.muted }}>{agentsLine(a)}</Text>
+                )}
               </View>
-              {stateText(a) ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{stateText(a)}</Text> : null}
               {stateOf(a) === 'needs_login' ? (
                 <Button
                   testID={`login-${a.name}`}
@@ -179,13 +233,16 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                 />
               ) : (
                 <>
-                  <Gauge label="5 hours" w={a.five_hour} />
+                  <Gauge label="5-hour" w={a.five_hour} />
                   <Gauge label="week" w={a.weekly} />
+                  <Warning
+                    a={a}
+                    runway={outlook?.runway.find((r) => r.account === a.name)}
+                    lost={lost.find((l) => l.account === a.name)?.pct}
+                  />
                 </>
               )}
-              <PaceLine a={a} />
               <Stall a={a} />
-              <UsageLines a={a} />
             </Pressable>
           )}
         />
@@ -195,7 +252,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
 }
 
 /** Founder only: a name registers the account, which then needs a login (the topic brings the row in). */
-function Add() {
+export function AddAccount() {
   const c = usePalette();
   const founder = useStore().client.hello?.role === 'founder';
   const off = useOff('account.add');
@@ -206,7 +263,7 @@ function Add() {
   if (!founder) return null;
   const close = () => (setAsking(false), setName(''), add.reset());
   return (
-    <View style={{ gap: space.sm, alignItems: 'flex-end' }}>
+    <View style={{ gap: space.sm, alignItems: 'flex-start' }}>
       <Button testID="account-add-open" label="Add account" disabled={!!off || asking} onPress={() => setAsking(true)} />
       {off ? <Text style={{ color: c.muted }}>Locked: {off}.</Text> : null}
       {asking ? (
@@ -222,23 +279,6 @@ function Add() {
         </Sheet>
       ) : null}
     </View>
-  );
-}
-
-function Input(props: { value: string; onChange: (v: string) => void; label: string; testID: string; keyboardType?: 'number-pad' }) {
-  const c = usePalette();
-  return (
-    <TextInput
-      testID={props.testID}
-      accessibilityLabel={props.label}
-      placeholder={props.label}
-      placeholderTextColor={c.muted}
-      value={props.value}
-      onChangeText={props.onChange}
-      keyboardType={props.keyboardType}
-      autoCapitalize="none"
-      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 44 }}
-    />
   );
 }
 
@@ -262,7 +302,7 @@ function Body({ a }: { a: Account }) {
     <ScrollView testID="account-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>{a.label}</Text>
       {stateText(a) ? <Text style={{ color: c.muted }}>{stateText(a)}</Text> : null}
-      <Gauge label="5 hours" w={a.five_hour} detail />
+      <Gauge label="5-hour" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
       <PaceLine a={a} />
       <Stall a={a} />
@@ -272,148 +312,5 @@ function Body({ a }: { a: Account }) {
       <AccountLogin a={a} />
       <Remove a={a} />
     </ScrollView>
-  );
-}
-
-function Settings({ a }: { a: Account }) {
-  const c = usePalette();
-  const save = useWrite('account.set', a.name);
-  const off = useOff('account.set');
-  const was = {
-    alias: a.label === a.name ? '' : a.label,
-    cap: a.cap === null ? '' : String(a.cap),
-    end: a.cycle.end_is_default ? '' : (a.cycle.end ?? ''),
-  };
-  const [alias, setAlias] = useState(was.alias);
-  const [cap, setCap] = useState(was.cap);
-  const [end, setEnd] = useState(was.end);
-  // Another client's change arrives through the topic and replaces what the boxes show.
-  useEffect(() => setAlias(was.alias), [was.alias]);
-  useEffect(() => setCap(was.cap), [was.cap]);
-  useEffect(() => setEnd(was.end), [was.end]);
-  const n = Number(cap);
-  const badCap = cap !== '' && !(Number.isInteger(n) && n >= 1);
-  const badEnd = end !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(end.trim());
-  const changed = alias.trim() !== was.alias || (cap !== was.cap && cap !== '') || end.trim() !== was.end;
-  const submit = () => {
-    const p: { account: string; label?: string; cap?: number; cycle_end?: string | null } = { account: a.name };
-    if (alias.trim() !== was.alias) p.label = alias.trim();
-    if (cap !== was.cap && cap !== '') p.cap = n;
-    if (end.trim() !== was.end) p.cycle_end = end.trim() || null;
-    save.mutate(p);
-  };
-  return (
-    <View testID="account-settings" style={{ gap: space.sm }}>
-      <Input testID="account-alias" label="Alias" value={alias} onChange={setAlias} />
-      <Input testID="account-cap" label={`Cap (now ${a.cap_effective} agents)`} value={cap} onChange={setCap} keyboardType="number-pad" />
-      {badCap ? (
-        <Text accessibilityRole="alert" style={{ color: c.block }}>
-          The cap is a whole number, 1 or more.
-        </Text>
-      ) : null}
-      <Toggle
-        testID="account-recover"
-        label="Usage recovery"
-        on={a.recover}
-        disabled={!!off}
-        onChange={(on) => save.mutate({ account: a.name, recover: on })}
-      />
-      <Toggle
-        testID="account-cycle"
-        label="Ends this month"
-        on={a.cycle.on}
-        disabled={!!off}
-        onChange={(on) => save.mutate({ account: a.name, cycle: on })}
-      />
-      <Input testID="account-cycle-end" label="Last day, as 2026-10-31 (blank: when its login drops)" value={end} onChange={setEnd} />
-      {badEnd ? (
-        <Text accessibilityRole="alert" style={{ color: c.block }}>
-          The last day is a date like 2026-10-31.
-        </Text>
-      ) : null}
-      <Button
-        testID="account-save"
-        label={save.isPending ? 'Saving…' : 'Save'}
-        disabled={!!off || badCap || badEnd || !changed || save.isPending}
-        onPress={submit}
-      />
-      {off ? <Text style={{ color: c.muted }}>Locked: {off}.</Text> : null}
-    </View>
-  );
-}
-
-function Toggle(props: { label: string; on: boolean; disabled: boolean; onChange: (on: boolean) => void; testID: string }) {
-  const c = usePalette();
-  return (
-    <Pressable
-      testID={props.testID}
-      accessibilityRole="switch"
-      accessibilityLabel={props.label}
-      accessibilityState={{ checked: props.on, disabled: props.disabled }}
-      disabled={props.disabled}
-      onPress={() => props.onChange(!props.on)}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        minHeight: 44,
-        opacity: props.disabled ? 0.4 : 1,
-      }}
-    >
-      <Text style={{ color: c.ink }}>{props.label}</Text>
-      <Text style={{ color: props.on ? c.run : c.muted, fontWeight: '700' }}>{props.on ? 'On' : 'Off'}</Text>
-    </Pressable>
-  );
-}
-
-function Remove({ a }: { a: Account }) {
-  const c = usePalette();
-  const founder = useStore().client.hello?.role === 'founder';
-  const off = useOff('account.remove');
-  const [asking, setAsking] = useState(false);
-  if (!founder) return null;
-  return (
-    <View testID="account-remove" style={{ gap: space.sm }}>
-      <Button testID="account-remove-open" kind="no" label="Remove account…" disabled={!!off || asking} onPress={() => setAsking(true)} />
-      {off ? <Text style={{ color: c.muted }}>Locked: {off}.</Text> : null}
-      {asking ? <RemoveSheet a={a} onClose={() => setAsking(false)} /> : null}
-    </View>
-  );
-}
-
-function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
-  const c = usePalette();
-  const plan = useWrite('account.remove', a.name);
-  const remove = useWrite('account.remove', a.name);
-  const removing = usePending('account.remove').some((v) => v.account === a.name && !v.dry_run);
-  const [typed, setTyped] = useState('');
-  const { mutate: dry } = plan;
-  useEffect(() => dry({ account: a.name, dry_run: true }), [dry, a.name]);
-  const would = plan.data?.would_remove === true;
-  const failed = plan.error ?? remove.error;
-  return (
-    <Sheet
-      label={`Remove ${a.label}`}
-      submit={removing ? 'Removing…' : 'Remove account'}
-      kind="no"
-      busy={!would || typed !== a.name || removing}
-      onCancel={onClose}
-      onSubmit={() => remove.mutate({ account: a.name, confirm: typed }, { onSuccess: onClose })}
-      error={failed ? sentence(classify(failed)) : undefined}
-    >
-      {plan.isPending ? <Text style={{ color: c.muted }}>Checking what removing it would do…</Text> : null}
-      {a.agents.length ? <Text style={{ color: c.wait }}>On it now: {a.agents.join(', ')}. Move them off first.</Text> : null}
-      {(plan.data?.plan ?? []).map((l) => (
-        <Text key={l} testID="plan-line" style={{ color: c.ink }}>
-          • {l}
-        </Text>
-      ))}
-      {would ? (
-        <>
-          <Input testID="sheet-confirm" label={`Type ${a.name} to confirm`} value={typed} onChange={setTyped} />
-          <Text style={{ color: c.muted, fontSize: font.size.sm }}>Its directory is moved aside, not deleted.</Text>
-        </>
-      ) : null}
-    </Sheet>
   );
 }

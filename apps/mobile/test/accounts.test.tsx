@@ -69,7 +69,7 @@ describe('the accounts tab', () => {
     await until(() => $('account-alpha'), 'the rows');
     expect(text($('account-alpha'))).toContain('41%');
     expect(text($('account-beta'))).toContain('review');
-    expect(text($('account-gamma'))).toContain('login needed');
+    expect(text($('account-gamma'))).toContain('Login needed');
     await openOne('alpha');
     expect(text($('account-detail'))).toContain('On it:');
     await press($('account-back'));
@@ -155,6 +155,10 @@ describe('the accounts tab', () => {
 
   it('adds an account by name, and a used name is refused with the reason', async () => {
     const m = await mount();
+    await press($('nav-agents'));
+    await press($('agents-menu'));
+    await press($('settings-open'));
+    await until(() => $('account-add-open'), 'the Settings page');
     await press($('account-add-open'));
     await press($('sheet-submit')); // no name yet: nothing is sent
     expect(m.daemon.accounts.list().accounts.map((a) => a.name)).toEqual(['alpha', 'beta', 'gamma']);
@@ -164,13 +168,17 @@ describe('the accounts tab', () => {
     expect(text($('sheet-error'))).toContain('exists');
     await type('sheet-name', 'delta');
     await press($('sheet-submit'));
-    await until(() => $('account-delta'), 'the new row');
+    await until(() => m.daemon.accounts.list().accounts.some((a) => a.name === 'delta'), 'the new account');
     expect($('sheet')).toBeNull();
     m.store.stop();
   });
 
   it('offers Add account to the founder only', async () => {
     const m = await mount('agent');
+    await press($('nav-agents'));
+    await press($('agents-menu'));
+    await press($('settings-open'));
+    await until(() => $('settings-founder-only'), 'the Settings page');
     expect($('account-add-open')).toBeNull();
     m.store.stop();
   });
