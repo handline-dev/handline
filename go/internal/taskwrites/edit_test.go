@@ -115,6 +115,35 @@ func TestEditAllowsAnEmptyBody(t *testing.T) {
 	}
 }
 
+// A done task's brief and result can both be rewritten, and a task that is not done has no result to edit.
+func TestADoneTaskKeepsItsBriefAndResultEditable(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, done_evidence, done_at, done_via) VALUES(1, 'closed', 'worker', 'manager', 1, 'old result', 5, 'reason')",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(2, 'open', 'worker', 'manager', 1)",
+		"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts) VALUES(10, 'manager', 'worker', 'the brief', 'queued', 'task', 10, 1)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
+	srv := mk("manager", &fakeTeller{})
+	r := call(t, srv,
+		`{"jsonrpc":"2.0","id":2,"method":"task.edit","params":{"task":1,"body":"new brief","evidence":"**new** result","request_id":"d1"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"task.edit","params":{"task":1,"evidence":"","request_id":"d2"}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"task.edit","params":{"task":2,"evidence":"early","request_id":"d3"}}`)
+	if r[0]["result"] == nil || r[1]["result"] == nil || r[2]["error"] == nil {
+		t.Fatalf("%v", r)
+	}
+	for q, want := range map[string]int{
+		"SELECT COUNT(*) FROM requests WHERE id = 10 AND body = 'new brief'":                                                  1,
+		"SELECT COUNT(*) FROM tasks WHERE id = 1 AND done_evidence = '' AND done_at = 5":                                      1,
+		"SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND json_extract(payload, '$.evidence.old') = '**new** result'": 1,
+		"SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND json_extract(payload, '$.evidence.old') = 'old result'":     1,
+		"SELECT COUNT(*) FROM tasks WHERE id = 2 AND done_evidence IS NULL":                                                   1,
+	} {
+		if n := count(t, db, q); n != want {
+			t.Errorf("%s = %d, want %d", q, n, want)
+		}
+	}
+}
+
 func TestAnEstimateIsStoryPointsSetWhenATaskOpensChangedAndCleared(t *testing.T) {
 	db, mk := discardEnv(t)
 	exec(t, db, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'one', 'worker', 'manager', 1)")

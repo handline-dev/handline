@@ -253,8 +253,8 @@ export type HistoryRow = {
   at: Timestamp;
   /** Who made the change: an agent, or human. */
   by: string;
-  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
-  field: "title" | "assignee" | "owner" | "body" | "priority" | "estimate" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
+  /** evidence is a done task's result. assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
+  field: "title" | "assignee" | "owner" | "body" | "evidence" | "priority" | "estimate" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
   /** The value after; empty when it is gone (a wait removed, a memo deleted). */
@@ -697,6 +697,8 @@ export interface TasksMethods {
   title?: string;
   /** The new brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
+  /** The new result of a done task (Task.evidence), Markdown, may be empty. A task that is not done has no result to edit: it is refused. */
+  evidence?: string;
   time_box?: Duration;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;

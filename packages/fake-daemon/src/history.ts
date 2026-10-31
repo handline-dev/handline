@@ -2,7 +2,7 @@
 import type { HistoryRow, Methods, Task, TimeSegment } from '@handline/contract';
 import { invalidParams } from '#src/errors.ts';
 
-type Fields = Task & { body: string; blockers: { task: number }[]; estimate?: number | null };
+type Fields = Task & { body: string; evidence?: string | null; blockers: { task: number }[]; estimate?: number | null };
 
 export function changes(t: Fields, patch: Partial<Fields>, at: string, by: string): HistoryRow[] {
   const rows: HistoryRow[] = [];
@@ -12,6 +12,7 @@ export function changes(t: Fields, patch: Partial<Fields>, at: string, by: strin
   if ('title' in patch) log('title', t.title, patch.title);
   if ('to' in patch) log('assignee', t.to, patch.to);
   if ('body' in patch) log('body', t.body, patch.body);
+  if ('evidence' in patch) log('evidence', t.evidence, patch.evidence);
   if ('priority' in patch) log('priority', t.priority ? `P${t.priority}` : '', patch.priority ? `P${patch.priority}` : '');
   if ('estimate' in patch) log('estimate', t.estimate ? `${t.estimate} points` : '', patch.estimate ? `${patch.estimate} points` : '');
   if ('time_box' in patch) log('timeout', t.time_box, patch.time_box);
@@ -22,10 +23,13 @@ export function changes(t: Fields, patch: Partial<Fields>, at: string, by: strin
 }
 
 /** The plain fields a task.edit sets, as a patch: only those it names. */
-export function fieldsOf(p: Record<string, unknown>): Partial<Pick<Fields, 'title' | 'body' | 'time_box' | 'priority' | 'estimate'>> {
+export function fieldsOf(
+  p: Record<string, unknown>,
+): Partial<Pick<Fields, 'title' | 'body' | 'evidence' | 'time_box' | 'priority' | 'estimate'>> {
   return {
     ...(p.title !== undefined ? { title: String(p.title) } : {}),
     ...(p.body !== undefined ? { body: String(p.body) } : {}),
+    ...(p.evidence !== undefined ? { evidence: String(p.evidence) } : {}),
     ...(p.time_box !== undefined ? { time_box: String(p.time_box) } : {}),
     ...(p.priority !== undefined ? { priority: p.priority as 1 | 2 | 3 } : {}),
     ...(p.estimate !== undefined ? { estimate: p.estimate as number | null } : {}),

@@ -30,7 +30,7 @@ func TestAnyoneMayEditOrReassignATask(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Commit()
-		why, _, err := editTask(tx, 1, by, home, owner, reporter, title, nil, nil, nil, nil)
+		why, _, err := editTask(tx, 1, by, home, owner, reporter, title, nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1122,6 +1122,7 @@
        "assignee",
        "owner",
        "body",
+       "evidence",
        "priority",
        "estimate",
        "timeout",
@@ -1131,7 +1132,7 @@
        "merged_into",
        "memo"
       ],
-      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
+      "description": "evidence is a done task's result. assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
      },
      "was": {
       "type": "string",
@@ -3863,7 +3864,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner (an agent giving it to `human` is refused, as task.handoff does), reporter, title, priority, body and time box, by anyone (body and time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.",
+   "summary": "Change a task: owner (an agent giving it to `human` is refused, as task.handoff does), reporter, title, priority, body, result and time box, by anyone (the body and the result at any state, a closed task included; the time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3901,6 +3902,14 @@
      "schema": {
       "type": "string",
       "description": "The new brief, Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "evidence",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The new result of a done task (Task.evidence), Markdown, may be empty. A task that is not done has no result to edit: it is refused."
      }
     },
     {
