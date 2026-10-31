@@ -182,7 +182,11 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 				for _, m := range moved {
 					logLine("  " + m)
 				}
-				return errors.Join(err, env.MigrateOldMessages(q))
+				back, backErr := taskwrites.ReturnFounderTasks(q, home, env)
+				for _, m := range back {
+					logLine("  " + m)
+				}
+				return errors.Join(err, backErr, env.MigrateOldMessages(q))
 			}, Reload: func() error { return env.ReloadPending(q) }})
 	}
 	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup, gates: &gates.Sweep{DB: q, Home: home, Tell: env, Log: cfg.Log}}
