@@ -99,7 +99,7 @@ export function WorkingLine(props: { working: Working; messages: ChatMessage[]; 
   }, [running]);
   if (!running) return null;
   const turn = turnSummary(props.messages, props.items, running);
-  const now = turn.last ?? props.working.line;
+  const now = turn.last ?? (props.working.line === 'Working' ? null : props.working.line);
   const text = [now ? `Running ${now}` : 'Working', turnMinutes(props.working.since)].filter(Boolean).join(' · ');
   return (
     <View
