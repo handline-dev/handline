@@ -24,10 +24,31 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Result = { commits: number; renders: number; ms: number; maxCommitMs: number; top: { name: string; renders: number; ms: number }[] };
 type Budget = { slack: number; scenarios: Record<string, { commits: number; renders: number }> };
 
-/** The fake with every seed, plus a long chat: 300 messages and 300 replies over three days. */
+/** The seeds the budgets were measured with. A new seed is not added here, so it never moves a budget. */
+const PERF_SEEDS = [
+  'inbox-terminal',
+  'review',
+  'task-card',
+  'spare-notice',
+  'tasks-200',
+  'requests',
+  'agent-held',
+  'agent-blocked',
+  'agent-usage',
+  'account-stalled',
+  'hr',
+  'handoff-own',
+  'hr-held',
+  'hr-apply-failed',
+  'hr-followup',
+  'chat-actions',
+  'chat-long',
+];
+
+/** The fake with the perf seeds, plus a long chat: 300 messages and 300 replies over three days. */
 async function fake(): Promise<{ daemon: FakeDaemon; port: number; incoming: (agent: string) => void }> {
   const daemon = new FakeDaemon();
-  applySeeds(daemon, 'all');
+  applySeeds(daemon, PERF_SEEDS);
   const start = Date.now() - 3 * 86_400_000;
   for (let i = 0; i < 300; i++) {
     const at = new Date(start + i * 600_000).toISOString();
