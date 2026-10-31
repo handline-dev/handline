@@ -37,7 +37,7 @@ func TestRequestsAreReadFromTheirTreeOfTasks(t *testing.T) {
 		"(81, 'newer', 'dev', 'lead', NULL, 80, "+at(260)+", NULL, NULL), "+
 		"(82, 'older', 'dev3', 'lead', NULL, 80, "+at(265)+", NULL, NULL), "+
 		"(83, 'ended', 'dev4', 'lead', NULL, 80, "+at(266)+", 'ok', "+at(255)+")")
-	// T62 waits on T61; T81's only blocks are a dormant one and one on a task that has ended
+	// T62 waits on T61; T81's only blocks are a dormant one and one on a task that has ended // local-ref-ok
 	run(t, e, "INSERT INTO task_blocks(task_id, blocks_on, created_at, dormant) VALUES(62, 61, 1, 0), (81, 82, 1, 1), (81, 83, 1, 0)")
 	rows, err := e.RequestRows(now)
 	if err != nil {
@@ -51,20 +51,20 @@ func TestRequestsAreReadFromTheirTreeOfTasks(t *testing.T) {
 			by[r["ref"].(string)] = r
 		}
 	}
-	want := map[string]string{"T10": "review", "T20": "done", "T30": "waiting_on_you", "msg_aaaaaaaaaaa2": "no_work", "msg_aaaaaaaaaaa3": "not_yet", "T60": "doing", "T80": "doing"}
+	want := map[string]string{"T10": "review", "T20": "done", "T30": "waiting_on_you", "msg_aaaaaaaaaaa2": "no_work", "msg_aaaaaaaaaaa3": "not_yet", "T60": "doing", "T80": "doing"} // local-ref-ok
 	for k, st := range want {
 		if by[k] == nil || by[k]["status"] != st {
 			t.Errorf("%s: %v, want %s", k, by[k], st)
 		}
 	}
-	if len(rows) != len(want) || by["T40"] != nil || by["T70"] != nil || by["T60"]["blocked"] != true || by["T80"]["blocked"] != false || by["T80"]["now"] != "dev" {
+	if len(rows) != len(want) || by["T40"] != nil || by["T70"] != nil || by["T60"]["blocked"] != true || by["T80"]["blocked"] != false || by["T80"]["now"] != "dev" { // local-ref-ok
 		t.Errorf("a todo of the founder's own is not a request, and nothing is listed twice: %d rows", len(rows))
 	}
 	if r := by["T10"]; r["open"] != 1 || r["done"] != 1 || r["agent"] != "lead" || r["ref"] != "msg_aaaaaaaaaaa1" ||
 		len(r["holders"].([]string)) != 2 || len(r["prs"].([]int64)) != 1 {
 		t.Errorf("a tree is counted: %v", r)
 	}
-	for k, want := range map[string]string{"T10": "sub 1/2 done, now dev, in review", "T20": "done", "T30": "sub 0/1 done, now lead, waiting on you", "msg_aaaaaaaaaaa3": "",
+	for k, want := range map[string]string{"T10": "sub 1/2 done, now dev, in review", "T20": "done", "T30": "sub 0/1 done, now lead, waiting on you", "msg_aaaaaaaaaaa3": "", // local-ref-ok
 		"T60": "sub 0/2 done, now dev2, blocked", "T80": "sub 1/3 done, now dev"} { // local-ref-ok
 		if by[k]["progress"] != want {
 			t.Errorf("%s progress %q, want %q", k, by[k]["progress"], want)
