@@ -23,6 +23,8 @@ export interface TrayActions {
   reconnect(): void;
   /** Puts an address or a commit on the clipboard. */
   copy(text: string): void;
+  /** An installed app: stops the daemon service, after asking. */
+  stopDaemon?(): void;
 }
 
 /** What the menu-bar icon shows: nothing extra, a red dot (items wait on the person), a blue dot (an update is ready) or the yellow icon (trouble). */
@@ -61,12 +63,12 @@ export interface TrayFollow {
   restart(): void;
 }
 
-/** Which mode is on and which daemon the app talks to; `switchTo` flips the mode. */
+/** Which mode is on and which daemon the app talks to; `switchTo` flips the mode (an installed app has none: it only attaches). */
 export interface TrayMode {
   mode: Mode;
   /** Connect mode: the link's state. Own mode: the address and version of the daemon it started. */
   link: Pick<Link, 'status' | 'address' | 'version' | 'reason' | 'mismatch'>;
-  switchTo(): void;
+  switchTo?(): void;
   /** Connect mode: pair with the `handline://` link on the clipboard. */
   pair(): void;
   /** Own mode, or Connect to this computer's daemon: show a QR a phone scans to pair. Absent when the app is on another device's gateway. */
@@ -137,7 +139,7 @@ function detailItems(state: DaemonState, reason: string, a: TrayActions, follow?
   if (follow) items.push({ label: `Handline is on main ${follow.sha.slice(0, 7)}`, click: () => a.copy(follow.sha) });
   if (follow && follow.state !== 'ready') items.push({ label: 'Check for update', click: follow.check });
   if (m?.mode === 'connect') items.push({ label: 'Pair with the link on the clipboard', click: m.pair });
-  if (m) items.push({ label: m.mode === 'connect' ? 'Switch to Own daemon' : 'Switch to Connect', click: m.switchTo });
+  if (m?.switchTo) items.push({ label: m.mode === 'connect' ? 'Switch to Own daemon' : 'Switch to Connect', click: m.switchTo });
   return items;
 }
 
@@ -165,6 +167,7 @@ export function trayMenu(
   items.push({ type: 'separator' });
   if (m?.phone) items.push({ label: 'Pair a phone…', click: m.phone });
   items.push({ label: 'Settings…', click: a.settings });
+  if (a.stopDaemon) items.push({ label: 'Stop daemon…', click: a.stopDaemon });
   if (view.details) items.push({ type: 'separator' }, ...detailItems(state, reason, a, follow, m));
   items.push({ type: 'separator' }, { label: 'Quit Handline', click: a.quit });
   return items;

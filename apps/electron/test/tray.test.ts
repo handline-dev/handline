@@ -124,3 +124,14 @@ test('a daemon that is not the app build gets a Restart daemon item, without a w
   assert.ok(!labels('running', '', undefined, mode({ link })).includes('Restart daemon')); // another device's daemon
   assert.ok(!labels('running', '', undefined, mode({ link })).some((l) => l.includes('Daemon is'))); // never a warning line
 });
+
+test('an installed app adds Stop daemon… after Settings, runs it on a click, and has no mode to switch', () => {
+  const a = { ...actions, stopDaemon: () => calls.push('stop daemon') };
+  const items = trayMenu('running', '', a, undefined, mode({ mode: 'connect', switchTo: undefined }), { unread: 0, details: true });
+  const names = items.map((i) => i.label ?? '-');
+  assert.equal(names[names.indexOf('Settings…') + 1], 'Stop daemon…');
+  assert.ok(!names.some((n) => n.startsWith('Switch to')));
+  items.find((i) => i.label === 'Stop daemon…')!.click!();
+  assert.equal(calls.at(-1), 'stop daemon');
+  assert.ok(!labels('running').includes('Stop daemon…'));
+});

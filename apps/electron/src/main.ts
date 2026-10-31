@@ -29,6 +29,7 @@ import { startPkgUpdate } from '#src/pkg-update-app.ts';
 import { bundleAt } from '#src/bundle.ts';
 import { readBuildSha } from '#src/build-id.ts';
 import { upgradeNow } from '#src/daemon-upgrade.ts';
+import { currentHl, ensureService, stopService } from '#src/service.ts';
 import { cliState, linkCli } from '#src/cli.ts';
 
 const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}`];
@@ -160,10 +161,11 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   serveCapture(ipcMain, origin, { sources: (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize }) });
 }
 
-/** The Settings row that links the carried `hl` into ~/.local/bin. */
+/** The Settings row that links `hl` into ~/.local/bin: the copy the service keeps (bin/current), not the one inside the bundle, which can be moved or replaced. */
 function handleCli(origin: string): void {
   const cliDir = path.join(os.homedir(), '.local', 'bin');
-  const cli = new Cli(origin, { state: () => cliState(carried?.hl ?? null, cliDir), link: () => linkCli(carried!.hl, cliDir) });
+  const hl = currentHl();
+  const cli = new Cli(origin, { state: () => cliState(carried ? hl : null, cliDir), link: () => linkCli(hl, cliDir) });
   ipcMain.handle(CHANNELS.cli, (e) => cli.state(e));
   ipcMain.handle(CHANNELS.linkCli, (e) => cli.link(e));
 }
@@ -198,19 +200,30 @@ async function untilUp(f: () => Promise<unknown>): Promise<void> {
   }
 }
 
-/** Moves the daemon onto this app's build: the checkout runs go/handlined, built here; an installed app carries its own. A paired remote daemon is not this app's to move. */
+/** A paired remote: its gateway is the one the page talks to, and its certificate the one trusted. */
+function useRemote(remote: Remote): void {
+  gateway = remote.host;
+  ws = remoteUrl(remote);
+  trustFingerprint(remote);
+}
+
+/** An installed app's daemon service, run from its own bundle. */
+const serviceOf = (handlined: string) => ({ ensure: () => ensureService(handlined), stop: () => stopService(handlined) });
+
+/** What `service ensure` did, as a failure when the daemon is not on this app's version (`kept` is the old one back). */
+async function ensure(handlined: string): Promise<void> {
+  const r = await ensureService(handlined);
+  if (r.state === 'failed' || r.state === 'kept') throw new Error(r.reason);
+}
+
+/** Moves the daemon onto this app's build: an installed app's `service ensure`, a checkout's go/handlined built here. A paired remote daemon is not this app's to move. */
 function upgrader(client: DaemonClient, remote: Remote | null): (sha?: string) => Promise<void> {
   return (sha) =>
     remote
       ? Promise.resolve()
-      : upgradeNow({
-          client,
-          exe: env('HANDLINED') ?? carried?.handlined ?? `${root}/go/handlined`,
-          build: !carried,
-          root,
-          dist: import.meta.dirname,
-          sha,
-        });
+      : carried
+        ? ensure(carried.handlined)
+        : upgradeNow({ client, exe: env('HANDLINED') ?? `${root}/go/handlined`, root, dist: import.meta.dirname, sha });
 }
 
 /** True when nothing on screen would be lost by an update's question. The page says when it holds something unsent; until it has said so once, the shell looks into the page itself. */
@@ -341,15 +354,11 @@ if (!app.requestSingleInstanceLock({ background })) {
     app.dock?.setIcon(APP_ICON);
     allowGatewayOrigin();
     const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
-    const current = settings.read(parseMode(env('MODE')));
+    const current = settings.read(carried ? 'connect' : parseMode(env('MODE'))); // an installed app attaches to the service's daemon; it never runs one of its own
     const remote = current.mode === 'connect' ? current.remote : null;
     if (!remote && gateway && !env('GATEWAY') && !onTailnet(gateway))
       console.warn(`Tailscale is down: the gateway listens on ${gateway} only, so a phone cannot pair`);
-    if (remote) {
-      gateway = remote.host;
-      ws = remoteUrl(remote);
-      trustFingerprint(remote);
-    }
+    if (remote) useRemote(remote);
     // The device token, the layouts and the settings are kept per page origin, so the page keeps one port from launch to launch.
     const web = await pageServer();
     const origin = new URL(web.url).origin;
@@ -377,6 +386,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       settings,
       current,
       build: runningBuild,
+      service: carried ? serviceOf(carried.handlined) : undefined,
       upgradeDaemon: () => upgradeTo(runningBuild ?? undefined),
       openWindow: () => void openWindow(),
       openPage: (screen) => void openWindow().then(() => win?.webContents.send(CHANNELS.navigate, { screen, id: '', event: 'tray' })),
@@ -438,7 +448,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       .then(() => following?.start());
     const checking = setInterval(() => void updater.check().catch(() => undefined), 30_000);
     app.on('quit', () => clearInterval(checking));
-    app.on('quit', startPkgUpdate({ flow, idle: idleOf(page, composer), upgrade: (sha) => upgradeTo(sha) }));
+    app.on('quit', startPkgUpdate({ flow, idle: idleOf(page, composer) }));
 
     const desk = new Desk(client, {
       setBadge: (t, n) => {

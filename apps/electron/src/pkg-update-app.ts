@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
 import { downloadTo, sha512Of, unpackApp } from '#src/pkg-files.ts';
-import { readBuildSha } from '#src/build-id.ts';
 import { SelfUpdater, type PkgPorts } from '#src/pkg-update.ts';
 import { leftovers, STAGING, swapBundle } from '#src/swap.ts';
 import type { UpdateFlow } from '#src/update-flow.ts';
@@ -33,7 +32,7 @@ export function sweepSwap(): void {
   }
 }
 
-function ports(o: { idle: () => Promise<boolean>; upgrade: (sha?: string) => Promise<void> }): PkgPorts {
+function ports(o: { idle: () => Promise<boolean> }): PkgPorts {
   return {
     current: () => app.getVersion(),
     text: async (url) => {
@@ -47,15 +46,8 @@ function ports(o: { idle: () => Promise<boolean>; upgrade: (sha?: string) => Pro
     idle: o.idle,
     swapAndRestart: async (staged) => {
       const installed = installedApp();
-      const sha = readBuildSha(path.join(staged, 'Contents', 'Resources', 'app.asar', 'dist')) ?? undefined;
-      const aside = swapBundle(installed, staged);
-      try {
-        await o.upgrade(sha); // the daemon is moved onto the new app's own handlined, which now stands at the installed path
-      } catch (e) {
-        fs.renameSync(installed, staged);
-        fs.renameSync(aside, installed);
-        throw e;
-      }
+      swapBundle(installed, staged);
+      // The new app's first act is `service ensure` from its own bundle, which moves the daemon onto it, or puts the old one back.
       app.relaunch();
       app.quit();
     },
@@ -63,11 +55,7 @@ function ports(o: { idle: () => Promise<boolean>; upgrade: (sha?: string) => Pro
 }
 
 /** Starts looking for a newer build of the installed app, once a minute after launch and then every half hour. Returns what stops it. */
-export function startPkgUpdate(o: {
-  flow: UpdateFlow;
-  idle: () => Promise<boolean>;
-  upgrade: (sha?: string) => Promise<void>;
-}): () => void {
+export function startPkgUpdate(o: { flow: UpdateFlow; idle: () => Promise<boolean> }): () => void {
   const base = packagedUpdateUrl(app.getAppPath());
   if (!base) return () => undefined;
   sweepSwap();

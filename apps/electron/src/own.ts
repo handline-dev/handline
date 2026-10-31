@@ -21,6 +21,7 @@ import {
   type Settings,
   type SettingsFile,
 } from '#src/mode.ts';
+import type { Ensured } from '#src/service.ts';
 import { commands, Owner, resolveClaude, type Child, type Cmd } from '#src/owner.ts';
 import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from '#src/pair.ts';
 import { COPY_URL, phoneHtml } from '#src/phone-html.ts';
@@ -180,15 +181,113 @@ export interface Own {
   restartDaemon(): Promise<void>;
 }
 
+/** An installed app's daemon service: `handlined service ensure` and `service stop`. */
+export interface ServiceCalls {
+  ensure: () => Promise<Ensured>;
+  stop: () => Promise<void>;
+}
+
+/**
+ * An installed app's daemon: `service ensure` at launch (and again from the tray's Start daemon), and a confirmed `service stop`. The tray shows the
+ * state and reason ensure printed; the old version put back is shown as trouble too. `attach` connects to the daemon once it runs.
+ */
+function serviceControls(service: ServiceCalls, owner: Owner, link: Link, attach: () => void) {
+  const ensure = async (): Promise<void> => {
+    owner.report('starting');
+    const r = await service.ensure();
+    if (r.state === 'failed') owner.report('failed', r.reason);
+    else if (r.state === 'kept') owner.report('failed', `the new version did not start, the old one is back: ${r.reason}`);
+    else owner.report('running');
+  };
+  return {
+    ensure,
+    async start(): Promise<void> {
+      await ensure();
+      if (owner.state === 'running') attach();
+    },
+    async stop(): Promise<void> {
+      const ask = await dialog.showMessageBox({
+        type: 'warning',
+        message: 'Stop the daemon?',
+        detail: 'Agents stop working until it is started again: open Handline, or choose Start daemon in this menu.',
+        buttons: ['Stop daemon', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+      });
+      if (ask.response !== 0) return;
+      try {
+        await service.stop();
+        owner.report('stopped');
+        link.set('no-daemon', { address: null });
+      } catch (e) {
+        dialog.showErrorBox('Cannot stop the daemon', e instanceof Error ? e.message : String(e));
+      }
+    },
+  };
+}
+
+/** What the tray's mode lines show and do; an installed app has no mode to switch, and a paired remote's daemon is not this app's to restart or pair a phone with. */
+function trayMode(
+  o: { current: Settings; service?: ServiceCalls; upgradeDaemon: () => Promise<void> },
+  link: Link,
+  relaunchAs: (next: Settings) => void,
+  pair: () => void,
+  phone: () => void,
+): TrayMode {
+  const remote = o.current.remote;
+  return {
+    mode: o.current.mode,
+    link,
+    switchTo: o.service ? undefined : () => relaunchAs({ ...o.current, mode: o.current.mode === 'connect' ? 'own' : 'connect' }),
+    pair,
+    phone: remote ? undefined : phone,
+    restartDaemon: remote ? undefined : () => void o.upgradeDaemon().catch(showUpgradeFailure),
+  };
+}
+
+/** Connect mode's attach: a paired remote's gateway, or this computer's, which must already answer. Gives the address to use, the device token, and the host named for a phone. */
+async function attach(
+  o: { current: Settings; gateway: string | undefined; socket: string; gatewaySocket: string },
+  link: Link,
+  pairing: PairDeps,
+): Promise<{ address: string | undefined; token: string | null; host: string | null }> {
+  const fail = (address: string, e: unknown) => link.set('cannot-pair', { address, reason: e instanceof Error ? e.message : String(e) });
+  const remote = o.current.remote;
+  if (remote) {
+    try {
+      link.setVersion(await helloOf(remote, openRemote));
+      link.set('connected', { address: remote.host });
+    } catch (e) {
+      fail(remote.host, e);
+    }
+    return { address: remote.host, token: remote.token, host: plainRemoteHost(remote) };
+  }
+  if (!o.gateway || !(await answers(o.socket)) || !(await answers(o.gatewaySocket))) {
+    link.set('no-daemon', { address: null });
+    return { address: undefined, token: null, host: null };
+  }
+  const host = onTailnet(o.gateway) ? o.gateway.split(':')[0]! : null;
+  let token: string | null = null;
+  try {
+    token = await ensureToken(pairing, new TokenFile(path.join(app.getPath('userData'), 'device.json')), sleep, 3);
+    link.set('connected', { address: o.gateway });
+  } catch (e) {
+    fail(o.gateway, e);
+  }
+  return { address: o.gateway, token, host };
+}
+
 /** What the tray's menu items do. */
 function trayActions(
-  o: { openWindow: () => void; openPage: (screen: 'inbox' | 'settings') => void; current: Settings },
+  o: { openWindow: () => void; openPage: (screen: 'inbox' | 'settings') => void; current: Settings; service?: ServiceCalls },
   owner: Owner,
   relaunchAs: (next: Settings) => void,
+  svc?: ReturnType<typeof serviceControls>,
 ): TrayActions {
   return {
     open: o.openWindow,
-    startDaemon: () => void owner.start(),
+    startDaemon: () => void (svc ? svc.start() : owner.start()),
+    ...(svc && { stopDaemon: () => void svc.stop() }),
     quit: () => app.quit(),
     inbox: () => o.openPage('inbox'),
     settings: () => o.openPage('settings'),
@@ -256,6 +355,8 @@ export function ownDaemon(o: {
   update?: () => TrayUpdate;
   /** Whether this run draws a menu bar icon (drawsTray in background.ts). */
   tray: boolean;
+  /** An installed app: `handlined service ensure` and `service stop` of its own bundle. It attaches to the service's daemon and never runs one of its own. */
+  service?: ServiceCalls;
   /** The build the app is (its sha), and the way to move the daemon onto it. */
   build: string | null;
   upgradeDaemon: () => Promise<void>;
@@ -278,15 +379,16 @@ export function ownDaemon(o: {
   const pair = async (i: OfferInput) => relaunchAs({ mode: 'connect', remote: await pairFrom(i) });
   const pairClipboard = () => pair({ link: clipboard.readText() }).catch((e: Error) => link.set('cannot-pair', { reason: e.message }));
   link.onChange(() => draw());
-  const actions = trayActions(o, owner, relaunchAs);
-  const mode = () => ({
-    mode: o.current.mode,
-    link,
-    switchTo: () => relaunchAs({ ...o.current, mode: o.current.mode === 'connect' ? 'own' : 'connect' }),
-    pair: () => void pairClipboard(),
-    phone: o.current.remote ? undefined : () => void showPhone(openPhone),
-    restartDaemon: o.current.remote ? undefined : () => void o.upgradeDaemon().catch(showUpgradeFailure),
-  });
+  const svc = o.service && serviceControls(o.service, owner, link, () => relaunchAs(o.current));
+  const actions = trayActions(o, owner, relaunchAs, svc);
+  const mode = () =>
+    trayMode(
+      o,
+      link,
+      relaunchAs,
+      () => void pairClipboard(),
+      () => void showPhone(openPhone),
+    );
   const { draw, setUnread } = trayControls(tray, owner, actions, mode, o.follow, o.update);
   owner.onChange(draw);
   logFailures(owner, log);
@@ -300,44 +402,30 @@ export function ownDaemon(o: {
   const pairing = localPairing(o.home, o.gatewaySocket);
   const openPhone = singleWindow(() => makePhone(pairing));
   /** Connect mode: attach to what is there and never start it. */
-  async function connect(): Promise<string | undefined> {
-    const remote = o.current.remote;
-    if (remote) {
-      ownHost = plainRemoteHost(remote);
-      token = remote.token;
-      try {
-        const version = await helloOf(remote, openRemote);
-        link.set('connected', { address: remote.host });
-        link.setVersion(version);
-      } catch (e) {
-        link.set('cannot-pair', { address: remote.host, reason: e instanceof Error ? e.message : String(e) });
-      }
-      return remote.host;
-    }
-    if (!o.gateway || !(await answers(o.socket)) || !(await answers(o.gatewaySocket))) {
-      link.set('no-daemon', { address: null });
-      return undefined;
-    }
-    ownHost = onTailnet(o.gateway) ? o.gateway.split(':')[0]! : null;
-    try {
-      token = await ensureToken(pairing, new TokenFile(path.join(app.getPath('userData'), 'device.json')), sleep, 3);
-      link.set('connected', { address: o.gateway });
-    } catch (e) {
-      link.set('cannot-pair', { address: o.gateway, reason: e instanceof Error ? e.message : String(e) });
-    }
-    return o.gateway;
-  }
+  const connect = async (): Promise<string | undefined> => {
+    const c = await attach(o, link, pairing);
+    token = c.token;
+    ownHost = c.host;
+    return c.address;
+  };
   return {
     redraw: draw,
     setUnread,
     link,
     remote: o.current.remote,
     restartDaemon: o.upgradeDaemon,
-    switchMode: (m) => relaunchAs({ ...o.current, mode: m }),
+    switchMode: (m) => {
+      if (o.service) throw new Error('the installed app always attaches to the daemon service');
+      relaunchAs({ ...o.current, mode: m });
+    },
     setNetwork: (on) => relaunchAs({ ...o.current, network: on }),
     pair,
     phone: () => (o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),
     async ready() {
+      if (o.service && !o.current.remote) {
+        await svc!.ensure();
+        for (let i = 0; i < 20 && owner.state === 'running' && !(await answers(o.gatewaySocket)); i++) await sleep(500);
+      }
       if (o.current.mode === 'connect') return connect();
       if (!o.gateway) return undefined;
       await owner.start();

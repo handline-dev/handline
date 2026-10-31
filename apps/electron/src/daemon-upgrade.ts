@@ -1,4 +1,5 @@
-// The Electron side of upgrading the daemon: its binary, its build step, and the calls on the shell's own connection.
+// The Electron side of upgrading the daemon of a checkout run (pnpm app): its build step, its binary, and the calls on the shell's own connection.
+// An installed app does not come here: its `service ensure` moves the daemon (service.ts).
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import type { DaemonClient } from '@handline/client';
@@ -7,29 +8,19 @@ import { upgradeDaemon } from '#src/upgrade.ts';
 
 /**
  * Moves the running daemon onto this app's own handlined and waits for it. `sha` is the build to move to (the app's, read now: an update
- * has just built a newer one than the app runs); a checkout builds `go/handlined` first, a packaged app carries its own.
+ * has just built a newer one than the app runs); `go/handlined` is built first.
  */
-export function upgradeNow(o: {
-  client: DaemonClient;
-  exe: string;
-  /** Whether the checkout's handlined is built first (false for a packaged app). */
-  build: boolean;
-  root: string;
-  dist: string;
-  sha?: string;
-}): Promise<void> {
+export function upgradeNow(o: { client: DaemonClient; exe: string; root: string; dist: string; sha?: string }): Promise<void> {
   const sha = o.sha ?? readBuildSha(o.dist);
   if (!sha) return Promise.reject(new Error('this build has no id, so the daemon cannot be matched to it'));
   const exe = path.resolve(o.exe);
   return upgradeDaemon({
-    build: o.build
-      ? () =>
-          new Promise<void>((resolve, reject) =>
-            execFile('bash', ['tools/build-go.sh'], { cwd: o.root }, (err, _out, errOut) =>
-              err ? reject(new Error(`build-go.sh: ${(errOut || err.message).trim().split('\n').pop()}`)) : resolve(),
-            ),
-          )
-      : undefined,
+    build: () =>
+      new Promise<void>((resolve, reject) =>
+        execFile('bash', ['tools/build-go.sh'], { cwd: o.root }, (err, _out, errOut) =>
+          err ? reject(new Error(`build-go.sh: ${(errOut || err.message).trim().split('\n').pop()}`)) : resolve(),
+        ),
+      ),
     exe,
     sha,
     binarySha: () =>
