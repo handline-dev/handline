@@ -52,6 +52,14 @@ func TestPRChecksReadAsACIVerdict(t *testing.T) {
 	pr := func(state, commit string, checks ...string) string {
 		return `{"state":"` + state + `","commits":[{"committedDate":"` + commit + `"}],"statusCheckRollup":[` + strings.Join(checks, ",") + `]}`
 	}
+	t1, t2 := "2026-10-20T11:50:00Z", "2026-10-20T11:51:00Z"
+	run := func(name, conclusion, started string) string {
+		status := "COMPLETED"
+		if conclusion == "" {
+			status = "IN_PROGRESS"
+		}
+		return `{"__typename":"CheckRun","name":"` + name + `","status":"` + status + `","conclusion":"` + conclusion + `","startedAt":"` + started + `"}`
+	}
 	old, fresh := "2026-10-20T11:00:00Z", "2026-10-20T11:55:00Z"
 	early, now := time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	for _, c := range []struct {
@@ -70,6 +78,11 @@ func TestPRChecksReadAsACIVerdict(t *testing.T) {
 		{pr("OPEN", old), early, Passed, "no CI on this PR"}, // and none 10 minutes after the head commit
 		{pr("OPEN", old), now, Waiting, ""},                  // nor from the watch's start, when that is later
 		{pr("MERGED", fresh), early, Failed, "closed before CI"},
+		{pr("OPEN", fresh, run("pr-rules", "CANCELLED", t1), run("pr-rules", "SUCCESS", t2), ok), early, Passed, "ci passed"}, // cancelled, then run again
+		{pr("OPEN", fresh, run("pr-rules", "SUCCESS", t2), run("pr-rules", "CANCELLED", t1), ok), early, Passed, "ci passed"}, // whatever order the rollup lists them in
+		{pr("OPEN", fresh, run("pr-rules", "CANCELLED", t1), ok), early, Failed, "ci failed: pr-rules"},                       // cancelled with no newer run is not green
+		{pr("OPEN", fresh, run("pr-rules", "SUCCESS", t1), run("pr-rules", "FAILURE", t2)), early, Failed, "ci failed: pr-rules"},
+		{pr("OPEN", fresh, run("pr-rules", "FAILURE", t1), run("pr-rules", "", t2)), early, Waiting, ""}, // the rerun is still going
 	} {
 		var args []string
 		v, e, err := gh(c.out, nil, &args).Check(context.Background(), "o/r#7", "ci", c.since)

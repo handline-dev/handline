@@ -86,11 +86,31 @@ type ghCheck struct {
 	Status     string
 	Conclusion string
 	State      string
+	StartedAt  string
+}
+
+// latest keeps one entry per check, the one that started last (a later entry on a tie), in the order the checks first appear. A check that was
+// cancelled or failed and run again leaves its old run in the rollup; only the newest says where the check stands.
+func latest(rollup []ghCheck) []ghCheck {
+	var out []ghCheck
+	at := map[string]int{}
+	for _, c := range rollup {
+		key := c.Typename + "\x00" + c.Name + c.Context
+		i, seen := at[key]
+		switch {
+		case !seen:
+			at[key] = len(out)
+			out = append(out, c)
+		case c.StartedAt >= out[i].StartedAt:
+			out[i] = c
+		}
+	}
+	return out
 }
 
 // ciVerdict reads `gh pr view --json state,mergeCommit,statusCheckRollup,commits`. A check run is waiting until it completes and ok when
 // it concludes SUCCESS, NEUTRAL or SKIPPED; a commit status is waiting while PENDING or EXPECTED and ok when SUCCESS. Every check ok is
-// passed and any other end is failed, once none waits. A PR that closes while its CI still waits is failed: that CI will not finish. A PR
+// passed and any other end is failed, once none waits. Only the latest run of each check counts. A PR that closes while its CI still waits is failed: that CI will not finish. A PR
 // with no checks NoCIWait after its head commit and the watch's start has no CI, and is passed.
 func ciVerdict(out []byte, since, now time.Time) (Verdict, string, error) {
 	var pr struct {
@@ -117,7 +137,7 @@ func ciVerdict(out []byte, since, now time.Time) (Verdict, string, error) {
 		return Waiting, "", nil
 	}
 	var failed []string
-	for _, c := range pr.Rollup {
+	for _, c := range latest(pr.Rollup) {
 		waiting, ok, name := c.Status != "COMPLETED", c.Conclusion == "SUCCESS" || c.Conclusion == "NEUTRAL" || c.Conclusion == "SKIPPED", c.Name
 		if c.Typename == "StatusContext" {
 			waiting, ok, name = c.State == "PENDING" || c.State == "EXPECTED", c.State == "SUCCESS", c.Context
