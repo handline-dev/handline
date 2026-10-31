@@ -185,7 +185,7 @@ function Actions({ n }: { n: Notice }) {
   );
 }
 
-/** One toast (`z` puts the lower ones over the upper ones): the same inset on every side, the status icon with a bold title and a short second line, then its buttons flush right: the main one filled, the rest grey chips. */
+/** One toast: the same inset on every side, the status icon with a bold title and a short second line, then its buttons flush right: the main one filled, the rest grey chips. */
 function Toast({ n, z }: { n: Notice; z: number }) {
   const store = useStore();
   const [more, setMore] = useState(false);
