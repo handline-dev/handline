@@ -53,6 +53,8 @@ export class FakeRequests {
       cursor: `c${String(9999 - this.rows.length).padStart(4, '0')}`,
       ...row,
     };
+    if (full.now === null && full.status !== 'done') full.now = full.holders[0] ?? null;
+    if (row.progress === undefined) full.progress = progressLine(full);
     this.rows.unshift(full);
     this.host.emit('requests', 'request.changed', { agent: full.agent, data: { ...full } });
     return full;
@@ -101,4 +103,17 @@ export class FakeRequests {
     const more = this.rows.filter((r) => p.state === undefined || r.status === p.state).length > from + limit;
     return { items: rows, more };
   }
+}
+
+/** The one-line progress of a request: the same rule as the daemon's progressLine (go/internal/reads/requests.go). */
+export function progressLine(r: Pick<RequestRow, 'kind' | 'status' | 'open' | 'done' | 'now' | 'blocked'>): string {
+  if (r.kind === 'message') return '';
+  if (r.status === 'done') return 'done';
+  const parts: string[] = [];
+  if (r.open + r.done > 0) parts.push(`sub ${r.done}/${r.open + r.done} done`);
+  if (r.now) parts.push(`now ${r.now}`);
+  if (r.status === 'waiting_on_you') parts.push('waiting on you');
+  else if (r.blocked) parts.push('blocked');
+  else if (r.status === 'review') parts.push('in review');
+  return parts.join(', ');
 }

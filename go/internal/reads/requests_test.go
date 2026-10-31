@@ -27,6 +27,18 @@ func TestRequestsAreReadFromTheirTreeOfTasks(t *testing.T) {
 		"(31, 'decide', 'human', 'lead', 30, "+at(440)+", NULL, NULL, NULL, NULL), "+
 		"(40, 'a todo', 'human', 'human', NULL, "+at(400)+", NULL, NULL, NULL, NULL)")
 	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(10, 1), (20, 4), (30, 5)")
+	// answering to the founder through the reporter makes a root whoever opened it; an agent's reporter does not
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, reporter, parent_task, created_at, done_evidence, done_at) VALUES"+
+		"(60, 'begun', 'lead', 'lead', 'human', NULL, "+at(300)+", NULL, NULL), "+
+		"(61, 'first', 'dev', 'lead', NULL, 60, "+at(290)+", NULL, NULL), "+
+		"(62, 'second', 'dev2', 'lead', NULL, 60, "+at(280)+", NULL, NULL), "+
+		"(70, 'agent asked', 'lead', 'lead', 'boss', NULL, "+at(300)+", NULL, NULL), "+
+		"(80, 'begun too', 'lead', 'lead', 'human', NULL, "+at(270)+", NULL, NULL), "+
+		"(81, 'newer', 'dev', 'lead', NULL, 80, "+at(260)+", NULL, NULL), "+
+		"(82, 'older', 'dev3', 'lead', NULL, 80, "+at(265)+", NULL, NULL), "+
+		"(83, 'ended', 'dev4', 'lead', NULL, 80, "+at(266)+", 'ok', "+at(255)+")")
+	// T62 waits on T61; T81's only blocks are a dormant one and one on a task that has ended
+	run(t, e, "INSERT INTO task_blocks(task_id, blocks_on, created_at, dormant) VALUES(62, 61, 1, 0), (81, 82, 1, 1), (81, 83, 1, 0)")
 	rows, err := e.RequestRows(now)
 	if err != nil {
 		t.Fatal(err)
@@ -39,20 +51,21 @@ func TestRequestsAreReadFromTheirTreeOfTasks(t *testing.T) {
 			by[r["ref"].(string)] = r
 		}
 	}
-	want := map[string]string{"T10": "review", "T20": "done", "T30": "waiting_on_you", "msg_aaaaaaaaaaa2": "no_work", "msg_aaaaaaaaaaa3": "not_yet"}
+	want := map[string]string{"T10": "review", "T20": "done", "T30": "waiting_on_you", "msg_aaaaaaaaaaa2": "no_work", "msg_aaaaaaaaaaa3": "not_yet", "T60": "doing", "T80": "doing"}
 	for k, st := range want {
 		if by[k] == nil || by[k]["status"] != st {
 			t.Errorf("%s: %v, want %s", k, by[k], st)
 		}
 	}
-	if len(rows) != len(want) || by["T40"] != nil {
+	if len(rows) != len(want) || by["T40"] != nil || by["T70"] != nil || by["T60"]["blocked"] != true || by["T80"]["blocked"] != false || by["T80"]["now"] != "dev" {
 		t.Errorf("a todo of the founder's own is not a request, and nothing is listed twice: %d rows", len(rows))
 	}
 	if r := by["T10"]; r["open"] != 1 || r["done"] != 1 || r["agent"] != "lead" || r["ref"] != "msg_aaaaaaaaaaa1" ||
 		len(r["holders"].([]string)) != 2 || len(r["prs"].([]int64)) != 1 {
 		t.Errorf("a tree is counted: %v", r)
 	}
-	for k, want := range map[string]string{"T10": "sub 1/2 done, now dev, in review", "T20": "done", "T30": "sub 0/1 done, now lead, waiting on you", "msg_aaaaaaaaaaa3": ""} { // local-ref-ok
+	for k, want := range map[string]string{"T10": "sub 1/2 done, now dev, in review", "T20": "done", "T30": "sub 0/1 done, now lead, waiting on you", "msg_aaaaaaaaaaa3": "",
+		"T60": "sub 0/2 done, now dev2, blocked", "T80": "sub 1/3 done, now dev"} { // local-ref-ok
 		if by[k]["progress"] != want {
 			t.Errorf("%s progress %q, want %q", k, by[k]["progress"], want)
 		}

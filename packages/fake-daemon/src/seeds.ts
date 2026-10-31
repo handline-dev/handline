@@ -98,8 +98,6 @@ export const SEEDS: Record<string, Seed> = {
       open: 1,
       done: 2,
       prs: [630],
-      now: 'handline.pc',
-      progress: 'sub 2/3 done, now handline.pc, in review',
     });
     d.requests.add({
       title: 'Which build is live?',
@@ -108,8 +106,6 @@ export const SEEDS: Record<string, Seed> = {
       agent: 'handline',
       holders: ['handline'],
       open: 1,
-      now: null,
-      progress: 'waiting on you',
       unread_comments: 2,
     });
     d.requests.add({ title: 'Settings in one place', task: 5983, status: 'done', agent: 'handline.pc', done: 6 });
