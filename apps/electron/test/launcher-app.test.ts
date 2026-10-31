@@ -41,3 +41,11 @@ test('the relaunch waits for the old process to end, then runs launch.ts from th
   assert.deepEqual(c.args.slice(2), ['sh', '123', '/w/apps/electron']);
   assert.match(c.args[1]!, /kill -0 "\$1"[^;]*; do sleep[^;]*; done; cd "\$2" && exec node launch\.ts/);
 });
+
+test('a second open while the first is still building says so and starts nothing', () => {
+  const s = launcherScript();
+  const at = s.indexOf("pgrep -f 'apps/electron/follow-start");
+  assert.ok(at > s.indexOf('open "'), 'after the check for a running app');
+  assert.ok(at < s.indexOf('nohup'), 'before the start');
+  assert.match(s.slice(at, s.indexOf('nohup')), /already starting[\s\S]*exit 0/);
+});

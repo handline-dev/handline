@@ -49,6 +49,13 @@ if [ -n "$running" ]; then
   exit 0
 fi
 
+# Still starting (fetching, installing, building: no window yet): a second open does not start a second run on the same checkout.
+if pgrep -f 'apps/electron/follow-start\\.ts' >/dev/null; then
+  echo "already starting"
+  notify "Handline is already starting. Its window opens when the update is built."
+  exit 0
+fi
+
 # A Dock launch has no shell PATH: ask the login shell for one.
 login=$("\${SHELL:-/bin/zsh}" -ilc 'echo __PATH__$PATH' 2>/dev/null | sed -n 's/.*__PATH__//p' | tail -1)
 export PATH="$login:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
@@ -65,7 +72,11 @@ nohup bash -c 'node apps/electron/follow-start.ts || osascript -e "display notif
 `;
 }
 
-/** The command that starts the app again once the running one has quit, through launch.ts: so the Handline bundle of a new Electron version is made and used. */
+/**
+ * The command that starts the app again once the running one has quit. It polls for the old process, not once: it is a detached child, so it has nothing to wait on
+ * (and the new app would meet the old one's single-instance lock). A window already open on an old-style bundle keeps showing what it has until it is restarted.
+ * It runs launch.ts, so the Handline bundle of a new Electron version is made and used.
+ */
 export function relaunchCommand(pid: number, electronDir: string): { file: string; args: string[] } {
   return {
     file: 'sh',

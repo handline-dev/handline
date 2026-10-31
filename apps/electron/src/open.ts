@@ -6,8 +6,7 @@ import path from 'node:path';
 import type { Fail } from '@handline/app-core';
 import { fromWindow, type Sender } from '#src/bridge.ts';
 
-export type OpenReply =
-  { ok: true; how: 'opened' | 'revealed' | 'branch' | 'main' | 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>;
+export type OpenReply = { ok: true; how: 'opened' | 'revealed' | 'branch' | 'main' | 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>;
 const fail = (code: 'bad_request' | 'not_found' | 'unavailable', message: string): OpenReply => ({ ok: false, code, message });
 
 /** Extensions of things the OS would run, install or script when opened: these are revealed, never opened. A minimum, not a complete list. */
@@ -56,8 +55,7 @@ export class Opener {
     if (!fromWindow(e, this.origin)) return fail('bad_request', 'not from the app window');
     if (typeof arg !== 'object' || arg === null || Array.isArray(arg)) return fail('bad_request', 'openPath takes { path, agent? }');
     const a = arg as Record<string, unknown>;
-    if (Object.keys(a).some((k) => k !== 'path' && k !== 'agent' && k !== 'branches'))
-      return fail('bad_request', 'openPath takes { path, agent? }');
+    if (Object.keys(a).some((k) => k !== 'path' && k !== 'agent' && k !== 'branches')) return fail('bad_request', 'openPath takes { path, agent? }');
     if (typeof a.path !== 'string' || (a.agent !== undefined && (typeof a.agent !== 'string' || a.agent.length > 512)))
       return fail('bad_request', 'path and agent are text');
     if (
