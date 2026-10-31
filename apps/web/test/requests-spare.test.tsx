@@ -1,7 +1,7 @@
 // Requests: the weekly-loss offer is an item of For you, answered with Start or Dismiss, no longer a card over the bell.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { applySeeds } from '@handline/fake-daemon/seeds';
 import { setup } from '@handline/fake-daemon/helpers';
@@ -38,6 +38,7 @@ async function mount(s: ReturnType<typeof setup>) {
   });
 }
 afterEach(async () => {
+  vi.useRealTimers();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -45,6 +46,7 @@ afterEach(async () => {
 
 describe('Requests: the weekly-loss offer', () => {
   it('is an item of For you with its spare tasks, and Start answers the task', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
     const s = setup({ client: 'founder' });
     s.daemon.tasks.verbs = true;
     applySeeds(s.daemon, 'spare-notice');
@@ -61,8 +63,8 @@ describe('Requests: the weekly-loss offer', () => {
     expect(text($('.notice-spare'))).toContain('and 1 more');
     expect(button('Later')).toBeUndefined(); // an agent is not stopped on it, but it is answered, not put off
     await click(button('Start 4 tasks'));
-    await act(async () => void (await new Promise((r) => setTimeout(r, 5200)))); // the answer is held five seconds, for Undo
+    await act(async () => void vi.advanceTimersByTime(5000)); // the answer is held five seconds, for Undo
     await until(() => s.daemon.tasks.get({ task: 7100 }).state === 'done', 'the task answered');
     expect(s.daemon.tasks.get({ task: 7100 }).evidence).toBe('start');
-  }, 15000);
+  });
 });
