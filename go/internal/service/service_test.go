@@ -32,7 +32,7 @@ func newRig(t *testing.T) *rig {
 	root := t.TempDir()
 	tools := filepath.Join(root, "tools")
 	os.MkdirAll(tools, 0o755)
-	os.WriteFile(filepath.Join(tools, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	tool(tools, "claude", "tmux")
 	t.Setenv("PATH", tools+":"+os.Getenv("PATH"))
 	r := &rig{t: t, root: root, failing: map[string]bool{}}
 	r.s = &Service{
@@ -302,8 +302,7 @@ func TestUpgradeBetweenUnstampedBuildsIsNotOrdered(t *testing.T) {
 // and claude the founder's shell had.
 func (r *rig) handWritten(program string) (claude, path string) {
 	claude = filepath.Join(r.root, "shell-bin", "claude")
-	os.MkdirAll(filepath.Dir(claude), 0o755)
-	os.WriteFile(claude, []byte("#!/bin/sh\n"), 0o755)
+	tool(filepath.Dir(claude), "claude", "tmux")
 	path = filepath.Dir(claude) + ":/opt/homebrew/bin:/usr/bin:/bin"
 	os.MkdirAll(filepath.Dir(r.s.Plist), 0o755)
 	os.WriteFile(r.s.Plist, []byte(`<?xml version="1.0" encoding="UTF-8"?>
@@ -431,13 +430,87 @@ func TestEnsureRestartsAJobWhoseDaemonDoesNotAnswer(t *testing.T) {
 func TestEnsureFailsWithoutClaudeAndChangesNothing(t *testing.T) {
 	r := newRig(t)
 	t.Setenv("PATH", "/usr/bin:/bin")
-	if got := r.s.Ensure(r.build("v1", false)); got.State != "failed" || !strings.Contains(got.Reason, "claude") || r.loaded {
+	if got := r.s.Ensure(r.build("v1", false)); got != (Ensured{State: "failed", Reason: "missing:claude"}) || r.loaded {
 		t.Fatalf("%+v", got)
 	}
 	r.want("", "")
 	r.s.Label = LiveLabel
 	if got := r.s.Ensure(r.build("v1", false)); got.State != "failed" || !strings.Contains(got.Reason, "not the live home") {
 		t.Fatalf("the live label on a scratch home: %+v", got)
+	}
+}
+
+// tool puts an executable stand-in for each name in dir.
+func tool(dir string, names ...string) {
+	os.MkdirAll(dir, 0o755)
+	for _, n := range names {
+		os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\n"), 0o755)
+	}
+}
+
+func TestEnsureNamesTheMissingToolAndWritesNothing(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		tools []string
+		want  string
+	}{
+		{"both missing", nil, "missing:claude"},
+		{"no tmux", []string{"claude"}, "missing:tmux"},
+		{"no claude", []string{"tmux"}, "missing:claude"},
+		{"PATH empty", []string{"claude", "tmux"}, "missing:claude"}, // no install folder is guessed: the app passes its login PATH
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			dir := filepath.Join(r.root, "path")
+			tool(dir, c.tools...)
+			t.Setenv("PATH", dir)
+			if c.name == "PATH empty" {
+				t.Setenv("PATH", "")
+			}
+			app := r.build("v1", false)
+			r.calls = nil
+			if got := r.s.Ensure(app); got != (Ensured{State: "failed", Reason: c.want}) {
+				t.Fatalf("%+v", got)
+			}
+			for _, f := range []string{r.s.Plist, r.s.Bin, r.s.Home} {
+				if _, err := os.Stat(f); err == nil {
+					t.Errorf("%s was written", f)
+				}
+			}
+			if len(r.calls) != 0 {
+				t.Errorf("launchctl %v", r.calls)
+			}
+		})
+	}
+}
+
+func TestEnsureWritesTheGivenPathIntoTheJob(t *testing.T) {
+	r := newRig(t)
+	login := filepath.Join(r.root, "login")
+	tool(login, "claude", "tmux")
+	t.Setenv("PATH", login+":/usr/bin:/bin") // the app's login-shell PATH before its own
+	if got := r.s.Ensure(r.build("v1", false)); got.State != "started" {
+		t.Fatalf("%+v", got)
+	}
+	body := mustRead(t, r.s.Plist)
+	for _, want := range []string{"<string>-claude</string><string>" + filepath.Join(login, "claude") + "</string>", "<key>PATH</key><string>" + login + ":/usr/bin:/bin</string>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the job lacks %s:\n%s", want, body)
+		}
+	}
+}
+
+func TestAKeptJobWithoutTmuxIsLeftAlone(t *testing.T) {
+	r := newRig(t)
+	claude, path := r.handWritten("/old/handlined")
+	os.Remove(filepath.Join(filepath.Dir(claude), "tmux"))
+	os.WriteFile(r.s.Plist, []byte(strings.Replace(mustRead(t, r.s.Plist), path, filepath.Dir(claude), 1)), 0o644)
+	before := mustRead(t, r.s.Plist)
+	if got := r.s.Ensure(r.build("v1", false)); got != (Ensured{State: "failed", Reason: "missing:tmux"}) {
+		t.Fatalf("%+v", got)
+	}
+	if mustRead(t, r.s.Plist) != before || r.loaded {
+		t.Fatal("the job was touched")
 	}
 }
 
@@ -605,8 +678,8 @@ func TestEnsureTakesAnAppAndPrunes(t *testing.T) {
 func TestTheKeptJobIsReadAsWritten(t *testing.T) {
 	r := newRig(t)
 	odd := filepath.Join(r.root, "a&b")
-	os.MkdirAll(odd, 0o755)
-	os.WriteFile(filepath.Join(odd, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	tool(odd, "claude")
+	tool(filepath.Join(r.root, "c&d"), "tmux")
 	os.MkdirAll(filepath.Dir(r.s.Plist), 0o755)
 	os.WriteFile(r.s.Plist, []byte(`<plist><dict><key>ProgramArguments</key><array><string>/old/handlined</string>`+
 		`<string>-structured-cli</string><string>`+html.EscapeString(filepath.Join(odd, "claude"))+`</string></array>`+
@@ -631,6 +704,20 @@ func TestLookPathTakesOnlyAnExecutableFile(t *testing.T) {
 	os.WriteFile(filepath.Join(good, "claude"), []byte("#!/bin/sh\n"), 0o755)
 	if got := lookPath("claude", strings.Join([]string{dir, plain, good}, ":")); got != filepath.Join(good, "claude") {
 		t.Fatal(got)
+	}
+}
+
+func TestInstallChecksOnlyClaude(t *testing.T) {
+	r := newRig(t)
+	dir := filepath.Join(r.root, "path")
+	tool(dir, "claude")
+	t.Setenv("PATH", dir)
+	if _, err := r.s.Install(r.build("v1", false), false); err != nil || !r.loaded {
+		t.Fatalf("install without tmux: %v", err)
+	}
+	t.Setenv("PATH", "")
+	if _, err := r.s.Install(r.build("v2", false), false); err == nil || err.Error() != "missing:claude: no claude binary on PATH for -claude" {
+		t.Fatalf("install without claude: %v", err)
 	}
 }
 
