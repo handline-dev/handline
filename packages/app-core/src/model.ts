@@ -235,6 +235,15 @@ export function promptChoices(p: Prompt, rules: boolean): PromptOption[] {
   return p.options;
 }
 
+/** A question's Cancel (Esc) is its own button, never a checkbox or a numbered row: the choices without it, and it. */
+export function splitCancel(p: Prompt, choices: PromptOption[]): { cancel: PromptOption | undefined; opts: PromptOption[] } {
+  const cancel = p.kind === 'question' ? choices.find((o) => o.key === 'esc') : undefined;
+  return { cancel, opts: cancel ? choices.filter((o) => o !== cancel) : choices };
+}
+
+/** What a multi-select submits: the checked keys in the order the options are listed, not the order they were checked. */
+export const checkedKeys = (opts: PromptOption[], picked: string[]): string[] => opts.map((o) => o.key).filter((k) => picked.includes(k));
+
 export type KeyEvent = { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; isComposing?: boolean };
 
 /**

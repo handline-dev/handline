@@ -3,7 +3,7 @@
 // The answer is a decided write: the clicked option shows "…", the rest are disabled, and a prompt that changed sends nothing.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { Prompt } from '@handline/client';
-import { clockTime, isAlways, promptTitle } from '@handline/app-core';
+import { checkedKeys, clockTime, isAlways, promptTitle } from '@handline/app-core';
 import { usePromptAnswer } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 import { Icon } from '#src/ui/Icon.tsx';
@@ -21,12 +21,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
     return () => clearTimeout(t);
   }, [answering]);
 
-  const submit = () =>
-    picked.length &&
-    send(
-      opts.map((o) => o.key).filter((k) => picked.includes(k)),
-      'submit',
-    );
+  const submit = () => picked.length && send(checkedKeys(opts, picked), 'submit');
 
   const onKey = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement;

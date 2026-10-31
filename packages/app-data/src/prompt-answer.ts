@@ -1,7 +1,7 @@
 // The answer to a prompt the agent is stuck on, for the PC card and the phone's: what is picked or typed, the clicked option, the
 // decided write (a prompt that has gone sends nothing and says so) and its pending mark.
 import { useEffect, useState } from 'react';
-import { promptChoices } from '@handline/app-core';
+import { promptChoices, splitCancel } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import type { Prompt } from '@handline/client';
 import { usePending, useWrite } from '#src/write.ts';
@@ -26,8 +26,7 @@ export function usePromptAnswer(agent: string, p: Prompt, onStale: (() => void) 
   }, [p.id]);
 
   const all = promptChoices(p, rules);
-  const cancel = p.kind === 'question' ? all.find((o) => o.key === 'esc') : undefined; // its own button, never a checkbox or a numbered row
-  const opts = cancel ? all.filter((o) => o !== cancel) : all;
+  const { cancel, opts } = splitCancel(p, all);
   const send = (choice: string | string[] | { text: string }, mark: string) => {
     setClicked(mark);
     setChanged(false);
@@ -41,5 +40,22 @@ export function usePromptAnswer(agent: string, p: Prompt, onStale: (() => void) 
   };
   const toggle = (key: string) => setPicked((l) => (l.includes(key) ? l.filter((k) => k !== key) : [...l, key]));
   const mark = (key: string, label: string) => (answering && clicked === key ? '…' : label);
-  return { answering, clicked, picked, typing, setTyping, text, setText, changed, all, cancel, opts, multi: p.multi === true, question: p.kind === 'question', send, toggle, mark };
+  return {
+    answering,
+    clicked,
+    picked,
+    typing,
+    setTyping,
+    text,
+    setText,
+    changed,
+    all,
+    cancel,
+    opts,
+    multi: p.multi === true,
+    question: p.kind === 'question',
+    send,
+    toggle,
+    mark,
+  };
 }
