@@ -15,15 +15,14 @@ import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, useActNow, type Ask } from '#src/TaskAsk.tsx';
 import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
-import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
+import { AgentLink, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
 import { TaskDialogs, type TaskDialog } from '#src/TaskMenuDialogs.tsx';
 import { TaskWaitLine } from '#src/TaskWaitLine.tsx';
 import { TaskHistory } from '#src/TaskHistory.tsx';
 import { TimeLine } from '#src/TaskTime.tsx';
 import { Activity } from '#src/TaskActivity.tsx';
-import { Markdown } from '#src/Markdown.tsx';
+import { Brief, Result } from '#src/TaskSections.tsx';
 import { RichText } from '#src/RichText.tsx';
-import { KeepPhotos } from '#src/keepPhotos.ts';
 import { View } from '#src/View.tsx';
 import { typing } from '#src/typing.ts';
 import { useWorkspaceIfAny } from '#src/Workspace.tsx';
@@ -221,6 +220,8 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
     ...(open ? [item('Cancel task', 'c', verbs.c, can.cancel)] : []),
     ...(discard ? [discard] : []),
   ];
+  const end = t.time?.end ? Date.parse(t.time.end) : NaN;
+  const rest = open && !Number.isNaN(end) ? Math.max(0, (end - now) / 1000) : 0;
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   const statusControl = status.length ? (
     <MenuButton
@@ -243,6 +244,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
     <TaskNotes task={t.id}>
       <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
         <header className="tdetail-head flex flex-wrap items-baseline gap-2">
+          {statusControl}
           {barNamed ? null : (
             <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
               <span>{taskRef(t.id)}</span> <TitleEdit t={t} />
@@ -274,9 +276,9 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
           ) : null}
         </p>
         <div className="mt-3">
-          <TaskChips t={t} now={now} me={me} lead={statusControl} />
+          <TaskChips t={t} now={now} me={me} />
         </div>
-        <TimeLine id={t.id} left={dueOf(t, now)?.text} blocked={blocked} />
+        <TimeLine id={t.id} left={dueOf(t, now)?.text} rest={rest} blocked={blocked} />
         <TaskWaitLine t={t} />
         <TaskWatch t={t} />
         {why && NOT_PICKED.test(why) ? (
@@ -292,18 +294,11 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
             </span>
           </p>
         ) : null}
-        <Brief t={t} can={edit.can.ok && open} />
+        <Brief t={t} can={edit.can.ok} />
 
         {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
 
-        {t.evidence ? (
-          <>
-            <h3 className={H3}>Evidence</h3>
-            <p className="tbody-text mono m-0 whitespace-pre-wrap">
-              <RichText text={t.evidence} />
-            </p>
-          </>
-        ) : null}
+        <Result t={t} can={edit.can.ok && t.state === 'done'} />
 
         <Activity t={t} box={commentBox} />
 
@@ -329,34 +324,6 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
       </div>
       <TaskDialogs t={t} which={dialog} onClose={() => setDialog(null)} />
     </TaskNotes>
-  );
-}
-
-/** The brief, folded to a few lines until "Show more"; a click on the text edits it. */
-function Brief({ t, can }: { t: Detail; can: boolean }) {
-  const [more, setMore] = useState(false);
-  const long = t.body.length > 280 || t.body.split('\n').length > 4;
-  return (
-    <div className="tbody-text mt-3">
-      <KeepPhotos.Provider value>
-        <Inline can={can} label="Description" input={(close) => <BodyInline t={t} onClose={close} />}>
-          {t.body ? (
-            <>
-              <div className={long && !more ? 'line-clamp-4' : undefined}>
-                <Markdown text={t.body} />
-              </div>
-              {long ? (
-                <button type="button" className="border-0 bg-transparent p-0 text-acc-ink" onClick={() => setMore(!more)}>
-                  {more ? 'Show less' : 'Show more'}
-                </button>
-              ) : null}
-            </>
-          ) : (
-            <span className="muted">Add a description</span>
-          )}
-        </Inline>
-      </KeepPhotos.Provider>
-    </div>
   );
 }
 

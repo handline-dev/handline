@@ -1,5 +1,6 @@
 // The task detail's presentational parts: the assignee, priority and time box chips, the link sections and the cancel sheet.
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
+import { Clock, Flag, User } from 'lucide-react';
 import { isGate, taskRef, timeBoxText, watchLine } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { Icon, type IconName } from '#src/ui/Icon.tsx';
@@ -7,39 +8,66 @@ import { Sheet } from '#src/taskui.tsx';
 import { AssignPopover } from '#src/TaskPeople.tsx';
 import { TextInput, useEditTask } from '#src/TaskInline.tsx';
 import { Button, Input, MenuButton, MenuItem } from '#src/ui/index.ts';
-import { Chip } from '#src/ds/Chip.tsx';
 import { Id } from '#src/ds/Link.tsx';
 
 const H3 = 'm-0 mt-4 mb-1 flex items-center text-sm font-semibold';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
 
-/** The assignee, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
-export function TaskChips({ t, now, me, lead }: { t: Detail; now: number; me: string; lead?: ReactNode }) {
+const ITEM = 'inline-flex h-7 items-center gap-1.5 rounded-sm border-0 bg-transparent px-1.5 text-sm text-ink-2';
+const EDITABLE = `${ITEM} cursor-pointer tint focus-visible:outline-2 focus-visible:outline-acc`;
+const ICON = { width: 14, height: 14, strokeWidth: 1.75, 'aria-hidden': true, className: 'flex-none text-ink-3' } as const;
+
+/** The assignee, priority and time limit, each a plain item with its icon and a tooltip: the first two open a choice, the limit edits where it is. A closed task shows them as words. */
+export function TaskChips({ t, now, me }: { t: Detail; now: number; me: string }) {
   const [picking, setPicking] = useState(false);
   const [boxing, setBoxing] = useState(false);
   const edit = useEditTask(t);
   const can = edit.can.ok && t.state !== 'done' && t.state !== 'discarded' && !isGate(t);
   const box = timeBoxText(t, now) || 'none';
   const priority = `P${t.priority ?? 2}`;
+  const who = (
+    <>
+      <User {...ICON} />
+      {t.to}
+    </>
+  );
+  const flag = (
+    <>
+      <Flag {...ICON} />
+      {priority}
+    </>
+  );
+  const limit = (
+    <>
+      <Clock {...ICON} />
+      Limit {box}
+    </>
+  );
   return (
     <>
-      <div className="tchips flex flex-wrap items-center gap-2">
-        {lead}
+      <div className="tchips -ml-1.5 flex flex-wrap items-center gap-x-1 gap-y-0.5">
         {can ? (
           <>
             <span className="relative inline-flex">
-              <Button
-                variant="outline"
-                size="sm"
-                label="Change who it is assigned to"
-                title={edit.can.why}
+              <button
+                type="button"
+                className={EDITABLE}
+                aria-label="Change who it is assigned to"
+                title={edit.can.why ?? 'Assigned to'}
                 onClick={() => setPicking(!picking)}
               >
-                {t.to} ▾
-              </Button>
+                {who}
+              </button>
               <AssignPopover t={t} me={me} open={picking} onClose={() => setPicking(false)} />
             </span>
-            <MenuButton label="Change the priority" variant="outline" size="sm" align="start" trigger={`${priority} ▾`}>
+            <MenuButton
+              label="Change the priority"
+              title="Priority"
+              variant="ghost"
+              size="sm"
+              align="start"
+              trigger={<span className="inline-flex items-center gap-1.5 text-sm text-ink-2">{flag}</span>}
+            >
               {([1, 2, 3] as const).map((p) => (
                 <MenuItem key={p} onSelect={() => edit.save({ priority: p })}>
                   {`P${p}${p === 1 ? ' high' : p === 3 ? ' low' : ''}`}
@@ -54,16 +82,28 @@ export function TaskChips({ t, now, me, lead }: { t: Detail; now: number; me: st
                 onClose={() => setBoxing(false)}
               />
             ) : (
-              <Button variant="outline" size="sm" label="Change the time box" onClick={() => setBoxing(true)}>
-                Limit {box} ▾
-              </Button>
+              <button
+                type="button"
+                className={EDITABLE}
+                aria-label="Change the time box"
+                title="Time limit"
+                onClick={() => setBoxing(true)}
+              >
+                {limit}
+              </button>
             )}
           </>
         ) : (
           <>
-            <Chip>{t.to}</Chip>
-            <Chip>{priority}</Chip>
-            <Chip>Limit {box}</Chip>
+            <span className={ITEM} title="Assigned to">
+              {who}
+            </span>
+            <span className={ITEM} title="Priority">
+              {flag}
+            </span>
+            <span className={ITEM} title="Time limit">
+              {limit}
+            </span>
           </>
         )}
       </div>

@@ -65,8 +65,8 @@ describe('task time', () => {
   it('is one line until clicked, then draws the segments in order, adding up to the whole', async () => {
     const s = await mount();
     await until(line, 'the time line');
-    expect(line()!.getAttribute('aria-label')).toMatch(/^Worked .* in all/); // the whole sentence is the button's name; the line shows the bar and the stretch it is in
-    expect(line()!.getAttribute('aria-label')).not.toMatch(/up next|queued| [hm]\b/);
+    expect(line()!.getAttribute('aria-label')).toMatch(/^worked .* in all/); // the whole sentence is the button's name; the line shows the bar and the stretch it is in
+    expect(line()!.getAttribute('aria-label')).not.toMatch(/up next| [hm]\b/);
     expect(box.querySelector('.ttime')).toBeNull();
     await click(line()!);
     await until(() => box.querySelector('.ttime'), 'the time');

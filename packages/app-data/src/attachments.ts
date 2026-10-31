@@ -158,8 +158,12 @@ const release = (id: string, thumb: boolean) => {
   urls.delete(key);
 };
 
-/** The picture of an attachment as a URL once read: `gone` when the daemon has dropped it (the name is shown without the picture), `failed` when the read itself failed. */
-export function useAttachmentUrl(id: string, thumb: boolean): { url: string | null; gone: boolean; failed: boolean; removed: boolean } {
+/** The picture of an attachment as a URL once read (`attempt` up reads it again after a failure): `gone` when the daemon has dropped it (the name is shown without the picture), `failed` when the read itself failed. */
+export function useAttachmentUrl(
+  id: string,
+  thumb: boolean,
+  attempt = 0,
+): { url: string | null; gone: boolean; failed: boolean; removed: boolean } {
   const store = useStore();
   const [state, setState] = useState<{ url: string | null; gone: boolean; failed: boolean }>({ url: null, gone: false, failed: false });
   const [removed, setRemoved] = useState(removedIds.has(id));
@@ -179,7 +183,7 @@ export function useAttachmentUrl(id: string, thumb: boolean): { url: string | nu
       live = false;
       if (!thumb) release(id, false); // the original is large: kept only while it is open
     };
-  }, [store, id, thumb]);
+  }, [store, id, thumb, attempt]); // a higher `attempt` reads it again
   return { ...state, removed: removed && state.gone };
 }
 

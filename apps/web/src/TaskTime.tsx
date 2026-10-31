@@ -21,19 +21,24 @@ const TONE: Record<TimeLabel, string> = {
 /** 4m, 58m, 1h 40m: the short form the rest of the app writes. */
 const length = (seconds: number) => span(seconds * 1000).replace(/ ([dhm])\b/g, '$1');
 
-const SAID: Record<TimeLabel, string> = {
+/** What each kind of stretch is called in the sentence under the bar. */
+const SAY: Record<TimeLabel, string> = {
   working: 'worked',
-  founder: 'needs you for',
-  task: 'blocked for',
-  agent: 'waiting on an agent for',
-  account: 'at a usage limit for',
-  waiting: 'waiting for',
-  queued: 'waiting to start for',
-  starting: 'starting for',
+  founder: 'waiting for you',
+  task: 'blocked',
+  agent: 'waiting on an agent',
+  account: 'at a usage limit',
+  waiting: 'waiting',
+  queued: 'queued',
+  starting: 'starting',
 };
 
-/** The one-line Time: "40m left", a short bar and the word for the stretch it is in; a click opens the full sentence, bar and stretches. It draws nothing for a daemon without task.time or a task with no stretches yet. */
-export function TimeLine({ id, left, blocked }: { id: number; left?: string; blocked?: boolean }) {
+/**
+ * Where the time went: a thin bar, and under it the same facts in words, "2h 42m in all · waiting for you 2h 31m · worked 10m"; an open task
+ * leads with what is left, "39m left of 1h". The grey at the bar's end is the time still left. A click opens the stretches. It draws nothing for a
+ * daemon without task.time or a task with no stretches yet.
+ */
+export function TimeLine({ id, left, rest, blocked }: { id: number; left?: string; rest?: number; blocked?: boolean }) {
   const [open, setOpen] = useState(false);
   const off = useOff('task.time');
   const segments = useTaskTime(id).data?.segments ?? [];
@@ -51,28 +56,40 @@ export function TimeLine({ id, left, blocked }: { id: number; left?: string; blo
       </div>
     ) : null;
   const { rows, totals, seconds } = timeView(segments);
-  const said = [...totals.map((t) => `${SAID[t.label]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
-  const sentence = said[0]!.toUpperCase() + said.slice(1);
-  const now = rows.at(-1);
-  const word = totals.find((t) => t.label === now?.label)?.word;
+  const spare = rest && rest > 0 ? rest : 0;
+  const whole = seconds + spare;
+  const sentence = [...totals.map((t) => `${SAY[t.label]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
   return (
     <section aria-label="Time" className="mt-3">
       <button
         type="button"
         aria-expanded={open}
         aria-label={sentence}
-        className="flex h-6 min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-sm text-ink-2"
+        className="grid w-full min-w-0 cursor-pointer gap-1.5 border-0 bg-transparent p-0 text-left text-sm text-ink-2"
         onClick={() => setOpen(!open)}
       >
-        {left ? <span className="tabular-nums">{left}</span> : null}
-        <MiniBar rows={rows} className="h-1.5 w-20 flex-none" />
-        <span className="min-w-0 truncate">{word ?? length(seconds)}</span>
-        {chip}
-        <Icon name="chevron" size={12} aria-hidden className={open ? 'rotate-180' : undefined} />
+        <MiniBar rows={rows} whole={whole} className="h-1 w-full" />
+        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
+          {spare && left ? (
+            <span>
+              <strong className="font-medium text-ink">{left}</strong> of {length(whole)}
+            </span>
+          ) : (
+            <span>
+              <strong className="font-medium text-ink">{length(seconds)}</strong> in all
+            </span>
+          )}
+          {totals.map((t) => (
+            <span key={t.label} className="inline-flex items-center gap-1">
+              <span className={`inline-block size-1.5 rounded-full ${TONE[t.label]}`} aria-hidden="true" />
+              {SAY[t.label]} {length(t.seconds)}
+            </span>
+          ))}
+          {chip}
+        </span>
       </button>
       {open ? (
         <div className="mt-1 max-h-48 overflow-auto rounded-md border border-line bg-surface px-2 py-2">
-          <p className="m-0 mb-2 text-xs text-ink-2">{sentence}</p>
           <TaskTime segments={segments} />
         </div>
       ) : null}
@@ -80,11 +97,13 @@ export function TimeLine({ id, left, blocked }: { id: number; left?: string; blo
   );
 }
 
-function MiniBar({ rows, className }: { rows: ReturnType<typeof timeView>['rows']; className: string }) {
+function MiniBar({ rows, whole, className }: { rows: ReturnType<typeof timeView>['rows']; whole?: number; className: string }) {
+  const total = rows.reduce((n, r) => n + r.seconds, 0);
+  const scale = whole && total ? total / whole : 1;
   return (
-    <span className={`flex overflow-hidden rounded-full bg-raised ${className}`} role="img" aria-label="Time by stretch">
+    <span className={`flex gap-px overflow-hidden rounded-full bg-raised ${className}`} role="img" aria-label="Time by stretch">
       {rows.map((r, i) => (
-        <span key={i} className={TONE[r.label]} style={{ width: `${r.share * 100}%` }} title={`${r.text} · ${length(r.seconds)}`} />
+        <span key={i} className={TONE[r.label]} style={{ width: `${r.share * scale * 100}%` }} title={`${r.text} · ${length(r.seconds)}`} />
       ))}
     </span>
   );

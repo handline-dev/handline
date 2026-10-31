@@ -42,9 +42,7 @@ export function CommentPicture({ onAttach }: { onAttach: (markdown: string) => v
   return (
     <>
       <input ref={input} type="file" accept="image/*" hidden aria-label="Picture file" onChange={(e) => pick(e.target.files?.[0])} />
-      <Button label="Add picture" icon="attach" onClick={() => input.current?.click()}>
-        Add picture
-      </Button>
+      <Button label="Attach a picture" icon="attach" title="Attach a picture" onClick={() => input.current?.click()} />
       {problem && !shot ? (
         <span className="text-xs text-bad" role="alert">
           {problem}

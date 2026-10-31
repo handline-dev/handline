@@ -1,4 +1,4 @@
-// The task description editor: Markdown stored, shown and edited rich (Tiptap), with a source view for the raw text. A pasted or dropped image is
+// The task description editor: Markdown stored, shown and edited rich (Tiptap); `toolbar` adds the formatting buttons and the Rich | Markdown switch. A pasted or dropped image is
 // uploaded and goes in at the cursor as `![name](attachment:ID)`; an image node draws with the same AttachmentImage as chat and memos.
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { mergeAttributes, type Editor } from '@tiptap/core';
@@ -7,11 +7,13 @@ import { NodeSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import Image from '@tiptap/extension-image';
+import { Bold, Code, Italic, Link, List } from 'lucide-react';
 import type { Attachment } from '@handline/client';
 import { imageRef, insertImageRef, mentionAt, mentionNames } from '@handline/app-core';
 import { classify, sentence, useUploadImage, whyNotImage } from '@handline/app-data';
 import { AttachmentImage, Thumbs } from '#src/AttachmentImage.tsx';
 import { forEditor, keepTyped } from '#src/bodyMarkdown.ts';
+import { Segmented } from '#src/ui/Segmented.tsx';
 
 const idOf = (src: unknown) => /^attachment:(.+)$/.exec(String(src ?? ''))?.[1];
 
@@ -51,11 +53,13 @@ export function BodyEditor(props: {
   id?: string;
   /** ⌘↵ / Ctrl+↵ in the field. */
   onSubmit?: () => void;
-  /** No Source/Rich toggle: the field is only the text (a comment edited in place). */
+  /** The field is only the text (a comment edited in place). */
   plain?: boolean;
+  /** A toolbar of formatting buttons and a Rich | Markdown switch at its right end: for the brief and the Result, not for a comment or a chat. */
+  toolbar?: boolean;
   /** One or two lines at rest, small padding, growing with the text (comments); the default stays a few lines tall. */
   compact?: boolean;
-  /** Buttons that stand in the field's foot, right of the Source link, which then leaves the top: a field that is one box with its controls. */
+  /** Buttons that stand in the field's foot: a field that is one box with its controls. */
   controls?: ReactNode;
   /** Typing `@` offers these agents, the ones near the task first. */
   mentions?: { names: readonly string[]; near: readonly string[]; state?: (name: string) => string };
@@ -198,24 +202,13 @@ export function BodyEditor(props: {
     setSource(on);
   };
 
-  const sourceButton = (
-    <button
-      type="button"
-      className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer"
-      aria-pressed={source}
-      onClick={() => toSource(!source)}
-    >
-      {source ? 'Rich view' : 'Source'}
-    </button>
-  );
-
   return (
     <div className="body-field grid min-w-40 flex-1 gap-1">
-      {props.plain || props.controls ? null : <div className="flex justify-end">{sourceButton}</div>}
+      {props.toolbar ? <Toolbar editor={editor} source={source} onSource={toSource} /> : null}
       {source ? (
         <textarea
           className={`${BOX} font-mono`}
-          rows={6}
+          rows={props.compact ? 2 : 8}
           aria-label={props.label ?? 'Body (Markdown)'}
           value={props.value}
           onChange={(e) => {
@@ -262,11 +255,63 @@ export function BodyEditor(props: {
       ) : null}
       {props.controls ? (
         <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
-          {props.plain ? <span /> : sourceButton}
+          <span />
           <span className="flex items-center gap-2">{props.controls}</span>
         </div>
       ) : null}
       {problem ? <span className="muted">{problem}</span> : busy ? <span className="muted">Uploading image…</span> : null}
+    </div>
+  );
+}
+
+const TOOL = 'inline-flex size-7 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent text-ink-2 tint';
+
+/** The formatting buttons of the Rich view, and the switch between it and the Markdown text; the switch keeps the text. */
+function Toolbar({ editor, source, onSource }: { editor: Editor | null; source: boolean; onSource: (on: boolean) => void }) {
+  const run = (f: (c: ReturnType<Editor['chain']>) => ReturnType<Editor['chain']>) => editor && f(editor.chain().focus()).run();
+  const link = () => {
+    if (!editor) return;
+    const href = window.prompt('Link address', editor.getAttributes('link').href ?? 'https://');
+    if (href === null) return;
+    if (!href.trim()) editor.chain().focus().unsetLink().run();
+    else editor.chain().focus().extendMarkRange('link').setLink({ href: href.trim() }).run();
+  };
+  const tool = (label: string, icon: ReactNode, onClick: () => void) => (
+    <button
+      key={label}
+      type="button"
+      className={TOOL}
+      aria-label={label}
+      title={label}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {icon}
+    </button>
+  );
+  const ic = { width: 14, height: 14, strokeWidth: 1.75, 'aria-hidden': true } as const;
+  return (
+    <div className="flex items-center gap-0.5" role="toolbar" aria-label="Formatting">
+      {source ? null : (
+        <>
+          {tool('Bold', <Bold {...ic} />, () => run((c) => c.toggleBold()))}
+          {tool('Italic', <Italic {...ic} />, () => run((c) => c.toggleItalic()))}
+          {tool('Link', <Link {...ic} />, link)}
+          {tool('List', <List {...ic} />, () => run((c) => c.toggleBulletList()))}
+          {tool('Code', <Code {...ic} />, () => run((c) => c.toggleCode()))}
+        </>
+      )}
+      <span className="ml-auto">
+        <Segmented
+          label="Editor"
+          value={source ? 'markdown' : 'rich'}
+          onChange={(v) => onSource(v === 'markdown')}
+          options={[
+            { value: 'rich', label: 'Rich' },
+            { value: 'markdown', label: 'Markdown' },
+          ]}
+        />
+      </span>
     </div>
   );
 }

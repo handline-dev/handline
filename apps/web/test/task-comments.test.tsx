@@ -26,12 +26,9 @@ let box: HTMLElement;
 const section = () => box.querySelector<HTMLElement>('section[aria-label="Activity"]');
 const send = () => [...section()!.querySelectorAll('button')].find((b) => /^Comment(?!s)/.test(b.textContent ?? '')) as HTMLButtonElement;
 const typeInto = async (value: string) => {
-  await act(async () => void [...section()!.querySelectorAll('button')].find((b) => b.textContent === 'Source')!.click());
-  const el = section()!.querySelector('textarea')!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, value);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
+  const el = section()!.querySelector('.ProseMirror')!;
+  await act(async () => void (el.textContent = value));
+  await new Promise((r) => setTimeout(r, 50));
 };
 
 async function mount(seed?: (s: ReturnType<typeof setup>) => void) {
@@ -117,7 +114,7 @@ describe('Comments on a task', () => {
   it('offers a picture to mark, and no window capture, in the task detail', async () => {
     await mount();
     const labels = [...box.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent);
-    expect(labels).toContain('Add picture');
+    expect(labels).toContain('Attach a picture');
     expect(labels).not.toContain('Capture a window');
   });
 
@@ -127,7 +124,7 @@ describe('Comments on a task', () => {
     await typeInto('still there?');
     await act(async () => void send().click());
     await until(() => section()!.textContent!.includes('the task is closed'), 'the refusal');
-    expect(section()!.querySelector('textarea')!.value).toBe('still there?');
+    expect(section()!.querySelector('.ProseMirror')!.textContent).toBe('still there?');
   });
 
   it('Escape in an inline field leaves it as it was and saves nothing', async () => {
@@ -158,7 +155,7 @@ describe('Comments on a task', () => {
     });
     await until(() => section()!.querySelector('.comment .attachment'), 'the picture');
     const pic = section()!.querySelector('.comment .attachment')!;
-    expect(pic.className).toContain('h-11');
+    expect(pic.className).toContain('w-20');
     expect(pic.className).not.toContain('h-40');
     // blank space between pictures would break their row: the two sit side by side with a gap and nothing between them
     const [a, b] = section()!.querySelectorAll('.comment .attachment');

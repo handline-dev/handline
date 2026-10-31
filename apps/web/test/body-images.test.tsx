@@ -126,7 +126,7 @@ describe('images in a task body', () => {
     await mount(s);
     await click($('.tbody-text [aria-label="Edit Description"]')!);
     await until(() => $('.ProseMirror'), 'the editor');
-    await click(button('Source')!);
+    await click(button('Markdown')!);
     const file = new File([PNG], 'shot.png', { type: 'image/png' });
     await act(async () => {
       const e = new Event('paste', { bubbles: true, cancelable: true });
@@ -143,7 +143,7 @@ describe('images in a task body', () => {
     await mount(s);
     await click($('.tbody-text [aria-label="Edit Description"]')!);
     await until(() => $('.ProseMirror'), 'the editor');
-    await click(button('Source')!);
+    await click(button('Markdown')!);
     const file = new File([PNG], 'shot.png', { type: 'image/png' });
     await act(async () => {
       const e = new Event('paste', { bubbles: true, cancelable: true });
@@ -151,7 +151,7 @@ describe('images in a task body', () => {
       $('.tbody-text textarea')!.dispatchEvent(e);
     });
     await until(() => /!\[shot\]\(attachment:/.test(($('.tbody-text textarea') as HTMLTextAreaElement).value), 'the line in the source');
-    await click(button('Rich view')!);
+    await click(button('Rich')!);
     await until(() => $$('.ProseMirror .attachment').length === 1, 'the picture in the rich view');
     await click(button('Save', $('.tbody-text')!)!);
     await until(() => /!\[shot\]\(attachment:[^)]+\)/.test(s.daemon.tasks.get({ task: 1700 }).body), 'the saved body');
