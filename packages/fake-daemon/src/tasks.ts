@@ -44,6 +44,8 @@ export class FakeTasks extends TaskVerbs {
     const t = this.find(p.task);
     if (t.state === 'discarded' && Object.keys(p).some((k) => !['task', 'body', 'request_id'].includes(k)))
       throw new TaskFailure('refused', `task ${t.id} is closed`);
+    if (p.evidence !== undefined && agent)
+      throw new TaskFailure('refused', `only the founder can change the result of a done task; add a comment to ${t.id} instead`);
     if (p.evidence !== undefined && String(p.evidence).trim() === '')
       throw new TaskFailure('refused', `a done task keeps a result - an empty one would reopen ${t.id}`);
     if (p.evidence !== undefined && t.state !== 'done')

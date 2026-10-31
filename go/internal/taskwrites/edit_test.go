@@ -126,14 +126,16 @@ func TestADoneTaskKeepsItsBriefAndResultEditable(t *testing.T) {
 	edit := func(who string, id int, params, rid string) map[string]any {
 		return call(t, mk(who, &fakeTeller{}), fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.edit","params":{%s,"request_id":%q}}`, id, params, rid))[0]
 	}
-	if r := edit("manager", 2, `"task":1,"body":"new brief","evidence":"PASS PR 7"`, "d1"); r["result"] == nil {
-		t.Fatalf("%v", r)
+	if r := edit("", 2, `"task":1,"body":"new brief","evidence":"PASS PR 7"`, "d1"); r["result"] == nil {
+		t.Fatalf("the founder edits the brief and the result: %v", r)
 	}
 	for name, r := range map[string]map[string]any{
-		"an empty result would reopen the task": edit("manager", 3, `"task":1,"evidence":""`, "d2"),
-		"so would a blank one":                  edit("manager", 4, `"task":1,"evidence":"  \n"`, "d3"),
-		"an open task has no result":            edit("manager", 5, `"task":2,"evidence":"early"`, "d4"),
-		"a stranger may not rewrite a verdict":  edit("worker2", 6, `"task":1,"evidence":"PASS PR 8"`, "d5"),
+		"an empty result would reopen the task": edit("", 3, `"task":1,"evidence":""`, "d2"),
+		"so would a blank one":                  edit("", 4, `"task":1,"evidence":"  \n"`, "d3"),
+		"an open task has no result":            edit("", 5, `"task":2,"evidence":"early"`, "d4"),
+		"a stranger may not rewrite a verdict":  edit("other", 6, `"task":1,"evidence":"PASS PR 8"`, "d5"),
+		"nor the assignee":                      edit("worker", 7, `"task":1,"evidence":"PASS PR 8"`, "d6"),
+		"nor the owner":                         edit("manager", 8, `"task":1,"evidence":"PASS PR 8"`, "d7"),
 	} {
 		if r["error"] == nil {
 			t.Errorf("%s: accepted: %v", name, r)

@@ -189,10 +189,8 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 		if text == "" {
 			return fmt.Sprintf("a done task keeps a result - an empty one would reopen T%d", tid), "", nil
 		}
-		if ok, err := mayClose(tx, home, by, t); err != nil {
-			return "", "", err
-		} else if !ok {
-			return fmt.Sprintf("task T%d's result can only be edited by whoever may mark it done: its assignee (%s), owner (%s), its parent's owner, a lead of its team or the founder", tid, t.Owner, t.reporter()), "", nil
+		if by != human { // merge tooling lands a PR on this text: an agent adds a comment, it does not rewrite the result
+			return fmt.Sprintf("only the founder can change the result of a done task; add a comment to T%d instead", tid), "", nil
 		}
 		if text != strings.TrimSpace(t.DoneEvidence.String) {
 			newEvidence = &text
