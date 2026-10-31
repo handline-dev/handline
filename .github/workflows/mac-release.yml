@@ -1,0 +1,80 @@
+# The Mac app on GitHub Releases: one rolling prerelease, tag mac-nightly, rebuilt every night from main, only when main has commits the last build
+# does not have (a manual run always builds). It holds the dmg, the zip and latest-mac.yml: the app reads latest-mac.yml at the release's download
+# address (electron-updater's generic provider, and the self-written updater until a Developer ID exists). The version is 0.1.<run number>, which
+# only grows. Signed ad hoc unless HANDLINE_SIGN_IDENTITY is set (apps/electron/electron-builder.config.mjs).
+name: mac-release
+
+on:
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to build (default main)
+        default: main
+
+concurrency:
+  group: mac-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.p.outputs.build }}
+    steps:
+      - id: p
+        name: Build only when main has moved since the last build (a manual run always builds)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build=true
+          if [ "${{ github.event_name }}" = schedule ]; then
+            at="$(gh release view mac-nightly --repo "$GITHUB_REPOSITORY" --json targetCommitish -q .targetCommitish 2>/dev/null || true)"
+            [ "$at" != "$GITHUB_SHA" ] || build=false
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+  app:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      VERSION: 0.1.${{ github.run_number }}
+      HANDLINE_UPDATE_URL: https://github.com/${{ github.repository }}/releases/download/mac-nightly
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - run: pnpm install --frozen-lockfile
+      - name: Build the app
+        env:
+          HANDLINE_SIGN_IDENTITY: ${{ secrets.HANDLINE_SIGN_IDENTITY }}
+        run: pnpm --filter @handline/electron package "$VERSION"
+      - name: Check what was built
+        run: |
+          cd apps/electron/release
+          ls -l
+          for f in latest-mac.yml Handline-*-universal-mac.zip Handline-*-universal.dmg; do ls $f >/dev/null || { echo "missing $f"; exit 1; }; done
+          grep -q "version: $VERSION" latest-mac.yml
+      - name: Replace the rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd apps/electron/release
+          gh release delete mac-nightly --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create mac-nightly latest-mac.yml Handline-*-universal-mac.zip Handline-*-universal.dmg Handline-*.blockmap \
+            --repo "$GITHUB_REPOSITORY" --prerelease --target "$(git rev-parse HEAD)" --title "Handline for Mac $VERSION" \
+            --notes "Mac build $VERSION of main. latest-mac.yml is what the app reads to see if it is up to date."
