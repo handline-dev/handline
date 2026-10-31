@@ -3,7 +3,7 @@ import { useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { Proposal, TranscriptItem } from '@handline/client';
-import { ago, clockTime, isPerson, sessionLine, taskRow } from '@handline/app-core';
+import { ago, clockTime, isPerson, sessionLine, taskRow, type TimelineEntry } from '@handline/app-core';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, iconLabel, type IconName } from '#src/screens/Icon.tsx';
@@ -176,6 +176,14 @@ function ReplyLine({ i, agent, onReply }: { i: TranscriptItem; agent: string; on
       )}
     </Pressable>
   );
+}
+
+/** The chat's entries with the requests the person already answered added in their place by time: the core leaves permission requests to Activity, the phone shows each answered one as its line. */
+export function withAnswered(entries: TimelineEntry[], items: TranscriptItem[]): TimelineEntry[] {
+  const asked = items
+    .filter((i) => i.kind === 'prompt' && i.prompt?.kind === 'permission' && !i.open)
+    .map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i }));
+  return asked.length ? [...entries, ...asked].sort((a, b) => a.at.localeCompare(b.at)) : entries;
 }
 
 /** A request the agent made, as one grey line like "Allow Bash go vet ./… · 9m"; a tap opens the whole command. */

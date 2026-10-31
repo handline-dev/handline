@@ -11,7 +11,7 @@ import type { AgentDetail, TranscriptItem } from '@handline/client';
 import { font, radius, space } from '@handline/tokens';
 import { Skeleton } from '#src/skeleton.tsx';
 import { usePalette } from '#src/theme.ts';
-import { Decided, Line } from '#src/screens/ChatLines.tsx';
+import { Decided, Line, withAnswered } from '#src/screens/ChatLines.tsx';
 import { AgentStrip } from '#src/screens/AgentStrip.tsx';
 import { ChatFind } from '#src/screens/ChatFind.tsx';
 import { ChatRefs, type Ref } from '#src/screens/ChatRefs.tsx';
@@ -89,7 +89,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const { served } = useServes('tasks.list');
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
   const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
-  const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
+  const entries = withAnswered(chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent)), chat.items);
   const folds = useFolds(chat.status === 'ready', entries);
   const sent = entries.findLast((e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person')?.id; // the row a send holds at the top
   const anchor = useChatScroll(scroll, { ready: chat.status === 'ready', sent });
