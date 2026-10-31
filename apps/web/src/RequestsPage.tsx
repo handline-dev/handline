@@ -22,7 +22,6 @@ import { WORKTREE_SAID, dueText, factsOf, label, memberOf, sourceFull, sourceWor
 import { useKeepPlace } from '#src/useKeepPlace.ts';
 import { Fold } from '#src/Fold.tsx';
 import { LaterButton, LaterFold, useLaterToast } from '#src/RequestsLater.tsx';
-import { FromYou, RequestsViewSwitch, type RequestsView } from '#src/RequestsFromYou.tsx';
 import { SpareAnswers, SpareAsk, useSpare } from '#src/RequestsSpare.tsx';
 import { NewTask } from '#src/NewTask.tsx';
 import { BlocksLine } from '#src/BlocksLine.tsx';
@@ -193,7 +192,7 @@ function CardDetail({
       <BlocksLine task={card.task} />
       {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       <Answer
-        kind={requestGroup(card)}
+        kind={spare ? 'Spare tasks' : requestGroup(card)}
         code={card.kind === 'approval'}
         ask={
           spare ? (
@@ -289,7 +288,6 @@ export function RequestsPage() {
   const wide = useWide(1100);
   const now = useNow();
   const [pick, setPick] = useState<string | null>(null);
-  const [view, setView] = useState<RequestsView>('for_you');
   const [asking, setAsking] = useState(false);
   const later = useLaterToast(all.later);
   const putOffAndLeave = (card: Card, at: LaterAt | null) => {
@@ -331,8 +329,6 @@ export function RequestsPage() {
   const sheet = asking ? (
     <NewTask request agents={leads.length ? leads : (agents.data?.agents ?? []).map((a) => a.name)} onClose={() => setAsking(false)} />
   ) : null;
-  const switcher = <RequestsViewSwitch view={view} onView={setView} forYou={all.cards.length} />;
-  if (view === 'from_you') return <FromYou wide={wide} switcher={switcher} />;
   if (!wide && sel)
     return (
       <ScrollPage col aria-label="Request">
@@ -345,9 +341,8 @@ export function RequestsPage() {
     <ScrollPage beside={wide} className="requests-page" aria-label="Requests">
       <PageHead>
         <PageTitle>
-          Requests <Kbd className="ui-keys">J K</Kbd>
+          Requests <span className="muted">{all.cards.length}</span> <Kbd className="ui-keys">J K</Kbd>
         </PageTitle>
-        {switcher}
         <DsButton iconOnly icon={Plus} label="New request" size="s" onClick={() => setAsking(true)} />
       </PageHead>
       {loading ? (

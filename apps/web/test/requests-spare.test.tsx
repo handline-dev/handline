@@ -1,5 +1,4 @@
-// Requests: "From you" lists the founder's own requests by what is happening to them, with how far each is and who holds it; and the weekly-loss
-// offer is an item of For you, answered with Start or Dismiss, no longer a card over the bell.
+// Requests: the weekly-loss offer is an item of For you, answered with Start or Dismiss, no longer a card over the bell.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -44,38 +43,6 @@ afterEach(async () => {
   box?.remove();
 });
 
-describe('Requests: From you', () => {
-  it('lists the requests in their groups with done of total, the task number and the time', async () => {
-    const s = setup();
-    applySeeds(s.daemon, 'requests');
-    await mount(s);
-    await until(() => button('From you'), 'the switch');
-    await click(button('From you'));
-    await until(() => $('[data-request-row]'), 'the rows');
-    const group = (name: string) => $(`[role="group"][aria-label="${name}"]`);
-    expect(text(group('Waiting on you'))).toContain('Which build is live?');
-    expect(text(group('Being worked'))).toContain('Show the usage graph first');
-    expect(text(group('Being worked'))).toContain('1 of 3'); // one done, two open
-    expect(text(group('Being worked'))).toContain('T6071'); // local-ref-ok
-    expect(text(group('Not taken yet'))).toContain('Why is the build so slow today?');
-    expect(group('Done')).toBeNull(); // closed ones are behind Closed
-    await click(button('Closed'));
-    expect(text(group('Done'))).toContain('Settings in one place');
-  });
-
-  it('opens a request with the line that says how far it is and who holds it now', async () => {
-    const s = setup();
-    applySeeds(s.daemon, 'requests');
-    await mount(s);
-    await until(() => button('From you'), 'the switch');
-    await click(button('From you'));
-    await until(() => $('[data-request-row]'), 'the rows');
-    await click($('[data-request-row="6068"] button'));
-    await until(() => $('.request-line'), 'the line');
-    expect(text($('.request-line'))).toBe('2 of 3 done · now pc · in review · #630');
-  });
-});
-
 describe('Requests: the weekly-loss offer', () => {
   it('is an item of For you with its spare tasks, and Start answers the task', async () => {
     const s = setup({ client: 'founder' });
@@ -86,6 +53,10 @@ describe('Requests: the weekly-loss offer', () => {
     await click($('[data-card-row="task:7100"] button'));
     await until(() => $('.notice-spare'), 'the offer in Requests');
     expect(document.querySelector('.toasts .notice-spare')).toBeNull(); // not over the bell
+    expect(text($('.my-turn-card'))).toContain('lost at 02:10');
+    expect(text($('.my-turn-card'))).not.toContain('spare tasks can use'); // the title ends at the sentence; the list says which tasks
+    expect(text($('.my-turn-card'))).toContain('Spare tasks');
+    expect(text($('.my-turn-card'))).not.toContain('Do by hand'); // that is the list's group, not what the offer is
     expect(text($('.notice-spare'))).toContain('Tidy the gap list');
     expect(text($('.notice-spare'))).toContain('and 1 more');
     expect(button('Later')).toBeUndefined(); // an agent is not stopped on it, but it is answered, not put off
