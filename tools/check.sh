@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# The tests a change needs, from what it changes against <base> (default main): a builder runs the tests it touched; the apps result of a PR head comes from CI.
-#   tools/check.sh [<base>]
-# - nothing changed, or documentation only (docs/, design/, *.md, but not contract/ or skill/): nothing.
-# - anything else: the Go suite (tools/test-go.sh), and the contract's generated files being current.
-# Either of the last two first runs the app checks: `pnpm turbo test typecheck lint` (turbo caches it) when a JS workspace
-# file changed (apps/, packages/, the root JS files, contract/protocol.ts), else only the packages/app-data tests
-# (6 s), whose guards fail on a contract method the apps' tables do not name.
+# The tests a change needs against <base> (default main); CI plans its jobs from it. Usage: tools/check.sh [<base>]
+# Docs only: nothing. Anything else: the contract's generated files being current and the Go suite (tools/test-go.sh),
+# each after the app checks (`pnpm turbo test typecheck lint` for a JS workspace change, else the packages/app-data tests).
 # CHECK_PLAN=1 prints `kind=<none|docs|go> apps=<no|app-data|turbo>` and runs nothing.
-# A failing step does not stop the ones after it, so one run shows every failure; the exit status is 1 if any failed.
-# The tests run with TMPDIR and TMUX_TMPDIR in a directory of their own, and fail when they leave a process, a tmux
-# server, a temp file or a write to the real protected store behind (tools/leakcheck.py).
+# A failing step does not stop the rest; the exit status is 1 if any failed. Tests run in a TMPDIR of their own and
+# fail on a leftover process, tmux server, temp file or write to the real protected store (tools/leakcheck.py).
 cd "$(dirname "$0")/.." || exit 1
 base="${1:-main}"
 apps() {
