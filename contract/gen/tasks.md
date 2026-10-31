@@ -66,11 +66,11 @@ A screenshot kept with a finished task. One screenshot of a task whose end recor
 
 ### `task.new`
 
-Create a task. The founder or a member device opens one for an agent only, and it opens queued. The owner may not be the caller: a task an agent takes on itself is begun from the founder's message (task.begin).
+Create a task. The founder or a member device opens one for an agent only, and it opens queued. An agent owning it to `human` is refused as task.handoff does; a task begun from the founder's message answers to the founder (task.begin). The owner may not be the caller: a task an agent takes on itself is begun from the founder's message (task.begin).
 
 ### `task.handoff`
 
-Hand a task to another agent. Anyone may hand an open task on, not only its owner (the asker takes a task back so). A review is a handoff: the holder hands the task to its reviewer, who hands it back with findings or on, or marks it done. task.history's row names who made the move (by). A handoff to `human` will be refused (gate state: keep the task and ask with `@human` in a comment, task.comment.add); that refusal is switched on later, once the founder's open tasks are migrated, and until then it is accepted as before.
+Hand a task to another agent. Anyone may hand an open task on, not only its owner (the asker takes a task back so). A review is a handoff: the holder hands the task to its reviewer, who hands it back with findings or on, or marks it done. task.history's row names who made the move (by). An agent's handoff to `human` is refused with `Ask the founder with @human in a memo; keep the task.` (ask with `@human` in a comment, task.comment.add): a task answers to the founder through its reporter, it is not handed to them. The founder may hand a task to `human`.
 
 ### `task.done`
 
@@ -86,7 +86,7 @@ Record progress (hl progress): on a task, or with no task on the caller's reques
 
 ### `task.begin`
 
-Start a task the founder told the caller to do, without approval: opened for the caller, linked to the founder's message.
+Start a task the founder told the caller to do, without approval: opened for the caller, linked to the founder's message, and answering to the founder (its reporter is human).
 
 ### `task.start`
 
@@ -190,7 +190,7 @@ Cancel a task.
 
 ### `task.edit`
 
-Change a task: owner, reporter, title, priority, body and time box, by anyone (body and time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.
+Change a task: owner (an agent giving it to `human` is refused, as task.handoff does), reporter, title, priority, body and time box, by anyone (body and time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.
 
 ### `task.ask`
 

@@ -26,7 +26,9 @@ type Asked struct {
 type AskReq struct {
 	From, To, Body, Kind string
 	NoCard, Notify       bool
-	Within               func(rid int64) error
+	// System is the daemon's own step, a start-up migration: no team edge is checked. Only code in the daemon sets it, never a caller.
+	System bool
+	Within func(rid int64) error
 }
 
 // Handover is a handoff that committed.
@@ -39,6 +41,9 @@ type Handover struct {
 	Retired      []func()
 	After        func() string
 }
+
+// askFounderInstead is the refusal when an agent gives a task to the founder: it keeps the task and asks them in a comment.
+const askFounderInstead = "Ask the founder with @human in a memo; keep the task."
 
 // handoffRefusal is why the task may not go to `to`, or "": anyone hands an open task on, with a note (its asker takes it back so).
 func handoffRefusal(t *task, to string, agents []string) string {
@@ -85,6 +90,9 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 			return nil, e
 		}
 		me := c.Caller.Actor()
+		if to == human && me != human {
+			return nil, refusal(askFounderInstead)
+		}
 		said := strings.TrimSpace(textsafe.Text(note))
 		var (
 			h     Handover
@@ -96,7 +104,7 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 				return nil, err
 			}
 			var err error
-			h, asked, err = handOff(tx, tell, tid, me, to, said, agents)
+			h, asked, err = handOff(tx, tell, tid, me, to, said, agents, false)
 			if err != nil {
 				return nil, err
 			}
@@ -122,7 +130,7 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 
 // handOff routes task tid to `to` in tx and, once the ask is allowed, moves it (moveTask). A refusal is the error; asked.OK false is a denied
 // ask, whose writes stand. The caller runs asked.After and tell.HandedOver after the commit.
-func handOff(tx *sql.Tx, tell Teller, tid int64, by, to, note string, agents []string) (Handover, *Asked, error) {
+func handOff(tx *sql.Tx, tell Teller, tid int64, by, to, note string, agents []string, system bool) (Handover, *Asked, error) {
 	t, err := getTask(tx, tid)
 	if err != nil {
 		return Handover{}, nil, err
@@ -137,7 +145,7 @@ func handOff(tx *sql.Tx, tell Teller, tid int64, by, to, note string, agents []s
 		return Handover{}, nil, fmt.Errorf("task.handoff needs the supervisor to route its ask")
 	}
 	h := Handover{Task: tid, By: by, From: t.Owner, To: to, Title: t.Title}
-	asked, err := tell.TaskAsk(tx, AskReq{From: by, To: to, Kind: "task", Body: fmt.Sprintf("T%d handed to you by %s: %s\n\n%s", tid, by, t.Title, note),
+	asked, err := tell.TaskAsk(tx, AskReq{From: by, To: to, Kind: "task", System: system, Body: fmt.Sprintf("T%d handed to you by %s: %s\n\n%s", tid, by, t.Title, note),
 		Within: func(rid int64) error {
 			h.RID = rid
 			return moveTask(tx, tell, &h, note)

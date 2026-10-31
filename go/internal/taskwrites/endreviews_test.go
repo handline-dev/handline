@@ -50,8 +50,11 @@ func TestEndReviewsFallsBackToTheReporterThenTheOpener(t *testing.T) {
 			"VALUES(1, 'to the founder', 'boss', 'w', 'human', 1, 'w', 5, 'a'), (2, 'its own', 'boss', 'boss', NULL, 1, 'boss', 5, 'b')",
 	)
 	said, err := EndReviews(sdb, home, f)
-	if err != nil || fmt.Sprint(said) != "[T1 left review: handed to human T2 left review: queued with boss]" {
+	if err != nil || fmt.Sprint(said) != "[T1 left review: queued with boss T2 left review: queued with boss]" {
 		t.Fatalf("%q %v", said, err)
+	}
+	if len(f.handed) != 0 || count(t, sdb, "SELECT COUNT(*) FROM requests WHERE requester = 'daemon' AND target = 'human' AND state = 'queued'") != 1 {
+		t.Fatalf("a task whose reporter is the founder stays and asks them: %+v", f.handed)
 	}
 	sdb, f, _ = reportEnvIn(t, t.TempDir(),
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, reported_at, report) VALUES(1, 'refused', 'w', 'boss', 1, 'boss', 5, 'a')",

@@ -100,7 +100,7 @@ func TestNewReturnsBeforeTheOwnerIsTold(t *testing.T) {
 	if said := r[0]["result"].(map[string]any)["said"].(string); strings.Contains(said, "founder's screen") {
 		t.Fatalf("an agent's task does not say it is on the founder's screen: %q", said)
 	}
-	r = call(t, mk("manager", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.new","params":{"owner":"human","title":"d","body":"b","time_box":"1h","request_id":"a2"}}`)
+	r = call(t, mk("", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.new","params":{"owner":"human","title":"d","body":"b","time_box":"1h","request_id":"a2"}}`)
 	if said, _ := r[0]["result"].(map[string]any)["said"].(string); !strings.Contains(said, "it is on the founder's screen (`hl`)") {
 		t.Fatalf("a founder's task says where it is: %v", r[0])
 	}

@@ -13,6 +13,7 @@ import { AppUpdate } from '#src/screens/AppUpdate.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
 import { HandoffPrompt } from '#src/screens/HandoffPrompt.tsx';
 import { Connection } from '#src/screens/Connection.tsx';
+import { AddAccount } from '#src/screens/Accounts.tsx';
 import { PairedDevices } from '#src/screens/PairedDevices.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
@@ -203,7 +204,14 @@ export function SettingsPage(props: { onClose: () => void; onUnpair: () => void 
     <View style={{ flex: 1 }}>
       <PageHeader title="Settings" back={{ label: 'Agents', onPress: props.onClose, testID: 'settings-close' }} />
       {founder ? (
-        <Settings footer={<Devices onUnpair={props.onUnpair} />} />
+        <Settings
+          footer={
+            <>
+              <AddAccount />
+              <Devices onUnpair={props.onUnpair} />
+            </>
+          }
+        />
       ) : (
         <ScrollView contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
           <Text testID="settings-founder-only" style={{ color: c.muted }}>
