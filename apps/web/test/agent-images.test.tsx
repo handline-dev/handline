@@ -123,7 +123,7 @@ describe('images an agent attaches to a message', () => {
       m === 'attachment.get' && p?.id !== b!.id ? Promise.reject(new Error('connection lost')) : call(m, p);
     await mount(s);
     await until(() => box.querySelector('.msg .attachment.failed'), 'the failure line');
-    expect(box.querySelector('.msg .attachment.failed')!.textContent).toContain('could not be loaded');
+    expect(box.querySelector('.msg .attachment.failed')!.textContent).toContain("Couldn't load");
     await until(() => box.querySelector('.msg .attachment.gone'), 'the gone line');
   });
 
