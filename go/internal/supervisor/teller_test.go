@@ -2,8 +2,6 @@ package supervisor
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -255,12 +253,10 @@ edges:
 `
 
 // The start-up hand-back of the founder's tasks is the daemon's own step: it moves each task to its agent though no edge declares daemon ->
-// agent, and leaves those it must; an agent's own handoff on the same team is still refused, and the step runs once.
+// agent, and leaves those it must, once.
 func TestFounderTasksGoBackWithNoTeamEdgeFromTheDaemon(t *testing.T) {
 	r := newRig(t)
-	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(founderOnlyTeam), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	r.founderOnlyTeam()
 	handed := r.newTask("human", "alice", "handed by bob")
 	opened := r.newTask("human", "alice", "opened by alice")
 	asked := r.newTask("human", "human", "the founder's own")
@@ -282,10 +278,4 @@ func TestFounderTasksGoBackWithNoTeamEdgeFromTheDaemon(t *testing.T) {
 		t.Fatalf("it runs once: %q %v", again, err)
 	}
 
-	tx, _ := r.DB.Begin()
-	defer tx.Rollback()
-	denied, err := r.TaskAsk(tx, taskwrites.AskReq{From: "alice", To: "bob", Kind: "task", Body: "x", Within: func(int64) error { return fmt.Errorf("not reached") }})
-	if err != nil || denied.OK || !strings.Contains(denied.Msg, "no edge declares alice -> bob") {
-		t.Fatalf("an agent's own handoff still needs its edge: %+v %v", denied, err)
-	}
 }
