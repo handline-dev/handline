@@ -180,6 +180,8 @@ export function Pill(props: {
   role?: 'button' | 'radio';
   /** Shown after the label while the pill is on, e.g. the × that takes a chip off. */
   trailing?: React.ReactNode;
+  /** A glyph before the word: a state is a glyph and a word. */
+  icon?: IconName;
 }) {
   const c = usePalette();
   return (
@@ -201,6 +203,7 @@ export function Pill(props: {
       {({ pressed }) => (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+            {props.icon ? <Icon name={props.icon} decorative size={16} color={c.ink} /> : null}
             <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
             {props.on ? props.trailing : null}
           </View>

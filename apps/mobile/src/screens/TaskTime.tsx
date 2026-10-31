@@ -54,7 +54,7 @@ export function TaskTime({ segments }: { segments: TimeSegment[] }) {
 }
 
 /** The one-line Time: "42m left", a short bar by stretch and the word for the stretch it is in; a tap opens the segments. Nothing for a daemon without task.time or a task with no stretches. */
-export function TaskTimeLine({ id, left, over }: { id: number; left?: string; over?: boolean }) {
+export function TaskTimeLine({ id, left, over, running }: { id: number; left?: string; over?: boolean; running: boolean }) {
   const c = usePalette();
   const { served } = useServes('task.time');
   const [open, setOpen] = useState(false);
@@ -73,11 +73,13 @@ export function TaskTimeLine({ id, left, over }: { id: number; left?: string; ov
         style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
       >
         {left ? <Text style={{ color: over ? c.block : c.ink }}>{left}</Text> : null}
-        <View style={{ width: 80, height: 6, borderRadius: 3, overflow: 'hidden', flexDirection: 'row', backgroundColor: c.panel }}>
-          {rows.map((r, i) => (
-            <View key={i} style={{ width: `${r.share * 100}%`, backgroundColor: TONE(c)[r.label] }} />
-          ))}
-        </View>
+        {running && rows.some((r) => r.label === 'working') ? (
+          <View style={{ width: 80, height: 6, borderRadius: 3, overflow: 'hidden', flexDirection: 'row', backgroundColor: c.panel }}>
+            {rows.map((r, i) => (
+              <View key={i} style={{ width: `${r.share * 100}%`, backgroundColor: TONE(c)[r.label] }} />
+            ))}
+          </View>
+        ) : null}
         <Text style={{ color: c.muted, flexShrink: 1 }} numberOfLines={1}>
           {word}
         </Text>

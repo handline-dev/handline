@@ -50,9 +50,9 @@ describe('the task verbs', () => {
     m.daemon.knobs.latency(300);
     m.daemon.knobs.refuse('task.done', 'state', 'that task is waiting on an audit');
     await press($('sheet-submit'));
-    await until(() => text().includes('done ▾'), 'the optimistic state', 250);
+    await until(() => text().includes('Done ⌄'), 'the optimistic state', 250);
     await until(() => text().includes('that task is waiting on an audit'), 'the reason', 3000);
-    await until(() => text().includes('doing ▾') && $('sheet'), 'the task back, the sheet open');
+    await until(() => text().includes('Working ⌄') && $('sheet'), 'the task back, the sheet open');
     expect(value('sheet-text')).toBe('shipped');
     m.daemon.knobs.clear();
     await press($('sheet-submit'));

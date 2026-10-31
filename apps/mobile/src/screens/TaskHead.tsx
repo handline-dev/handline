@@ -35,13 +35,25 @@ export function TaskLine({ t, onAssign, canAssign }: { t: TaskDetail; onAssign: 
 }
 
 /** The Blocks line: the tasks that wait on this one, only when there are some. */
-export function BlocksLine({ id }: { id: number }) {
+export function BlocksLine({ id, onOpen }: { id: number; onOpen?: (id: number) => void }) {
   const c = usePalette();
   const blocked = (useTasks({}).data?.items ?? []).filter((x) => x.blocked_by?.includes(id));
   if (!blocked.length) return null;
   return (
     <Text testID="task-blocks" style={{ color: c.muted, fontSize: font.size.sm }}>
-      Blocks {blocked.map((x) => taskRef(x.id)).join(' ')}
+      Blocks{' '}
+      {blocked.map((x, i) => (
+        <Text
+          key={x.id}
+          testID={`task-blocks-${x.id}`}
+          accessibilityRole="link"
+          onPress={onOpen ? () => onOpen(x.id) : undefined}
+          style={{ color: c.accent }}
+        >
+          {i ? ' ' : ''}
+          {taskRef(x.id)}
+        </Text>
+      ))}
     </Text>
   );
 }

@@ -123,12 +123,21 @@ export function CommentBox({ id }: { id: number }) {
       <ImageBodyInput
         testID="memo-text"
         label="Comment"
-        placeholder="Add a comment (@agent asks that agent)"
+        placeholder="Add a comment…"
         titled={false}
         editable={!why}
         value={text}
         onChange={setText}
-        send={<Button testID="memo-send" label="Comment" disabled={!!why || !text.trim()} onPress={send} />}
+        send={
+          <Button
+            testID="memo-send"
+            label="Comment"
+            icon="send"
+            kind={text.trim() ? 'yes' : 'plain'}
+            disabled={!!why || !text.trim()}
+            onPress={send}
+          />
+        }
       />
       {why && <Text style={{ color: c.muted, fontSize: font.size.sm }}>{why}</Text>}
     </View>

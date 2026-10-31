@@ -48,6 +48,7 @@ export const ICON_SPEC = {
   search: ['Search', 'Search'],
   plus: ['Plus', 'Add'],
   attach: ['Paperclip', 'Attach images'],
+  picture: ['Image', 'Add a picture'],
   refresh: ['RefreshCw', 'Refresh'],
   menu: ['EllipsisVertical', 'More'],
   warn: ['TriangleAlert', 'Warning'],

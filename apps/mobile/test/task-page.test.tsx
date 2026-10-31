@@ -32,6 +32,9 @@ describe('task page', () => {
     await until(() => $('task-done'), 'the Done bar');
     expect($('task-blocks')?.textContent).toBe('Blocks T9002'); // local-ref-ok
     expect($('task-history-toggle')).toBeNull();
+    expect($('task-later')).not.toBeNull();
+    await press($('task-blocks-9002'));
+    await until(() => text($('task-detail')).includes('Wait for the colour'), 'the blocked task');
     m.store.stop();
   }, 20000);
 

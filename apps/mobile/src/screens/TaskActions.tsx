@@ -9,6 +9,7 @@ import type { TaskDetail } from '@handline/client';
 import { useOff, usePendingAny, useServes, useTaskActions } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
+import type { IconName } from '#src/screens/Icon.tsx';
 import { BottomSheet, Button, MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
 import { AskAbout } from '#src/screens/TaskAsk.tsx';
 import { AssignTask } from '#src/screens/TaskAssign.tsx';
@@ -17,6 +18,21 @@ import { TaskHistorySheet } from '#src/screens/TaskHistory.tsx';
 import { MergeTasks, ReleaseTask } from '#src/screens/TaskReleaseMerge.tsx';
 
 const CLOSED = ['done', 'discarded'];
+
+/** The state in the design system's words, with the glyph that repeats it. */
+function taskStateWord(state: string, foryou: boolean, blocked: boolean): { word: string; icon?: IconName } {
+  if (foryou) return { word: 'Needs you', icon: 'needs' };
+  if (blocked && state === 'doing') return { word: 'Blocked', icon: 'paused' };
+  const WORDS: Record<string, { word: string; icon?: IconName }> = {
+    doing: { word: 'Working', icon: 'working' },
+    done: { word: 'Done', icon: 'done' },
+    draft: { word: 'Draft' },
+    queued: { word: 'Queued' },
+    pending: { word: 'Queued' },
+    discarded: { word: 'Dropped' },
+  };
+  return WORDS[state] ?? { word: state };
+}
 
 export function Input(props: {
   value: string;
@@ -235,13 +251,15 @@ export function TaskVerbs({
     />
   );
   const foryou = running && isPerson(t.to, me);
+  const stateWord = taskStateWord(t.state, foryou, t.blockers.length > 0);
   const pills = (
     <View style={{ gap: space.sm }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
         <Pill
           testID="status-menu"
           on={menu === 'status'}
-          label={`${foryou ? 'Needs you' : t.state} ▾`}
+          icon={stateWord.icon}
+          label={`${stateWord.word} ⌄`}
           onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))}
         />
         {later}

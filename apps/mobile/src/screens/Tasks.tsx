@@ -53,7 +53,11 @@ const SCOPES: [Scope, string][] = [
 const PRIORITY = { 1: 'P1', 2: 'P2', 3: 'P3' } as const;
 
 export function Tasks(props: { selected: number | null; onSelect: (id: number | null) => void }) {
-  return props.selected != null ? <Detail id={props.selected} onBack={() => props.onSelect(null)} /> : <List onSelect={props.onSelect} />;
+  return props.selected != null ? (
+    <Detail id={props.selected} onBack={() => props.onSelect(null)} onOpen={props.onSelect} />
+  ) : (
+    <List onSelect={props.onSelect} />
+  );
 }
 
 function List(props: { onSelect: (id: number) => void }) {
@@ -267,7 +271,7 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
   );
 }
 
-export function Detail(props: { id: number; onBack: () => void; backLabel?: string }) {
+export function Detail(props: { id: number; onBack: () => void; backLabel?: string; onOpen?: (id: number) => void }) {
   const query = useTask(props.id);
   const { served } = useServes('task.get');
   const gone = query.isError && classify(query.error).kind === 'not_found';
@@ -285,7 +289,11 @@ export function Detail(props: { id: number; onBack: () => void; backLabel?: stri
           empty="This task no longer exists."
         >
           {query.data ? (
-            <Body t={query.data} back={{ label: props.backLabel ?? 'Tasks', onPress: props.onBack, testID: 'task-back' }} />
+            <Body
+              t={query.data}
+              onOpen={props.onOpen}
+              back={{ label: props.backLabel ?? 'Tasks', onPress: props.onBack, testID: 'task-back' }}
+            />
           ) : null}
         </Loadable>
       )}
@@ -299,7 +307,15 @@ function deliverySummary(ds: TaskDetail['deliveries']): string {
   return `${ds.length > 1 ? `${ds.length} deliveries, last: ` : ''}${ago(d.at)} · ${d.how} · ${d.outcome}`;
 }
 
-function Body({ t, back }: { t: TaskDetail; back: { label: string; onPress: () => void; testID: string } }) {
+function Body({
+  t,
+  back,
+  onOpen,
+}: {
+  t: TaskDetail;
+  onOpen?: (id: number) => void;
+  back: { label: string; onPress: () => void; testID: string };
+}) {
   const c = usePalette();
   const now = Date.now();
   const sending = useTaskPending(t.id);
@@ -323,10 +339,10 @@ function Body({ t, back }: { t: TaskDetail; back: { label: string; onPress: () =
           >
             <TaskLine t={t} canAssign={!CLOSED.includes(t.state) && !isGate(t)} onAssign={assign} />
             <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>{t.title}</Text>
-            <BlocksLine id={t.id} />
+            <BlocksLine id={t.id} onOpen={onOpen} />
             {t.body ? <PrBody id={`task-${t.id}`} agent={t.to} body={t.body} /> : null}
             {pills}
-            <TaskTimeLine id={t.id} left={due?.text} over={due?.over} />
+            <TaskTimeLine id={t.id} left={due?.text} over={due?.over} running={t.state === 'doing'} />
             {watch && (
               <Text testID="task-watch" style={{ color: c.muted }}>
                 Watches{' '}

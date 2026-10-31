@@ -36,7 +36,27 @@ export const SEEDS: Record<string, Seed> = {
 
   /** An open task given to the person, with its card in the architect's chat: the card then offers Open and Done. */
   'task-card': (d) => {
-    d.tasks.seed({ id: 1695, from: ARCH, to: ME, title: 'Confirm the chat plan', state: 'doing' });
+    const at = Date.now();
+    const iso = (min: number) => new Date(at + min * 60_000).toISOString();
+    d.tasks.seed({
+      id: 1695,
+      from: ARCH,
+      to: ME,
+      title: 'Confirm the chat plan',
+      body: 'The plan has three steps: the chat first, then the task page, then Usage.\n\nSay if the order should change.',
+      state: 'doing',
+      priority: 2,
+      time_box: '1h',
+      clock: { length_s: 3600, default: false, start: iso(-18), end: iso(42), overdue_since: null, told: 0, left_s: 2520 },
+      segments: [
+        { kind: 'queued', on: null, text: 'queued', task: null, from: iso(-20), to: iso(-18), seconds: 120 },
+        { kind: 'working', on: null, text: '', task: null, from: iso(-18), to: iso(0), seconds: 1080 },
+      ],
+      memos: [
+        { id: 9501, task: 1695, author: ARCH, at: iso(-12), text: 'The chat plan is ready to read.' },
+        { id: 9502, task: 1695, author: ME, at: iso(-9), text: 'Reading it now.' },
+      ],
+    });
     d.chat.seedItem(ARCH, {
       at: new Date().toISOString(),
       kind: 'task_event',
