@@ -208,11 +208,19 @@ function useRemote(remote: Remote): void {
 }
 
 /** An installed app's daemon service, run from its own bundle. */
-const serviceOf = (handlined: string) => ({ ensure: () => ensureService(handlined), stop: () => stopService(handlined) });
+const serviceOf = (handlined: string) => ({
+  ensure: async () => ensureService(handlined, await gatewayFlags()),
+  stop: () => stopService(handlined),
+});
+
+/** The address the gateway listens on and the name a phone is given for it, which `service ensure` passes to the gateway job. */
+async function gatewayFlags(): Promise<{ listen: string; advertise: string | null } | undefined> {
+  return gateway ? { listen: gateway, advertise: onTailnet(gateway) ? await advertised(gateway) : null } : undefined;
+}
 
 /** What `service ensure` did, as a failure when the daemon is not on this app's version (`kept` is the old one back). */
 async function ensure(handlined: string): Promise<void> {
-  const r = await ensureService(handlined);
+  const r = await ensureService(handlined, await gatewayFlags());
   if (r.state === 'failed' || r.state === 'kept') throw new Error(r.reason);
 }
 

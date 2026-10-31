@@ -45,9 +45,14 @@ export const run: Run = (exe, args) =>
     });
   });
 
-/** `handlined service ensure` from the app's own bundle. */
-export async function ensureService(handlined: string, exec: Run = run): Promise<Ensured> {
-  const r = await exec(handlined, ['service', 'ensure']);
+/** `handlined service ensure` from the app's own bundle; with `gateway` the service also runs the gateway on that address (and name) and waits for it. */
+export async function ensureService(
+  handlined: string,
+  gateway?: { listen: string; advertise: string | null },
+  exec: Run = run,
+): Promise<Ensured> {
+  const flags = gateway ? ['--listen', gateway.listen, ...(gateway.advertise ? ['--advertise', gateway.advertise] : [])] : [];
+  const r = await exec(handlined, ['service', 'ensure', ...flags]);
   return r.error ? { state: 'failed', version: '', reason: r.error } : parseEnsure(r.out);
 }
 

@@ -16,14 +16,25 @@ test('the ensure line is read; a line that is not ours is a failure that quotes 
 
 test('ensure runs the carried handlined; a command that printed nothing and failed is a failure with its message', async () => {
   const seen: string[][] = [];
-  const ok = await ensureService('/App/bin/handlined', async (exe, args) => {
+  const ok = await ensureService('/App/bin/handlined', undefined, async (exe, args) => {
     seen.push([exe, ...args]);
     return { out: '{"state":"started","version":"v2","reason":"the job was not loaded"}\n' };
   });
   assert.deepEqual(seen, [['/App/bin/handlined', 'service', 'ensure']]);
   assert.equal(ok.state, 'started');
-  const bad = await ensureService('/x', async () => ({ out: '', error: 'spawn ENOENT' }));
+  const bad = await ensureService('/x', undefined, async () => ({ out: '', error: 'spawn ENOENT' }));
   assert.deepEqual(bad, { state: 'failed', version: '', reason: 'spawn ENOENT' });
+});
+
+test('ensure passes the gateway address and, when there is one, its name', async () => {
+  const seen: string[][] = [];
+  const run = async (_e: string, args: string[]) => (seen.push(args), { out: '{"state":"started","version":"v2","reason":""}' });
+  await ensureService('/x', { listen: '100.1.2.3:7443', advertise: 'mac.ts.net:7443' }, run);
+  await ensureService('/x', { listen: '127.0.0.1:7443', advertise: null }, run);
+  assert.deepEqual(seen, [
+    ['service', 'ensure', '--listen', '100.1.2.3:7443', '--advertise', 'mac.ts.net:7443'],
+    ['service', 'ensure', '--listen', '127.0.0.1:7443'],
+  ]);
 });
 
 test('stop runs service stop and throws the reason when it fails', async () => {
