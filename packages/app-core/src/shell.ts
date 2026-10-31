@@ -177,6 +177,11 @@ export function routeOfTarget(target: { screen: string; id: string } | null): st
   // Pages with no id: the tray's Inbox and Settings lines.
   if (target?.screen === 'inbox') return '#/my-turn';
   if (target?.screen === 'settings') return '#/settings';
+  // The application menu's Go entries.
+  if (target?.screen === 'team') return '#/team';
+  if (target?.screen === 'requests') return '#/requests';
+  if (target?.screen === 'tasks' && !target.id) return '#/tasks';
+  if (target?.screen === 'stats') return '#/stats';
   if (!target || !target.id || target.id === 'None') return null;
   const id = encodeURIComponent(target.id);
   switch (target.screen) {

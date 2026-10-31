@@ -26,3 +26,11 @@ test('the shell forwards every limit the status bar resource area writes', () =>
   for (const key of [...Object.keys(DEFAULT_LIMITS), 'keep_awake', 'host_active_cap'])
     assert.ok((PAGE_SETTINGS as readonly string[]).includes(key), key);
 });
+
+test("the application menu's Go entries land on their pages", () => {
+  const at = (screen: string) => routeOfTarget({ screen, id: '' });
+  assert.equal(at('team'), '#/team');
+  assert.equal(at('requests'), '#/requests');
+  assert.equal(at('tasks'), '#/tasks');
+  assert.equal(at('stats'), '#/stats');
+});

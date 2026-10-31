@@ -9,7 +9,7 @@
   "main": "dist/main.cjs",
   "scripts": {
     "build": "node build.ts",
-    "start": "node build.ts && electron .",
+    "start": "node build.ts && node launch.ts",
     "watch": "node watch.ts",
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
     "lint": "eslint .",
