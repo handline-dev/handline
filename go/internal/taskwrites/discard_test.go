@@ -148,7 +148,7 @@ func TestTheFoundersDiscardMovesChildrenUpAndDropsItsOwnWaits(t *testing.T) {
 	}
 }
 
-func TestADiscardedChildIsToldToItsParentsOwnerOnce(t *testing.T) {
+func TestADiscardedChildUnblocksItsParentsOwnerWithoutAResultNotice(t *testing.T) {
 	db, mk := discardEnv(t)
 	exec(t, db,
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(20, 'parent', 'worker', 'manager', 1), (21, 'kid', 'other', 'other', 1)",
@@ -157,19 +157,10 @@ func TestADiscardedChildIsToldToItsParentsOwnerOnce(t *testing.T) {
 	if r := call(t, mk("other"), discardLine(2, 21, "not needed", "o1")); r[0]["result"] == nil {
 		t.Fatalf("%v", r[0])
 	}
-	if count(t, db, "SELECT COUNT(*) FROM requests WHERE target = 'worker' AND body = 'T21 discarded by other: not needed'") != 1 || // local-ref-ok
+	if count(t, db, "SELECT COUNT(*) FROM requests WHERE target = 'worker' AND body = 'T21 discarded by other: not needed'") != 0 || // local-ref-ok
 		count(t, db, "SELECT COUNT(*) FROM requests WHERE target = 'worker' AND body LIKE 'task T20 is unblocked - T21%'") != 1 || // local-ref-ok
-		count(t, db, "SELECT COUNT(*) FROM task_requests WHERE task_id = 20") != 2 {
-		t.Fatal("the parent's owner hears the result and that the task is unblocked")
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	parent, _ := getTask(tx, 20)
-	if n, err := childResultNotice(tx, parent, "other", 21); err != nil || n != nil {
-		t.Fatalf("the result is told once: %v %v", n, err)
+		count(t, db, "SELECT COUNT(*) FROM task_requests WHERE task_id = 20") != 1 {
+		t.Fatal("the parent's owner hears that the task is unblocked, and the child's discard is not told on its own")
 	}
 }
 

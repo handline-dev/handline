@@ -136,6 +136,9 @@ func (n *Notifications) Scan(q *sql.DB, emit Emit) error {
 				if err != nil {
 					return err
 				}
+				if data["reporter"] != "human" {
+					continue // the founder hears of the tasks they answer for, and no others
+				}
 				if _, err := emit(stream.Entry{Topic: "notifications", Type: "task_done", Data: data, Agent: e.agent,
 					Title: "task " + id + " done", Target: map[string]any{"screen": "task", "id": id}}); err != nil {
 					return err

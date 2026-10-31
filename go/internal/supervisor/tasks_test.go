@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -212,7 +211,7 @@ func TestADiscardedBlockerReleasesWhatItBlockedOnce(t *testing.T) {
 	}
 }
 
-func TestADoneBlockerReleasesOncePerFinishAndAChildTellsItsParentsOwner(t *testing.T) {
+func TestADoneBlockerReleasesOncePerFinishAndAChildsResultIsNotTold(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	parent := r.newTask("bob", "alice", "parent")
@@ -226,14 +225,10 @@ func TestADoneBlockerReleasesOncePerFinishAndAChildTellsItsParentsOwner(t *testi
 	}
 	var results int
 	r.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'child_result_told'").Scan(&results)
-	if results != 1 {
-		t.Fatalf("the child's result is told to the parent's owner: %d", results)
+	if results != 0 || strings.Contains(strings.Join(r.term.typed, "\n"), "done by alice") {
+		t.Fatalf("a child's result that did not fail is not told to the parent's owner: %d %q", results, r.term.typed)
 	}
-	// the result is never typed on its own: it rides on bob's next delivery, which the freed owner's advance made at once
 	typed := strings.Join(r.term.typed, "\n")
-	if !strings.Contains(typed, "Also: T2 done by alice: built it") {
-		t.Fatalf("%q", r.term.typed)
-	}
 	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 0 {
 		t.Fatalf("a shown notice stays pending: %+v", left)
 	}
@@ -312,23 +307,23 @@ func TestTheUnblockIsStillTypedWhenTheAdvanceSendsSomethingElseOrNothing(t *test
 	}
 }
 
-func TestMemoAssigneeIsToldWhateverTheTaskStateAndNotTheAuthor(t *testing.T) {
+func TestAMemoWithNoAtTellsTheAssigneeNothingWhateverTheTaskState(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	tid := r.newTask("bob", "alice", "job")
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 || left[0].Body != "T1 memo added by alice: check the cache" {
-		t.Fatalf("the assignee of a task not yet doing waits for the memo in its digest: %q %v", r.term.typed, left)
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 0 {
+		t.Fatalf("the assignee of a task not yet doing is told of a memo with no @: %q %v", r.term.typed, left)
 	}
-	r.AdvanceCurrentTask(r.DB, "bob") // the task goes out with the held memo
+	r.AdvanceCurrentTask(r.DB, "bob")
 	r.term.typed = nil
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 {
-		t.Fatalf("a memo with no @ waits in the doing assignee's digest: %q %v", r.term.typed, left)
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 0 {
+		t.Fatalf("a memo with no @ reaches the doing assignee: %q %v", r.term.typed, left)
 	}
-	r.must(r.TellMemo(r.DB, tid, "bob", "added", "mine", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 {
-		t.Fatal("told the assignee of its own memo")
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "@bob look", "", false))
+	if says := r.saysTo("bob"); len(says) != 1 {
+		t.Fatalf("the agent named with @ was not told: %q", says)
 	}
 }
 
@@ -428,8 +423,8 @@ func (r *rig) saysTo(agent string) []string {
 }
 
 // The stall this guards against: the holder of a task asked, in a memo on it, an agent with no part in the task to discard a duplicate, and
-// nobody was told. The opener, the assignee and anyone named with @ are told; the writer is not.
-func TestAMemoReachesTheOpenerAndTheAgentsItNamesWhateverTheTaskState(t *testing.T) {
+// nobody was told. Anyone named with @ is told; the writer, the opener and the assignee are not.
+func TestAMemoReachesTheAgentsItNamesWhateverTheTaskState(t *testing.T) {
 	r := newRig(t)
 	r.register("carol", "dave")
 	r.agentUp("bob")
@@ -438,41 +433,14 @@ func TestAMemoReachesTheOpenerAndTheAgentsItNamesWhateverTheTaskState(t *testing
 	if says := r.saysTo("carol"); len(says) != 1 || !strings.Contains(says[0], "T1 memo added by bob: @carol please discard T2") {
 		t.Fatalf("the agent named was not told: %q", says)
 	}
-	if says := r.saysTo("alice"); len(says) != 1 {
-		t.Fatalf("the opener was not told: %q", says)
-	}
-	for _, a := range []string{"bob", "dave", "nobody", db.Human} {
+	for _, a := range []string{"alice", "bob", "dave", "nobody", db.Human} {
 		if says := r.saysTo(a); len(says) != 0 {
 			t.Fatalf("%s was told: %q", a, says)
 		}
 	}
 	r.must(r.TellMemo(r.DB, tid, "alice", "edited", "@alice @carol mind the cache", "", false))
-	if len(r.saysTo("alice")) != 1 || len(r.saysTo("carol")) != 2 || len(r.saysTo("bob")) != 1 {
-		t.Fatalf("the writer was told, or the agent named or the assignee of a task not doing was not: %q %q %q", r.saysTo("alice"), r.saysTo("carol"), r.saysTo("bob"))
-	}
-}
-
-// A memo to a reader mid-turn waits for the end of its turn, past the result digest's window, and every memo held for it then goes out as
-// one message naming each task.
-func TestAMemoWaitsForTheEndOfTheReadersTurnAndGoesOutWithTheOthersHeld(t *testing.T) {
-	r := newRig(t)
-	r.register("carol")
-	r.agentUp("carol")
-	r.must(db.SetAgentState(r.DB, "carol", states.Running, 0, ""))
-	one, two := r.newTask("bob", "carol", "one"), r.newTask("bob", "carol", "two")
-	r.must(r.TellMemo(r.DB, one, "alice", "added", "first", "", false))
-	r.must(r.TellMemo(r.DB, two, "alice", "edited", "second", "", false))
-	r.must(r.SweepNotices(r.clock + 2*900))
-	if len(r.term.typed) != 0 {
-		t.Fatalf("a reader mid-turn was told: %q", r.term.typed)
-	}
-	r.must(db.SetAgentState(r.DB, "carol", states.Idle, 0, ""))
-	r.must(r.SweepNotices(r.clock + 2*900))
-	if len(r.term.typed) != 1 || !strings.Contains(r.term.last(), "T1 memo added by alice: first") || !strings.Contains(r.term.last(), "T2 memo edited by alice: second") {
-		t.Fatalf("the held memos were not told as one message at the turn's end: %q", r.term.typed)
-	}
-	if left, _ := db.PendingNotices(r.DB, "carol"); len(left) != 0 {
-		t.Fatal("told memos stay held")
+	if len(r.saysTo("alice")) != 0 || len(r.saysTo("carol")) != 2 || len(r.saysTo("bob")) != 0 {
+		t.Fatalf("the writer or the assignee was told, or the agent named was not: %q %q %q", r.saysTo("alice"), r.saysTo("carol"), r.saysTo("bob"))
 	}
 }
 
@@ -490,15 +458,12 @@ func TestAMemoIsToldAtOnceOnlyToWhomItIsAimedAt(t *testing.T) {
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "plain", "", false))
 	carol, _ := db.PendingNotices(r.DB, "carol")
 	bob, _ := db.PendingNotices(r.DB, "bob")
-	if len(r.term.typed) != 0 || len(carol) != 1 || len(bob) != 1 {
-		t.Fatalf("a memo with no @ is typed to no one and waits in each reader's digest: %q %d %d", r.term.typed, len(carol), len(bob))
+	if len(r.term.typed) != 0 || len(carol) != 0 || len(bob) != 0 {
+		t.Fatalf("a memo with no @ is told to no one: %q %d %d", r.term.typed, len(carol), len(bob))
 	}
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "@carol look", "", false))
 	if len(r.term.typed) != 1 || !strings.Contains(r.term.last(), "T1 memo added by alice: @carol look") {
 		t.Fatalf("the reader named with @ was not told at once: %q", r.term.typed)
-	}
-	if bob, _ := db.PendingNotices(r.DB, "bob"); len(bob) != 2 {
-		t.Fatalf("the reader not named waits: %d", len(bob))
 	}
 	r.term.typed = nil
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "said", "bob", false))
@@ -509,39 +474,6 @@ func TestAMemoIsToldAtOnceOnlyToWhomItIsAimedAt(t *testing.T) {
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "urgent", "", true))
 	if len(r.term.typed) != 2 {
 		t.Fatalf("a memo sent now was not told at once to both readers: %q", r.term.typed)
-	}
-}
-
-// A held memo still unread an hour on is told to the reader's lead, once, and stays held for the reader.
-func TestAHeldMemoUnreadForAnHourIsToldToTheReadersLeadOnce(t *testing.T) {
-	r := newRig(t)
-	r.register("carol")
-	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "teams:\n", "teams:\n  bob: [bob, carol]\n", 1)), 0o644))
-	r.agentUp("bob")
-	r.agentUp("carol")
-	r.must(db.SetAgentState(r.DB, "carol", states.Running, 0, ""))
-	tid := r.newTask("alice", "carol", "job")
-	r.must(r.TellMemo(r.DB, tid, "alice", "added", "please look", "", false))
-	r.must(r.SweepNotices(r.clock + MemoLeadS - 1))
-	if len(r.term.typed) != 0 {
-		t.Fatalf("told before the hour: %q", r.term.typed)
-	}
-	r.must(r.SweepNotices(r.clock + MemoLeadS))
-	lead, _ := db.PendingNotices(r.DB, "bob")
-	if len(lead) != 1 || !strings.Contains(lead[0].Body, "carol has not read this memo in an hour") || !strings.Contains(lead[0].Body, "T1 memo added by alice: please look") {
-		t.Fatalf("the lead has no notice of it: %v", lead)
-	}
-	if len(r.term.typed) != 0 {
-		t.Fatalf("the lead's notice is typed at once: %q", r.term.typed)
-	}
-	r.must(r.SweepNotices(r.clock + 2*MemoLeadS))
-	var told int
-	r.must(r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'bob' AND body LIKE 'carol has not read this memo%'").Scan(&told))
-	if told != 1 {
-		t.Fatalf("the lead was told %d times", told)
-	}
-	if left, _ := db.PendingNotices(r.DB, "carol"); len(left) != 1 {
-		t.Fatal("the memo is no longer held for its reader")
 	}
 }
 
@@ -660,7 +592,7 @@ func TestAMemoNoticeToTheNewOwnerDoesNotCountAsTheTaskDelivered(t *testing.T) {
 
 // The founder's comment on a task they hold is an answer someone waits for: it is typed at once to the task's owner and its assignee, not held
 // for a digest as an agent's memo is (T6340, T6370).
-func TestTheFoundersMemoReachesTheTaskOwnerAtOnceWhileAnAgentsMemoDigests(t *testing.T) {
+func TestTheFoundersMemoReachesTheTaskOwnerAtOnceWhileAnAgentsMemoWithNoAtIsNotTold(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	r.agentUp("alice")
@@ -677,8 +609,8 @@ func TestTheFoundersMemoReachesTheTaskOwnerAtOnceWhileAnAgentsMemoDigests(t *tes
 	if len(r.term.typed) != typed {
 		t.Fatalf("an agent's memo was typed at once: %q", r.term.typed)
 	}
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 1 {
-		t.Fatalf("an agent's memo no longer digests: %v", left)
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 0 {
+		t.Fatalf("an agent's memo with no @ was held for a digest: %v", left)
 	}
 }
 
@@ -690,25 +622,14 @@ func TestAMemoKeepsTheTellItSentToEachReader(t *testing.T) {
 	r.agentUp("bob")
 	tid := r.newTask("bob", "carol", "job")
 	r.AdvanceCurrentTask(r.DB, "bob")
-	r.must(r.TellMemoOf(r.DB, tid, 7, "dave", "added", "plain", "", false))
 	r.must(r.TellMemoOf(r.DB, tid, 8, "dave", "added", "@bob look", "", false))
 	count := func(mid int64) int {
 		var n int
 		r.must(r.DB.QueryRow("SELECT COUNT(*) FROM memo_tells WHERE memo_id = ?", mid).Scan(&n))
 		return n
 	}
-	if count(7) == 0 || count(8) == 0 {
-		t.Fatalf("a held tell and a typed tell are both kept: %d %d", count(7), count(8))
-	}
-	var held int64
-	r.must(r.DB.QueryRow("SELECT request_id FROM memo_tells WHERE memo_id = 7 AND reader = 'carol'").Scan(&held))
-	r.MemoTellSent(held)
-	var sent sql.NullInt64
-	var digests int
-	r.must(r.DB.QueryRow("SELECT delivered_at FROM requests WHERE id = ?", held).Scan(&sent))
-	r.must(r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'carol' AND body LIKE ?", db.DigestHead+"%").Scan(&digests))
-	if !sent.Valid || digests != 1 {
-		t.Fatalf("send now writes a digest of the held tell and marks it sent: %v %d", sent, digests)
+	if count(8) == 0 {
+		t.Fatalf("a typed tell is kept: %d", count(8))
 	}
 	r.must(r.TellMemoOf(r.DB, tid, 0, "dave", "added", "unlinked", "", false))
 	var n int

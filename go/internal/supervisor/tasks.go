@@ -230,8 +230,10 @@ func (e *Env) childResultNotice(q db.Q, dep *db.Task, by string, tid int64) *db.
 		return nil
 	}
 	text = strings.TrimRight(text, ": ")
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: dep.Owner, Body: text, Kind: "say",
-		Notice: delivery.ClassOf(delivery.Result, false, delivery.Failed(child.DoneEvidence.String)) == delivery.ClassBatch}))
+	if delivery.ClassOf(delivery.Result, false, delivery.Failed(child.DoneEvidence.String)) != delivery.ClassNow {
+		return nil // a child's result that did not fail is on the parent's board, not in its owner's inbox
+	}
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: dep.Owner, Body: text, Kind: "say"}))
 	check(db.LinkRequest(q, dep.ID, rid))
 	must(db.AddEvent(q, by, "child_result_told", db.KV{K: "task_id", V: dep.ID}, db.KV{K: "child", V: tid}, db.KV{K: "request_id", V: rid}))
 	return &db.Notice{RID: rid, To: dep.Owner, Text: text}
@@ -434,15 +436,11 @@ func (e *Env) TellMemoOf(q db.Q, tid, mid int64, by, what, text, to string, now 
 	body := memoLine(tid, what, by, text)
 	named := e.mentioned(text)
 	for _, a := range e.memoReaders(row, by, named) {
-		if delivery.ClassOf(delivery.Memo, now || by == db.Human || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
-			rid := e.typeSay(q, a, body, "task memo")
-			e.linkMemoTell(q, mid, a, rid)
-		} else {
-			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Kind: "say", Memo: true}))
-			check(db.LinkRequest(q, tid, rid))
-			e.linkMemoTell(q, mid, a, rid)
-			e.log("  %s: T%d memo held for its next digest (request %d)", a, tid, rid)
+		if delivery.ClassOf(delivery.Memo, now || by == db.Human || a == to || slices.Contains(named, a), false) != delivery.ClassNow {
+			continue // a memo nobody asked this reader to act on is on the board, not in its inbox
 		}
+		rid := e.typeSay(q, a, body, "task memo")
+		e.linkMemoTell(q, mid, a, rid)
 	}
 	return nil
 }

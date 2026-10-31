@@ -374,7 +374,10 @@ func childResultNotice(tx *sql.Tx, dep *task, by string, child int64) (*told, er
 		return nil, nil
 	}
 	text = strings.TrimRight(text, ": ")
-	rid, err := addSay(tx, noticeFrom, dep.Owner, text, delivery.ClassOf(delivery.Result, false, delivery.Failed(evidence.String)) == delivery.ClassBatch)
+	if delivery.ClassOf(delivery.Result, false, delivery.Failed(evidence.String)) != delivery.ClassNow {
+		return nil, nil // a child's result that did not fail is on the parent's board, not in its owner's inbox
+	}
+	rid, err := addSay(tx, noticeFrom, dep.Owner, text, false)
 	if err != nil {
 		return nil, err
 	}
