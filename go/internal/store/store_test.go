@@ -25,6 +25,11 @@ func TestFreshDatabaseIsSetUpWhole(t *testing.T) {
 	if mode != "wal" {
 		t.Fatalf("journal_mode %q", mode)
 	}
+	var cache int
+	db.QueryRow("PRAGMA cache_size").Scan(&cache)
+	if cache != -cacheKiB {
+		t.Fatalf("cache_size %d, want %d", cache, -cacheKiB)
+	}
 	var busy, fk int
 	db.QueryRow("PRAGMA busy_timeout").Scan(&busy)
 	db.QueryRow("PRAGMA foreign_keys").Scan(&fk)
@@ -456,5 +461,25 @@ func TestADatabaseAtStepTwentyTwoGetsTheFounderAuthColumn(t *testing.T) {
 	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('requests') WHERE name = 'founder_auth'").Scan(&n)
 	if n != 1 {
 		t.Fatal("step 23 did not add requests.founder_auth")
+	}
+}
+
+// A gateway's connections get the same page cache as the daemon's.
+func TestOpenSharedSetsThePageCache(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db.sqlite")
+	owner, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	db, err := OpenShared(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var cache int
+	db.QueryRow("PRAGMA cache_size").Scan(&cache)
+	if cache != -cacheKiB {
+		t.Fatalf("cache_size %d, want %d", cache, -cacheKiB)
 	}
 }
